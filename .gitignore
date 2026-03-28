@@ -4,6 +4,9 @@
 # All site-specific values belong in config.env (not config.example.env).
 # =============================================================================
 
+# Cruft staging area (temporary holding directory, not tracked)
+cruft/
+
 # Source brainstorm / working notes (not part of the public repo)
 .bg-shell/
 .github/prompts/
