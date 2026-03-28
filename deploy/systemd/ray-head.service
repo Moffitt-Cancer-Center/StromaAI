@@ -17,7 +17,9 @@ EnvironmentFile=/opt/ai-flux/config.env
 # Ray head starts with --num-cpus=0 --num-gpus=0 so the Proxmox VM
 # (which has no GPU) does not accidentally attract inference work.
 # Workers join separately via Slurm sbatch.
-ExecStart=/usr/local/bin/ray start \
+#
+# Binaries are installed by install.sh into /opt/ai-flux/venv.
+ExecStart=/opt/ai-flux/venv/bin/ray start \
     --head \
     --port=${AI_FLUX_RAY_PORT} \
     --dashboard-port=${AI_FLUX_RAY_DASHBOARD_PORT} \
@@ -26,7 +28,7 @@ ExecStart=/usr/local/bin/ray start \
     --num-gpus=0 \
     --block
 
-ExecStop=/usr/local/bin/ray stop
+ExecStop=/opt/ai-flux/venv/bin/ray stop
 
 Restart=on-failure
 RestartSec=15s

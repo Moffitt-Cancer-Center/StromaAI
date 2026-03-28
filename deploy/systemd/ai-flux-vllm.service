@@ -44,7 +44,8 @@ Environment=TRANSFORMERS_OFFLINE=1
 #   --trust-remote-code         — required by AWQ model tokenizer; review any
 #                                 model update against the upstream repo
 # ---------------------------------------------------------------------------
-ExecStart=/usr/local/bin/vllm serve \
+# Binaries are installed by install.sh into /opt/ai-flux/venv.
+ExecStart=/opt/ai-flux/venv/bin/vllm serve \
     ${AI_FLUX_MODEL_PATH} \
     --served-model-name ${AI_FLUX_MODEL_NAME} \
     --quantization awq \

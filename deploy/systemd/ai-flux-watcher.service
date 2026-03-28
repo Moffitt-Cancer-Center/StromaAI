@@ -14,7 +14,8 @@ WorkingDirectory=/opt/ai-flux
 # Sources all AI_FLUX_* environment variables.
 EnvironmentFile=/opt/ai-flux/config.env
 
-ExecStart=/usr/local/bin/python3 /opt/ai-flux/vllm_watcher.py
+# Python is installed by install.sh into /opt/ai-flux/venv.
+ExecStart=/opt/ai-flux/venv/bin/python3 /opt/ai-flux/src/vllm_watcher.py
 
 # Restart=always — the Watcher should always be running; failures are
 # usually transient (Slurm CLI timeout, Ray connection flap).
