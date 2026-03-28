@@ -7,6 +7,9 @@
 # Cruft staging area (temporary holding directory, not tracked)
 cruft/
 
+# Reusable project template (move to its own repo when ready)
+dev_template/
+
 # Source brainstorm / working notes (not part of the public repo)
 .bg-shell/
 .github/prompts/
