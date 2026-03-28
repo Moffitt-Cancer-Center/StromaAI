@@ -32,13 +32,13 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
-#SBATCH --cpus-per-task=64
-#SBATCH --mem=900G
 #SBATCH --exclusive
 #SBATCH --output=/shared/logs/ai-flux/slurm-%j.out
 #SBATCH --error=/shared/logs/ai-flux/slurm-%j.err
-# NOTE: --partition, --account, and --time are passed by the Watcher at
-# submit time via sbatch CLI flags. Do NOT set them here to avoid conflicts.
+# NOTE: --partition, --account, --time, --cpus-per-task, and --mem are all
+# passed by the Watcher at submit time via sbatch CLI flags. Do NOT set them
+# here to avoid conflicts. Tune AI_FLUX_SLURM_CPUS and AI_FLUX_SLURM_MEM
+# in config.env to match your worker node hardware.
 
 set -euo pipefail
 
@@ -110,7 +110,24 @@ echo "============================"
 # ---------------------------------------------------------------------------
 NODE_MEMORY_BYTES=$(( (SLURM_MEM_PER_NODE > 0 ? SLURM_MEM_PER_NODE : 900*1024) * 1024 * 1024 ))
 
-exec "${CONTAINER_CMD}" exec \
+# ---------------------------------------------------------------------------
+# Optional NUMA binding
+# Bind the worker process to the NUMA node closest to the GPU for better
+# PCIe bandwidth and CPU cache utilization on multi-socket nodes.
+# Set AI_FLUX_NUMA_BIND in config.env (e.g., 0). Leave unset to skip.
+# Requires numactl to be installed on the compute node.
+# ---------------------------------------------------------------------------
+NUMACTL_OPTS=()
+if [[ -n "${AI_FLUX_NUMA_BIND:-}" ]]; then
+    if command -v numactl &>/dev/null; then
+        NUMACTL_OPTS=(numactl --cpunodebind="${AI_FLUX_NUMA_BIND}" --membind="${AI_FLUX_NUMA_BIND}")
+        echo "NUMA: binding worker to node ${AI_FLUX_NUMA_BIND}"
+    else
+        echo "WARNING: AI_FLUX_NUMA_BIND=${AI_FLUX_NUMA_BIND} is set but numactl is not installed — skipping" >&2
+    fi
+fi
+
+exec ${NUMACTL_OPTS[@]:+"${NUMACTL_OPTS[@]}"} "${CONTAINER_CMD}" exec \
     ${GPU_FLAG} \
     --bind /shared:/shared \
     "${AI_FLUX_CONTAINER}" \

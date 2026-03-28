@@ -68,6 +68,9 @@ SLURM_PART    = os.environ.get("AI_FLUX_SLURM_PARTITION", "ai-flux-gpu")
 SLURM_ACCT    = os.environ.get("AI_FLUX_SLURM_ACCOUNT", "ai-flux-service")
 SLURM_SCRIPT  = os.environ.get("AI_FLUX_SLURM_SCRIPT", "/shared/slurm/ai_flux_worker.slurm")
 SLURM_TIME    = os.environ.get("AI_FLUX_SLURM_WALLTIME", "7-00:00:00")
+SLURM_CPUS    = os.environ.get("AI_FLUX_SLURM_CPUS", "64")
+SLURM_MEM     = os.environ.get("AI_FLUX_SLURM_MEM", "900G")
+VLLM_KV_THREADS = int(os.environ.get("AI_FLUX_VLLM_CPU_KV_THREADS", "32"))
 STATE_FILE    = os.environ.get("AI_FLUX_STATE_FILE", "/opt/ai-flux/watcher_state.json")
 
 VLLM_BASE     = f"http://{HEAD_HOST}:{VLLM_PORT}"
@@ -88,6 +91,44 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 log = logging.getLogger("ai-flux-watcher")
+
+
+# ---------------------------------------------------------------------------
+# Startup validation
+# ---------------------------------------------------------------------------
+
+def _validate_config() -> None:
+    """Fail fast on obvious misconfiguration before touching Slurm or Ray."""
+    errors: list[str] = []
+
+    if not API_KEY:
+        errors.append("AI_FLUX_API_KEY is not set")
+    elif API_KEY.upper().startswith("CHANGEME"):
+        errors.append(
+            "AI_FLUX_API_KEY is still the placeholder — generate with: openssl rand -hex 32"
+        )
+
+    if not re.match(r"^[a-zA-Z0-9._-]+$", HEAD_HOST):
+        errors.append(
+            f"AI_FLUX_HEAD_HOST={HEAD_HOST!r} contains invalid characters "
+            "(only letters, digits, dots, hyphens, underscores allowed)"
+        )
+
+    if MAX_BURST <= 0:
+        errors.append(f"AI_FLUX_MAX_BURST_WORKERS must be > 0 (got {MAX_BURST})")
+
+    if UP_THRESHOLD <= 0:
+        errors.append(f"AI_FLUX_SCALE_UP_THRESHOLD must be > 0 (got {UP_THRESHOLD})")
+
+    if not Path(SLURM_SCRIPT).exists():
+        errors.append(f"AI_FLUX_SLURM_SCRIPT not found: {SLURM_SCRIPT}")
+
+    if errors:
+        for msg in errors:
+            log.error("Config error: %s", msg)
+        sys.exit(1)
+
+    log.info("Config validated OK")
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +177,7 @@ def persist(state: WatcherState) -> None:
     tmp = STATE_FILE + ".tmp"
     Path(tmp).write_text(json.dumps(asdict(state), indent=2, default=str))
     os.replace(tmp, STATE_FILE)  # POSIX atomic rename
+    os.chmod(STATE_FILE, 0o600)   # restrict to owner; state contains job IDs
 
 
 # ---------------------------------------------------------------------------
@@ -200,8 +242,11 @@ def slurm_submit() -> Optional[str]:
         f"--partition={SLURM_PART}",
         f"--account={SLURM_ACCT}",
         f"--time={SLURM_TIME}",
-        # Pass connection params to the worker script via env vars
-        f"--export=ALL,AI_FLUX_HEAD_HOST={HEAD_HOST},AI_FLUX_RAY_PORT={RAY_PORT}",
+        f"--cpus-per-task={SLURM_CPUS}",
+        f"--mem={SLURM_MEM}",
+        # Pass connection params and per-worker tuning via env vars
+        f"--export=ALL,AI_FLUX_HEAD_HOST={HEAD_HOST},AI_FLUX_RAY_PORT={RAY_PORT}"
+        f",VLLM_CPU_KV_CACHE_THREADS={VLLM_KV_THREADS}",
         SLURM_SCRIPT,
     ]
     try:
@@ -489,6 +534,7 @@ def tick(state: WatcherState, known_ray_nodes: set[str]) -> set[str]:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    _validate_config()
     log.info(
         "AI_Flux Watcher starting — HEAD=%s RAY_PORT=%d VLLM_PORT=%d MAX_BURST=%d",
         HEAD_HOST, RAY_PORT, VLLM_PORT, MAX_BURST,

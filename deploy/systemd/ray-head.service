@@ -44,6 +44,12 @@ SyslogIdentifier=ai-flux-ray
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/opt/ai-flux /tmp
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 [Install]
 WantedBy=multi-user.target

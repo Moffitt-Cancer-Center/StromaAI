@@ -1,0 +1,36 @@
+# =============================================================================
+# AI_Flux — logrotate configuration
+# =============================================================================
+# Rotates Slurm burst worker output logs on shared storage.
+#
+# Install:
+#   cp deploy/logrotate/ai-flux /etc/logrotate.d/ai-flux
+#
+# Test (dry-run):
+#   logrotate --debug /etc/logrotate.d/ai-flux
+#
+# Note: AI_FLUX_LOG_DIR from config.env defaults to /shared/logs/ai-flux.
+# Update the paths below if your site uses a different log directory.
+# =============================================================================
+
+/shared/logs/ai-flux/*.out
+/shared/logs/ai-flux/*.err {
+    # Rotate daily; keep 30 days of history
+    daily
+    rotate 30
+
+    # Compress rotated files (delayed one cycle to allow ongoing writes)
+    compress
+    delaycompress
+
+    # Do nothing if the log file is empty or missing
+    missingok
+    notifempty
+
+    # Rotate by copying and zeroing — safe for Slurm jobs that may still
+    # be writing to their output file. Does not require signalling the writer.
+    copytruncate
+
+    # Run pre/postrotate scripts once even when multiple files match
+    sharedscripts
+}
