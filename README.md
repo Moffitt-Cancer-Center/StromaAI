@@ -53,6 +53,7 @@ Built and reference-deployed at **Moffitt Cancer Center HPC**.
 ## Quick start
 
 ### 1. Configure
+
 ```bash
 cp config/config.example.env /opt/ai-flux/config.env
 # Edit all CHANGEME values and site-specific settings
@@ -60,11 +61,13 @@ chmod 640 /opt/ai-flux/config.env
 ```
 
 ### 2. Build the container (on an internet-connected machine)
+
 ```bash
 apptainer build /shared/containers/ai-flux-vllm.sif deploy/containers/ai-flux-vllm.def
 ```
 
 ### 3. Deploy systemd services (on the Proxmox VM)
+
 ```bash
 useradd -r -s /sbin/nologin aiflux
 cp deploy/systemd/*.service /etc/systemd/system/
@@ -76,6 +79,7 @@ systemctl enable --now ai-flux-watcher
 ```
 
 ### 4. Configure nginx TLS
+
 ```bash
 apt-get install -y nginx
 # Create self-signed cert:
@@ -90,6 +94,7 @@ nginx -t && systemctl reload nginx
 ```
 
 ### 5. Configure Slurm partition and warm node
+
 ```bash
 # Create burst partition:
 scontrol create partition Name=ai-flux-gpu Nodes=node[001-070] MaxNodes=10 State=UP
@@ -106,6 +111,7 @@ scontrol create Reservation=ai-flux-warm \
 ```
 
 ### 6. Configure OOD integration
+
 ```bash
 cp deploy/ood/ai-flux.conf /etc/ood/ai-flux.conf
 chmod 640 /etc/ood/ai-flux.conf
@@ -114,6 +120,7 @@ chmod 640 /etc/ood/ai-flux.conf
 ```
 
 ### 7. Verify
+
 ```bash
 # API health:
 curl -k https://ai-flux.your-cluster.example/health
