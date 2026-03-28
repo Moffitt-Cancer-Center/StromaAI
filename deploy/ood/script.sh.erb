@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# =============================================================================
+# AI_Flux — Open OnDemand code-server Session Setup Script
+# =============================================================================
+# This file replaces (or extends) the script.sh.erb template in your site's
+# code-server OOD application. It runs inside the OOD batch job before
+# code-server starts, so it has access to the user's $HOME and can install
+# extensions and inject settings.
+#
+# Location in OOD app:
+#   <app_root>/template/script.sh.erb
+#
+# ERB syntax note: this script uses no ERB interpolation by design (values
+# come from the sourced ai-flux.conf, not OOD form variables). If your
+# existing script.sh.erb uses ERB variables like <%= ... %>, merge the
+# AI_Flux block below into the appropriate location in that file.
+#
+# Kilo Code settings.json key verification:
+#   If settings fail to apply, inspect the actual key names in the installed
+#   extension by running AFTER a manual install:
+#     cat ~/.local/share/code-server/extensions/kilocode.kilo-code-*/package.json \
+#       | python3 -c "import json,sys; d=json.load(sys.stdin); \
+#         [print(k) for k in d.get('contributes',{}).get('configuration',{}).get('properties',{}) \
+#         if 'provider' in k.lower() or 'baseurl' in k.lower() or 'apikey' in k.lower()]"
+#   Update the settings dict in the python3 heredoc below if keys differ.
+# =============================================================================
+
+set -euo pipefail
+
+# =============================================================================
+# Load AI_Flux OOD configuration
+# =============================================================================
+AI_FLUX_OOD_CONF="${AI_FLUX_OOD_CONF:-/etc/ood/ai-flux.conf}"
+
+if [[ -f "${AI_FLUX_OOD_CONF}" ]]; then
+    # shellcheck source=/dev/null
+    source "${AI_FLUX_OOD_CONF}"
+else
+    echo "WARNING: AI_Flux OOD config not found at ${AI_FLUX_OOD_CONF}" >&2
+    echo "         Kilo Code will not be auto-configured for this session." >&2
+fi
+
+# Defaults (safe fallback if sourcing failed)
+AI_FLUX_HEAD_HOST="${AI_FLUX_HEAD_HOST:-ai-flux.your-cluster.example}"
+AI_FLUX_HTTPS_PORT="${AI_FLUX_HTTPS_PORT:-443}"
+AI_FLUX_API_KEY="${AI_FLUX_API_KEY:-}"
+AI_FLUX_MODEL_NAME="${AI_FLUX_MODEL_NAME:-ai-flux-coder}"
+
+BASE_URL="https://${AI_FLUX_HEAD_HOST}:${AI_FLUX_HTTPS_PORT}/v1"
+
+# =============================================================================
+# Install Kilo Code extension (idempotent)
+# =============================================================================
+KILO_EXT_ID="kilocode.Kilo-Code"
+KILO_EXT_DIR="${HOME}/.local/share/code-server/extensions"
+
+if ! ls "${KILO_EXT_DIR}"/kilocode.kilo-code-* &>/dev/null 2>&1; then
+    echo "[ai-flux] Installing Kilo Code extension (${KILO_EXT_ID})..."
+    if code-server --install-extension "${KILO_EXT_ID}" 2>&1; then
+        echo "[ai-flux] Kilo Code installed successfully."
+    else
+        echo "[ai-flux] WARNING: Auto-install failed. User must install '${KILO_EXT_ID}' manually." >&2
+    fi
+else
+    echo "[ai-flux] Kilo Code extension already installed — skipping."
+fi
+
+# =============================================================================
+# Inject AI_Flux provider settings into code-server settings.json
+#
+# Only runs if the settings file does not already contain 'ai-flux' to avoid
+# clobbering per-user customizations on every session launch.
+# Remove the grep guard if you want settings forcibly reset each session.
+# =============================================================================
+SETTINGS_DIR="${HOME}/.local/share/code-server/User"
+SETTINGS_FILE="${SETTINGS_DIR}/settings.json"
+
+mkdir -p "${SETTINGS_DIR}"
+
+if ! grep -q "ai-flux" "${SETTINGS_FILE}" 2>/dev/null; then
+    echo "[ai-flux] Injecting AI_Flux provider settings into ${SETTINGS_FILE}..."
+
+    python3 - <<PYEOF
+import json
+import os
+import sys
+
+settings_path = "${SETTINGS_FILE}"
+base_url      = "${BASE_URL}"
+api_key       = "${AI_FLUX_API_KEY}"
+model_name    = "${AI_FLUX_MODEL_NAME}"
+
+# Load existing settings (tolerate missing file or empty JSON)
+try:
+    with open(settings_path) as fh:
+        settings = json.load(fh)
+except (FileNotFoundError, json.JSONDecodeError):
+    settings = {}
+
+# ---------------------------------------------------------------------------
+# Kilo Code provider settings
+# Key names sourced from kilocode.Kilo-Code package.json contributes.configuration
+# If keys are wrong, inspect: ~/.local/share/code-server/extensions/kilocode.kilo-code-*/package.json
+# ---------------------------------------------------------------------------
+settings.update({
+    "kilocode.defaultApiProvider": "openai",
+    "kilocode.openai.baseUrl":     base_url,
+    "kilocode.openai.apiKey":      api_key,
+    "kilocode.openai.model":       model_name,
+    # Mark this settings block so the guard above can detect it on re-entry
+    "kilocode.aiFluxManaged":      True,
+})
+
+# Atomic write via tmp file
+tmp_path = settings_path + ".tmp"
+with open(tmp_path, "w") as fh:
+    json.dump(settings, fh, indent=2)
+os.replace(tmp_path, settings_path)
+
+print(f"[ai-flux] Settings written to {settings_path}")
+print(f"[ai-flux] Provider: OpenAI-compatible @ {base_url}")
+print(f"[ai-flux] Model: {model_name}")
+PYEOF
+
+else
+    echo "[ai-flux] AI_Flux settings already present in ${SETTINGS_FILE} — skipping injection."
+fi
+
+# =============================================================================
+# Hand off to code-server
+# This block must match how your existing script.sh.erb launches code-server.
+# Typical OOD code-server setup:
+# =============================================================================
+# export VSCODE_PROXY_URI="..."   # set by OOD runtime
+# code-server --bind-addr 0.0.0.0:${PORT} --auth none "${WORKING_DIR}"

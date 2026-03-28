@@ -1,0 +1,51 @@
+# AI_Flux — .gitignore
+# =============================================================================
+# Never commit secrets or site-specific config to version control.
+# All site-specific values belong in config.env (not config.example.env).
+# =============================================================================
+
+# Source brainstorm / working notes (not part of the public repo)
+.bg-shell/
+.github/
+kilo_gsd.build
+kilo_update.patch
+
+# Local config files (contain secrets — never commit)
+config/config.env
+/opt/ai-flux/config.env
+/etc/ood/ai-flux.conf
+
+# Built Apptainer images (binary, large — store on shared storage instead)
+*.sif
+*.simg
+
+# Watcher runtime state (ephemeral — not part of repo)
+**/watcher_state.json
+**/watcher_state.json.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Editor and OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+*.orig
+
+# Node (if any web tooling is added later)
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# Certificates (site-specific)
+*.crt
+*.key
+*.pem

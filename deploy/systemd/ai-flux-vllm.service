@@ -1,0 +1,85 @@
+[Unit]
+Description=AI_Flux — vLLM Inference API Server
+Documentation=https://github.com/your-org/ai-flux
+After=network-online.target ray-head.service
+Wants=network-online.target
+Requires=ray-head.service
+
+[Service]
+Type=simple
+User=aiflux
+Group=aiflux
+WorkingDirectory=/opt/ai-flux
+
+# Sources all AI_FLUX_* environment variables.
+EnvironmentFile=/opt/ai-flux/config.env
+
+# vLLM CPU KV cache threads — set before vllm process starts.
+# Matches the value baked into the container %environment but can be
+# overridden here without rebuilding the image.
+Environment=VLLM_CPU_KV_CACHE_THREADS=${AI_FLUX_VLLM_CPU_KV_THREADS}
+
+# Air-gapped: prevent any HuggingFace Hub download attempts at runtime.
+Environment=HF_HUB_OFFLINE=1
+Environment=TRANSFORMERS_OFFLINE=1
+
+# ---------------------------------------------------------------------------
+# vLLM serve command
+#
+# Key flags and their rationale:
+#   --quantization awq          — model is AWQ-quantized (~18.5GB on L30 24GB)
+#   --tensor-parallel-size 1    — one GPU per node; scaling is data-parallel
+#   --worker-use-ray            — deploy as a Ray Serve application so Ray
+#                                 workers on Slurm nodes contribute capacity
+#   --block-size 32             — paged attention block size for L30
+#   --cpu-offload-gb 200        — overflow KV cache to 1TB RAM; critical for
+#                                 high concurrency with long contexts
+#   --kv-cache-dtype fp8        — L30 is Ada Lovelace (CC 8.9); native FP8
+#   --max-model-len 32768       — VRAM budget: ~1.9GB on-GPU KV at FP8/block32
+#   --max-num-seqs 64           — concurrent sequence slots; tune for 1-15 users
+#   --gpu-memory-utilization    — 0.85 × 24GB = 20.4GB usable (leaves OS buffer)
+#   -O2                         — piecewise CUDA graphs; best L30 throughput
+#                                 NOTE: mutually exclusive with enforce_eager
+#   --host 0.0.0.0              — nginx on the same host proxies; 0.0.0.0 is safe
+#   --trust-remote-code         — required by AWQ model tokenizer; review any
+#                                 model update against the upstream repo
+# ---------------------------------------------------------------------------
+ExecStart=/usr/local/bin/vllm serve \
+    ${AI_FLUX_MODEL_PATH} \
+    --served-model-name ${AI_FLUX_MODEL_NAME} \
+    --quantization awq \
+    --tensor-parallel-size 1 \
+    --worker-use-ray \
+    --block-size 32 \
+    --cpu-offload-gb ${AI_FLUX_CPU_OFFLOAD_GB} \
+    --kv-cache-dtype fp8 \
+    --max-model-len ${AI_FLUX_MAX_MODEL_LEN} \
+    --max-num-seqs ${AI_FLUX_MAX_NUM_SEQS} \
+    --gpu-memory-utilization ${AI_FLUX_GPU_MEM_UTIL} \
+    --enable-chunked-prefill \
+    --host 0.0.0.0 \
+    --port ${AI_FLUX_VLLM_PORT} \
+    --api-key ${AI_FLUX_API_KEY} \
+    --trust-remote-code \
+    -O2
+
+# Do NOT use Restart=always — an OOM or CUDA error should surface for review.
+Restart=on-failure
+RestartSec=30s
+TimeoutStartSec=300s
+TimeoutStopSec=60s
+
+# Give vLLM time to drain in-flight requests before SIGKILL
+KillMode=mixed
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ai-flux-vllm
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/ai-flux /tmp /shared
+
+[Install]
+WantedBy=multi-user.target
