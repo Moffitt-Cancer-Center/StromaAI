@@ -2,6 +2,54 @@
 
 Thank you for considering a contribution to AI_Flux. This project is maintained by the Moffitt Cancer Center HPC team and open to the research computing community.
 
+## Branching strategy
+
+### Branch model
+
+| Branch | Purpose |
+|--------|---------|
+| `main` | Always-deployable. Protected — no direct pushes; all changes via PR. |
+| `feat/<short-name>` | New features (e.g., `feat/grafana-dashboard`) |
+| `fix/<short-name>` | Bug fixes (e.g., `fix/squeue-parse-race`) |
+| `docs/<short-name>` | Documentation-only changes |
+| `chore/<short-name>` | Tooling, CI, dependency bumps |
+
+### Workflow
+
+1. Branch off `main`: `git checkout -b feat/my-feature`
+2. Commit small, logical units with descriptive messages (see commit style below)
+3. Push and open a PR against `main`
+4. CI must pass (all 5 jobs in `.github/workflows/ci.yml`) before merge
+5. At least one review from the HPC team is required for non-trivial changes
+6. Squash-merge preferred to keep `main` history linear
+
+### Semantic versioning
+
+AI_Flux follows `vMAJOR.MINOR.PATCH` (see [semver.org](https://semver.org)):
+
+- **PATCH** — bug fixes, doc corrections, no behaviour change
+- **MINOR** — backward-compatible new features or installer improvements
+- **MAJOR** — breaking changes to config schema, API, or installation paths
+
+To cut a release, push a tag from `main`:
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
+The `release.yml` workflow creates the GitHub Release automatically.
+
+### Commit style
+
+Use a short imperative prefix:
+```
+feat: add Grafana dashboard JSON export
+fix: handle squeue empty output on idle cluster
+docs: clarify RHEL SELinux boolean requirements
+chore: pin shellcheck to v0.10 in ci.yml
+```
+
+---
+
 ## How to contribute
 
 ### Reporting bugs

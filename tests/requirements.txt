@@ -1,0 +1,4 @@
+# Test dependencies for AI_Flux
+pytest>=8.0
+pytest-mock>=3.14
+requests-mock>=1.12

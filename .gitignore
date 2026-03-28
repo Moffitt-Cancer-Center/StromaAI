@@ -6,7 +6,7 @@
 
 # Source brainstorm / working notes (not part of the public repo)
 .bg-shell/
-.github/
+.github/prompts/
 kilo_gsd.build
 kilo_update.patch
 

@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'   # matches v1.0.0, v1.2.3, etc.
+
+permissions:
+  contents: write   # needed to create GitHub releases
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history needed for changelog generation
+
+      - name: Validate tag format
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if ! echo "${TAG}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: Tag '${TAG}' does not match vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          echo "Releasing: ${TAG}"
+
+      - name: Extract changelog section for this version
+        id: changelog
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"   # strip leading 'v'
+
+          # Extract the block between this version header and the next
+          NOTES=$(python3 - <<EOF
+          import re, sys
+
+          text = open("CHANGELOG.md").read()
+          # Match ## [VERSION] header followed by content until the next ## header
+          pattern = rf"## \[{re.escape("${VERSION}")}\].*?\n(.*?)(?=\n## \[|\Z)"
+          m = re.search(pattern, text, re.DOTALL)
+          if m:
+              print(m.group(1).strip())
+          else:
+              print("See CHANGELOG.md for full change history.")
+          EOF
+          )
+          # Write to file to handle multi-line safely
+          echo "${NOTES}" > /tmp/release_notes.txt
+          echo "notes_file=/tmp/release_notes.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Create release archive
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Create a clean source tarball (exclude dev/CI artifacts)
+          git archive \
+            --format=tar.gz \
+            --prefix="ai-flux-${TAG#v}/" \
+            --output="/tmp/ai-flux-${TAG}.tar.gz" \
+            HEAD
+          echo "archive=/tmp/ai-flux-${TAG}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "AI_Flux ${{ github.ref_name }}"
+          body_path: /tmp/release_notes.txt
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+          files: |
+            ${{ env.archive }}
+          generate_release_notes: false
+
+      - name: Run CI checks on release tag
+        run: |
+          echo "Release ${{ github.ref_name }} created."
+          echo "Run smoke tests against your deployment after upgrading:"
+          echo "  ./tests/integration/smoke_test.sh"
