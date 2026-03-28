@@ -47,15 +47,17 @@ firewall-cmd --reload
 
 ### 1.3 Shared filesystem mount on Proxmox VM
 
-The Proxmox VM must mount your HPC shared filesystem at `/shared` — the **same path** used on Slurm nodes. Model weights and container images must be visible at identical paths on both sides.
+The Proxmox VM must mount your HPC shared filesystem at the same path used on Slurm nodes. Model weights and container images must be visible at identical paths on both sides.
+
+The shared root path is configurable via `AI_FLUX_SHARED_ROOT` (default: `/shared`). The installer will prompt for this value as its first question. If your cluster mounts shared storage at a different path (e.g., `/gpfs/ai`, `/mnt/nfs`), set `AI_FLUX_SHARED_ROOT` accordingly.
 
 ```bash
-# Example NFS mount (add to /etc/fstab):
+# Example NFS mount (add to /etc/fstab — adjust mount path as appropriate):
 nfs-server.your-cluster.example:/hpc/shared  /shared  nfs  defaults,_netdev  0  0
 
 # Mount and verify:
 mount -a
-ls /shared/models/
+ls /shared/models/   # or ls /<your-shared-root>/models/
 ```
 
 ### 1.4 Pre-stage model weights (air-gapped)
@@ -71,12 +73,12 @@ huggingface-cli download \
 # Verify checksum of every file:
 sha256sum ~/models/Qwen2.5-Coder-32B-Instruct-AWQ/* > checksums.sha256
 
-# Transfer to shared storage:
+# Transfer to shared storage (replace /shared with your AI_FLUX_SHARED_ROOT):
 rsync -avz --progress ~/models/Qwen2.5-Coder-32B-Instruct-AWQ/ \
   cluster:/shared/models/Qwen2.5-Coder-32B-Instruct-AWQ/
 rsync -avz checksums.sha256 cluster:/shared/models/
 
-# On the cluster, verify:
+# On the cluster, verify (replace /shared with your AI_FLUX_SHARED_ROOT):
 cd /shared/models && sha256sum -c checksums.sha256
 ```
 
@@ -109,14 +111,161 @@ scontrol show reservation ai-flux-warm
 ### 1.6 Log directory
 
 ```bash
+# Replace /shared with your AI_FLUX_SHARED_ROOT if different:
 mkdir -p /shared/logs/ai-flux
 chmod 775 /shared/logs/ai-flux
 chown aiflux:aiflux /shared/logs/ai-flux  # or appropriate service user
 ```
 
+The installer creates this directory automatically using the `AI_FLUX_LOG_DIR` variable (which defaults to `${AI_FLUX_SHARED_ROOT}/logs/ai-flux`).
+
 ---
 
-## Phase 2: Container Image
+## Phase 1.5: Pre-flight Checks
+
+Before running the installer, use `install/preflight.sh` to verify that each node meets AI_Flux requirements. The script is non-destructive and safe to re-run.
+
+```bash
+# Head node pre-flight:
+sudo ./install/preflight.sh --mode=head
+
+# Slurm worker node pre-flight (run on a representative worker):
+sudo ./install/preflight.sh --mode=worker
+
+# OOD node pre-flight:
+sudo ./install/preflight.sh --mode=ood
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--mode=head\|worker\|ood` | Limit checks to the specified node role (default: all) |
+| `--config=FILE` | Pre-load a config.env to check paths and partitions defined there |
+| `--help` | Show usage |
+
+**Exit codes:** `0` = pass (or warnings only); `1` = one or more blocking failures.
+
+**Head node checks:**
+- OS compatibility (RHEL 8, Rocky 9, Ubuntu 22.04)
+- Python 3.11+ (warning if missing — installer will install it)
+- nginx (warning if missing — installer will install it)
+- Ports 443 and 6380 availability
+- TLS certificate at `/etc/ssl/ai-flux/` (warning if missing — installer will generate a self-signed cert)
+- Shared filesystem mounted at `AI_FLUX_SHARED_ROOT`
+- RAM ≥ 256 GB recommended (for CPU KV cache offload)
+- `aiflux` system user and `/opt/ai-flux/` directory (warning if missing — installer will create them)
+
+**Worker node checks:**
+- NVIDIA GPU detected via `nvidia-smi`
+- NVIDIA driver ≥ 525 (required for FP8 KV cache)
+- Apptainer or Singularity available as module or binary (warning if missing)
+- Slurm commands (`sbatch`, `squeue`) in PATH
+- Shared filesystem mounted and reachable
+- Container SIF image present at `AI_FLUX_CONTAINER`
+- Model weights directory present at `AI_FLUX_MODEL_PATH`
+- SELinux booleans `container_use_cgroups` and `container_manage_cgroup` set
+- RAM ≥ 512 GB recommended (for GPU KV cache workers)
+
+**OOD node checks:**
+- `/etc/ood/` directory present (Open OnDemand installed)
+- `code-server` availability
+- AI_Flux OOD config at `/etc/ood/ai-flux.conf`
+- HTTPS connectivity to the head node
+
+Address all **FAIL** items before running the installer. **WARN** items are informational — the installer can resolve many of them automatically.
+
+---
+
+## Phase 2 (Automated): Running the Installer
+
+`install/install.sh` automates the steps covered in Phases 3–5. Run it after completing Phase 1 on each node type.
+
+```bash
+# Head node (Ray + vLLM + nginx + systemd):
+sudo ./install/install.sh --mode=head
+
+# Slurm worker nodes (Apptainer + NVIDIA Container Toolkit):
+sudo ./install/install.sh --mode=worker
+
+# OOD node (OOD config patching):
+sudo ./install/install.sh --mode=ood
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--mode=head\|worker\|ood` | **Required.** Selects the installation mode |
+| `--config=FILE` | Load a pre-filled config.env; skips interactive prompts entirely |
+| `--dry-run` | Print all actions without making any changes |
+| `--yes` | Non-interactive: auto-confirm all prompts (API key auto-generated if not set) |
+| `--help` | Show usage |
+
+**Supported OS:** RHEL 8.x, Rocky Linux 9.x, Ubuntu 22.04.
+
+### Interactive configuration (head mode)
+
+On the first run, the installer prompts for site-specific values. Press Enter to accept the bracketed default:
+
+```
+Shared filesystem root [/shared]:
+Head node hostname [ai-flux.your-cluster.example]:
+Shared model weight path [/shared/models/Qwen2.5-Coder-32B-Instruct-AWQ]:
+Shared container SIF path [/shared/containers/ai-flux-vllm.sif]:
+Slurm GPU partition [ai-flux-gpu]:
+Slurm account [ai-flux-service]:
+Max concurrent burst workers [5]:
+Enter AI_FLUX_API_KEY (or press Enter to generate one):
+```
+
+> **Important:** The **shared filesystem root** is the first prompt. Enter the actual mount path for your cluster (e.g., `/gpfs/ai`, `/mnt/nfs`). All subsequent path defaults derive from this value.
+>
+> If you generate an API key, the installer displays it once. Save it — you will need it for OOD configuration.
+
+The installer writes the final configuration to `/opt/ai-flux/config.env` and sets `chmod 640 / chown aiflux:aiflux`.
+
+### What head mode installs
+
+1. Creates `aiflux` system user (home: `/opt/ai-flux`, no shell)
+2. Creates directories: `/opt/ai-flux/{src,state}`, `/etc/ssl/ai-flux/`, `${AI_FLUX_LOG_DIR}`
+3. Installs system packages (Python 3.11, pip, nginx) for the detected OS
+4. Creates a Python virtualenv in `/opt/ai-flux/venv` and installs Ray and vLLM
+5. Writes `/opt/ai-flux/config.env` with all configuration values
+6. Deploys `src/vllm_watcher.py` to `/opt/ai-flux/src/` with execute permissions
+7. Deploys `deploy/slurm/ai_flux_worker.slurm` to `${AI_FLUX_SHARED_ROOT}/slurm/`
+8. Deploys and enables nginx with TLS termination; generates a self-signed certificate if none exists
+9. Installs systemd service units (`ray-head`, `ai-flux-vllm`, `ai-flux-watcher`)
+10. Patches `ReadWritePaths` in systemd units to include `AI_FLUX_SHARED_ROOT`
+11. Configures SELinux booleans (RHEL) or AppArmor (Ubuntu) for container and cgroup access
+12. Opens firewall ports (6380, 443) via `firewall-cmd` (RHEL) or `ufw` (Ubuntu)
+13. Enables and starts `ray-head`, waits for GCS, then starts `ai-flux-vllm` and `ai-flux-watcher`
+14. Installs `deploy/logrotate/ai-flux` to `/etc/logrotate.d/ai-flux`
+
+### What worker mode installs
+
+1. Updates system packages
+2. Installs Apptainer from EPEL (RHEL) or official PPA (Ubuntu), if not already present
+3. Configures Apptainer for rootless use and GPU binding
+4. Installs NVIDIA Container Toolkit and runs `nvidia-ctk cdi generate`
+5. Configures SELinux booleans for Apptainer + GPU (`container_use_cgroups`, `container_manage_cgroup`, `container_use_devices`)
+6. Opens Ray ephemeral ports (10001–19999) in the firewall
+7. Creates the shared log directory (`${AI_FLUX_LOG_DIR}`) on the worker
+
+### Using a pre-filled config file
+
+To automate deployment across multiple nodes without interactive prompts:
+
+```bash
+# Copy and fill in config template from the repo:
+cp config/config.example.env /tmp/site.env
+nano /tmp/site.env   # Set all CHANGEME values
+
+# Run installer non-interactively on each node type:
+sudo ./install/install.sh --mode=head   --config=/tmp/site.env --yes
+sudo ./install/install.sh --mode=worker --config=/tmp/site.env --yes
+sudo ./install/install.sh --mode=ood    --config=/tmp/site.env --yes
+```
 
 Build on an internet-connected machine with Apptainer installed. This step CANNOT run on the air-gapped cluster.
 
@@ -127,7 +276,7 @@ apptainer build ai-flux-vllm.sif deploy/containers/ai-flux-vllm.def
 # Run the built-in test:
 apptainer test ai-flux-vllm.sif
 
-# Copy to shared storage:
+# Copy to shared storage (replace /shared with your AI_FLUX_SHARED_ROOT):
 rsync -avz --progress ai-flux-vllm.sif cluster:/shared/containers/
 ```
 
@@ -139,7 +288,7 @@ Before committing to deployment, verify the container works on a RHEL Slurm GPU 
 # Run as yourself on an interactive Slurm allocation:
 srun --partition=ai-flux-gpu --gpus=1 --nodes=1 --pty bash
 
-# Inside the allocation:
+# Inside the allocation (replace /shared with your AI_FLUX_SHARED_ROOT):
 apptainer exec --nv /shared/containers/ai-flux-vllm.sif \
   python3 -c "
 import torch, vllm
@@ -166,9 +315,12 @@ chown aiflux:aiflux /opt/ai-flux
 
 ### 3.2 Configure
 
+> **Note:** If you used the automated installer (`install/install.sh --mode=head`), this step was performed automatically. The config is at `/opt/ai-flux/config.env` and the installer already set `AI_FLUX_SHARED_ROOT` as the first interactive prompt.
+
 ```bash
 cp config/config.example.env /opt/ai-flux/config.env
 # Edit ALL CHANGEME values:
+#   AI_FLUX_SHARED_ROOT — your shared filesystem root (e.g., /shared, /gpfs/ai)
 #   AI_FLUX_HEAD_HOST  — your actual hostname
 #   AI_FLUX_API_KEY    — generate with: openssl rand -hex 32
 #   AI_FLUX_MODEL_PATH — path to staged model weights
@@ -176,6 +328,32 @@ nano /opt/ai-flux/config.env
 chmod 640 /opt/ai-flux/config.env
 chown aiflux:aiflux /opt/ai-flux/config.env
 ```
+
+**Key configuration variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AI_FLUX_SHARED_ROOT` | `/shared` | Shared filesystem root — all shared path defaults derive from this |
+| `AI_FLUX_HEAD_HOST` | *(required)* | FQDN or hostname of the head node |
+| `AI_FLUX_API_KEY` | *(required)* | Bearer token for API authentication |
+| `AI_FLUX_MODEL_PATH` | `${SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ` | Path to model weights |
+| `AI_FLUX_MODEL_NAME` | `ai-flux-coder` | Model alias served by vLLM |
+| `AI_FLUX_CONTAINER` | `${SHARED_ROOT}/containers/ai-flux-vllm.sif` | Apptainer SIF image path |
+| `AI_FLUX_SLURM_PARTITION` | `ai-flux-gpu` | Slurm GPU partition for burst workers |
+| `AI_FLUX_SLURM_ACCOUNT` | `ai-flux-service` | Slurm account for burst jobs |
+| `AI_FLUX_MAX_BURST_WORKERS` | `5` | Maximum concurrent burst Slurm jobs |
+| `AI_FLUX_SLURM_CPUS` | `64` | CPUs per burst worker job (`--cpus-per-task`) |
+| `AI_FLUX_SLURM_MEM` | `900G` | Memory per burst worker job (`--mem`) |
+| `AI_FLUX_NUMA_BIND` | *(unset)* | Optional NUMA node binding (e.g., `0`) — leave unset to disable |
+| `AI_FLUX_VLLM_QUANTIZATION` | `awq` | vLLM quantization method (`awq`, `fp8`, `none`) |
+| `AI_FLUX_KV_CACHE_DTYPE` | `auto` | KV cache dtype — use `fp8` for L30 / H100, `auto` for A100 |
+| `AI_FLUX_GPU_MEM_UTIL` | `0.85` | GPU memory utilization fraction for vLLM |
+| `AI_FLUX_CPU_OFFLOAD_GB` | `200` | CPU memory to use for KV cache offload (GB) |
+| `AI_FLUX_SCALE_UP_THRESHOLD` | `5` | Queued requests before a burst worker is submitted |
+| `AI_FLUX_SCALE_DOWN_IDLE_SECONDS` | `300` | Idle seconds before a burst worker is cancelled |
+| `AI_FLUX_LOG_DIR` | `${SHARED_ROOT}/logs/ai-flux` | Slurm job output log directory |
+
+Use `scripts/check-config.sh` to validate config before starting services (see [Operational Scripts](#operational-scripts)).
 
 ### 3.3 Install Ray on the Proxmox VM
 
@@ -199,7 +377,7 @@ pip3 install vllm==0.7.3
 
 > **Alternative**: Run vLLM inside the Apptainer container on the head node too:
 > ```bash
-> apptainer exec /shared/containers/ai-flux-vllm.sif vllm serve ...
+> apptainer exec /shared/containers/ai-flux-vllm.sif vllm serve ...   # replace /shared with AI_FLUX_SHARED_ROOT
 > ```
 > If using container-launch on the head node, update `ExecStart` in  
 > `deploy/systemd/ai-flux-vllm.service` accordingly.
@@ -249,18 +427,15 @@ systemctl status ray-head ai-flux-vllm ai-flux-watcher
 ### 3.7 Set up log rotation
 
 ```bash
-cat > /etc/logrotate.d/ai-flux <<'EOF'
-/shared/logs/ai-flux/*.out /shared/logs/ai-flux/*.err {
-    daily
-    rotate 14
-    compress
-    delaycompress
-    missingok
-    notifempty
-    sharedscripts
-}
-EOF
+# Install the included logrotate config:
+cp deploy/logrotate/ai-flux /etc/logrotate.d/ai-flux
+chmod 644 /etc/logrotate.d/ai-flux
+
+# Verify (dry run):
+logrotate --debug /etc/logrotate.d/ai-flux
 ```
+
+The included config rotates Slurm job logs daily, retains 30 days, and uses `copytruncate` to avoid service restarts. If you used the automated installer, this step was performed automatically.
 
 ---
 
@@ -294,11 +469,13 @@ curl -k https://localhost/health
 
 ---
 
-## Phase 5: Slurm Worker Template
+## Phase 5 (Manual Reference): Slurm Worker Template
+
+> **Note:** If you used the automated installer (`install/install.sh --mode=head`), the Slurm script was deployed to `${AI_FLUX_SHARED_ROOT}/slurm/ai_flux_worker.slurm` automatically.
 
 ```bash
 # Copy to shared storage so all Slurm nodes can find it:
-mkdir -p /shared/slurm
+mkdir -p /shared/slurm    # replace /shared with your AI_FLUX_SHARED_ROOT
 cp deploy/slurm/ai_flux_worker.slurm /shared/slurm/
 chmod 755 /shared/slurm/ai_flux_worker.slurm
 
@@ -450,6 +627,15 @@ journalctl -u ai-flux-watcher | grep -i "cancell"
 
 ### Graceful drain (for maintenance or updates)
 
+For planned maintenance use `scripts/drain-and-restart.sh`, which automates the full drain sequence with request-count polling and health-check gating:
+
+```bash
+scripts/drain-and-restart.sh
+scripts/drain-and-restart.sh --drain-timeout 300 --start-timeout 600
+```
+
+For manual control:
+
 ```bash
 # 1. Stop the watcher so no new burst jobs are submitted:
 systemctl stop ai-flux-watcher
@@ -474,10 +660,10 @@ systemctl start ai-flux-watcher
 
 ### Updating the model
 
-1. Stage new model weights to `/shared/models/<new-model>/`
+1. Stage new model weights to `${AI_FLUX_SHARED_ROOT}/models/<new-model>/` (default: `/shared/models/<new-model>/`)
 2. Update `AI_FLUX_MODEL_PATH` and `AI_FLUX_MODEL_NAME` in `/opt/ai-flux/config.env`
 3. Update `AI_FLUX_MODEL_NAME` in `/etc/ood/ai-flux.conf`
-4. Follow the graceful drain procedure above
+4. Follow the graceful drain procedure below (or use `scripts/drain-and-restart.sh`)
 5. Restart services
 
 ### Useful logs
@@ -490,8 +676,103 @@ journalctl -u ray-head -u ai-flux-vllm -u ai-flux-watcher -f
 journalctl -u ai-flux-watcher -n 50 --no-pager
 
 # Slurm worker stdout for job NNNNN:
-cat /shared/logs/ai-flux/slurm-NNNNN.out
+cat /shared/logs/ai-flux/slurm-NNNNN.out   # replace /shared with AI_FLUX_SHARED_ROOT
 
 # Watcher state (current tracked burst jobs):
 cat /opt/ai-flux/watcher_state.json | python3 -m json.tool
 ```
+
+> **Tip:** Use `scripts/status.sh` for an at-a-glance dashboard showing service states, active Slurm jobs, GPU utilization, and recent logs. Use `scripts/debug-bundle.sh` to generate a redacted support tarball. See [Operational Scripts](#operational-scripts).
+
+---
+
+## Operational Scripts
+
+Five helper scripts are included in `scripts/` for day-to-day operations. All scripts read `/opt/ai-flux/config.env` by default.
+
+### `scripts/status.sh` — System dashboard
+
+Displays a combined view of systemd service states, active Slurm burst jobs, GPU utilization, watcher state file summary, and recent journal entries.
+
+```bash
+scripts/status.sh
+```
+
+### `scripts/check-config.sh` — Config validation
+
+Validates `/opt/ai-flux/config.env` before starting or restarting services. Checks required variables, detects CHANGEME placeholders, validates hostname format, port ranges, and path existence. Verifies the Slurm partition exists.
+
+```bash
+scripts/check-config.sh
+scripts/check-config.sh --config /path/to/other-config.env
+```
+
+Exit codes: `0` = pass; `1` = errors found; `2` = config file not found.
+
+### `scripts/rotate-api-key.sh` — Zero-downtime key rotation
+
+Generates a new API key, updates both `/opt/ai-flux/config.env` and `/etc/ood/ai-flux.conf`, and performs a rolling restart (vLLM first, then watcher) with health-check gating. Creates a timestamped backup of the old config.
+
+```bash
+scripts/rotate-api-key.sh              # interactive
+scripts/rotate-api-key.sh --dry-run   # preview without changes
+scripts/rotate-api-key.sh --config /opt/ai-flux/config.env
+```
+
+> **Important:** After rotation, update any external clients or CI systems that hold the old API key.
+
+### `scripts/debug-bundle.sh` — Support tarball
+
+Collects journals (500 lines each), watcher state, redacted config, `squeue` output, `nvidia-smi`, Ray status, and vLLM endpoint responses into a single `.tar.gz` for support escalation.
+
+```bash
+scripts/debug-bundle.sh                       # output to /tmp/ai-flux-debug-<timestamp>.tar.gz
+scripts/debug-bundle.sh /path/to/output.tar.gz
+```
+
+> **Warning:** Review the tarball before sharing — API keys may appear in journal log lines even after config redaction.
+
+### `scripts/drain-and-restart.sh` — Planned maintenance restart
+
+Performs a zero-dropped-request restart for planned maintenance:
+1. Stops the watcher (no new burst jobs submitted)
+2. Polls `/metrics` until in-flight request count reaches zero
+3. Stops vLLM and Ray
+4. Starts Ray, waits for GCS
+5. Starts vLLM with a health-check gate
+6. Restarts the watcher
+
+```bash
+scripts/drain-and-restart.sh
+scripts/drain-and-restart.sh --drain-timeout 300 --start-timeout 600
+```
+
+Use this instead of a raw `systemctl restart` during business hours.
+
+---
+
+## Uninstallation
+
+`install/uninstall.sh` removes AI_Flux from a head node. It does **not** remove system packages (nginx, Python, NVIDIA toolkit) that may be used by other services.
+
+```bash
+sudo ./install/uninstall.sh         # interactive, prompts before each destructive step
+sudo ./install/uninstall.sh --yes   # non-interactive
+```
+
+**What is removed:**
+- systemd service units: `ray-head`, `ai-flux-vllm`, `ai-flux-watcher`
+- `/opt/ai-flux/` — source files, Python venv, config, state
+- `/etc/nginx/conf.d/ai-flux.conf` (RHEL/Rocky) or `/etc/nginx/sites-*/ai-flux` (Ubuntu)
+- `/etc/ood/ai-flux.conf`
+- `/etc/ssl/ai-flux/` (TLS keys — confirmed interactively)
+- `aiflux` system user (confirmed interactively)
+- Firewall rules (port 6380, 80, 443) — best-effort, non-fatal if rules are absent
+
+**What is NOT removed (intentionally):**
+- `${AI_FLUX_SHARED_ROOT}/containers/` — container images are your data
+- `${AI_FLUX_SHARED_ROOT}/models/` — model weights are your data
+- `${AI_FLUX_SHARED_ROOT}/logs/ai-flux/` — preserved as audit trail
+- System packages: nginx, Python 3.11, NVIDIA Container Toolkit
+
+To fully clean up shared storage after uninstallation, remove those directories manually when you are certain they are no longer needed.

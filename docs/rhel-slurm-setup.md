@@ -110,14 +110,14 @@ No host Python upgrade is required. Do not assume the host Python version.
 
 ## 5. Shared filesystem mount
 
-The Slurm worker nodes must mount `/shared` with the same path as the head node:
+The Slurm worker nodes must mount the shared filesystem at the same path (`AI_FLUX_SHARED_ROOT`) used on the head node. The default is `/shared`; if your cluster uses a different path, set `AI_FLUX_SHARED_ROOT` in `config.env` and re-run `install/preflight.sh --mode=worker` to verify.
 
 ```bash
-# Verify the mount exists and model weights are visible:
-mount | grep shared
-ls /shared/models/Qwen2.5-Coder-32B-Instruct-AWQ/
-ls /shared/containers/ai-flux-vllm.sif
-ls /shared/slurm/ai_flux_worker.slurm
+# Verify the mount exists and key paths are visible:
+mount | grep shared    # or grep for your actual mount path
+ls ${AI_FLUX_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ/
+ls ${AI_FLUX_SHARED_ROOT}/containers/ai-flux-vllm.sif
+ls ${AI_FLUX_SHARED_ROOT}/slurm/ai_flux_worker.slurm
 ```
 
 If the mount is missing, contact your HPC storage admin — this is a cluster-level configuration, not a per-node setting.
@@ -149,7 +149,7 @@ sacctmgr show account ai-flux-service
 # Test submitting a job under the account (from the head node or compute node):
 sbatch --partition=ai-flux-gpu --account=ai-flux-service \
   --wrap="echo 'Account test OK'; hostname" \
-  --output=/shared/logs/ai-flux/test-%j.out
+  --output=${AI_FLUX_LOG_DIR:-/shared/logs/ai-flux}/test-%j.out
 
 squeue -u $USER
 ```
@@ -167,7 +167,7 @@ sbatch \
   --account=ai-flux-service \
   --time=00:20:00 \
   --export=ALL,AI_FLUX_HEAD_HOST=ai-flux.your-cluster.example,AI_FLUX_RAY_PORT=6380 \
-  /shared/slurm/ai_flux_worker.slurm
+  ${AI_FLUX_SHARED_ROOT:-/shared}/slurm/ai_flux_worker.slurm
 
 # Step 2: Watch the job reach RUNNING:
 watch -n 5 squeue -j <job_id>
@@ -195,7 +195,7 @@ scancel <job_id>
 |---|---|---|
 | `AVC denied { write } on cgroup` | SELinux blocking container cgroup | `setsebool -P container_use_cgroups 1` |
 | `Failed to initialize NVML` | NVIDIA driver not visible inside container | Use `--nv` flag; verify driver version |
-| `Container file not found` | `/shared` not mounted, or different path | Verify shared filesystem mount path |
+| `Container file not found` | `AI_FLUX_SHARED_ROOT` not mounted, wrong path, or SIF not built yet | Verify `AI_FLUX_SHARED_ROOT` mount and that `ai-flux-vllm.sif` exists |
 | `Connection refused` to Ray GCS port | Firewall blocking port 6380 | Open TCP 6380 from nodes to head |
 | `sbatch: error: Invalid account` | Account not in Slurm DB | `sacctmgr add account ai-flux-service` |
 | `ray: command not found` | Ray not in PATH inside container | Check container was built correctly; run `apptainer test ai-flux-vllm.sif` |
