@@ -33,6 +33,10 @@
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
 #SBATCH --exclusive
+# NOTE: --output and --error paths are passed by the Watcher via sbatch CLI
+# flags using AI_FLUX_LOG_DIR from config.env. The paths below are fallbacks
+# for manual sbatch runs only. Run 'mkdir -p /shared/logs/ai-flux' on shared
+# storage before first use, matching your AI_FLUX_LOG_DIR setting.
 #SBATCH --output=/shared/logs/ai-flux/slurm-%j.out
 #SBATCH --error=/shared/logs/ai-flux/slurm-%j.err
 # NOTE: --partition, --account, --time, --cpus-per-task, and --mem are all
@@ -47,6 +51,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 : "${AI_FLUX_HEAD_HOST:?ERROR: AI_FLUX_HEAD_HOST must be set via --export}"
 : "${AI_FLUX_RAY_PORT:=6380}"
+: "${AI_FLUX_SHARED_ROOT:=/shared}"
 
 # ---------------------------------------------------------------------------
 # Container configuration
@@ -129,7 +134,7 @@ fi
 
 exec ${NUMACTL_OPTS[@]:+"${NUMACTL_OPTS[@]}"} "${CONTAINER_CMD}" exec \
     ${GPU_FLAG} \
-    --bind /shared:/shared \
+    --bind "${AI_FLUX_SHARED_ROOT}:${AI_FLUX_SHARED_ROOT}" \
     "${AI_FLUX_CONTAINER}" \
     ray start \
         --address="${AI_FLUX_HEAD_HOST}:${AI_FLUX_RAY_PORT}" \

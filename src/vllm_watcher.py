@@ -70,6 +70,8 @@ SLURM_SCRIPT  = os.environ.get("AI_FLUX_SLURM_SCRIPT", "/shared/slurm/ai_flux_wo
 SLURM_TIME    = os.environ.get("AI_FLUX_SLURM_WALLTIME", "7-00:00:00")
 SLURM_CPUS    = os.environ.get("AI_FLUX_SLURM_CPUS", "64")
 SLURM_MEM     = os.environ.get("AI_FLUX_SLURM_MEM", "900G")
+SHARED_ROOT   = os.environ.get("AI_FLUX_SHARED_ROOT", "/shared")
+SLURM_LOG_DIR = os.environ.get("AI_FLUX_LOG_DIR", f"{SHARED_ROOT}/logs/ai-flux")
 VLLM_KV_THREADS = int(os.environ.get("AI_FLUX_VLLM_CPU_KV_THREADS", "32"))
 STATE_FILE    = os.environ.get("AI_FLUX_STATE_FILE", "/opt/ai-flux/watcher_state.json")
 
@@ -244,8 +246,11 @@ def slurm_submit() -> Optional[str]:
         f"--time={SLURM_TIME}",
         f"--cpus-per-task={SLURM_CPUS}",
         f"--mem={SLURM_MEM}",
-        # Pass connection params and per-worker tuning via env vars
+        f"--output={SLURM_LOG_DIR}/slurm-%j.out",
+        f"--error={SLURM_LOG_DIR}/slurm-%j.err",
+        # Pass connection params, shared root, and per-worker tuning via env vars
         f"--export=ALL,AI_FLUX_HEAD_HOST={HEAD_HOST},AI_FLUX_RAY_PORT={RAY_PORT}"
+        f",AI_FLUX_SHARED_ROOT={SHARED_ROOT}"
         f",VLLM_CPU_KV_CACHE_THREADS={VLLM_KV_THREADS}",
         SLURM_SCRIPT,
     ]

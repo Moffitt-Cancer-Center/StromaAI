@@ -134,6 +134,8 @@ readonly AI_FLUX_PIP="${AI_FLUX_VENV}/bin/pip"
 # AI_FLUX installation directories
 # ---------------------------------------------------------------------------
 readonly AI_FLUX_INSTALL_DIR="/opt/ai-flux"
-readonly AI_FLUX_LOG_DIR="/shared/logs/ai-flux"
+# AI_FLUX_LOG_DIR must NOT be readonly — it is overridden by AI_FLUX_SHARED_ROOT
+# or AI_FLUX_LOG_DIR from config.env. The value here is the fallback only.
+AI_FLUX_LOG_DIR="${AI_FLUX_LOG_DIR:-${AI_FLUX_SHARED_ROOT:-/shared}/logs/ai-flux}"
 readonly AI_FLUX_STATE_DIR="/opt/ai-flux/state"
 readonly AI_FLUX_SYSTEMD_DIR="/etc/systemd/system"

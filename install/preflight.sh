@@ -144,10 +144,11 @@ check_head() {
     fi
 
     # Shared filesystem (for model weights)
-    if detect_shared_fs "/shared" 2>/dev/null; then
-        check_pass "Shared filesystem mounted at /shared"
+    local shared_root="${AI_FLUX_SHARED_ROOT:-/shared}"
+    if detect_shared_fs "${shared_root}" 2>/dev/null; then
+        check_pass "Shared filesystem mounted at ${shared_root}"
     else
-        check_warn "No filesystem mounted at /shared — update AI_FLUX_MODEL_PATH in config"
+        check_warn "No filesystem mounted at ${shared_root} — set AI_FLUX_SHARED_ROOT in config and verify mount"
     fi
 
     # RAM recommendation (head node needs RAM for CPU KV cache offload)
@@ -215,12 +216,13 @@ check_worker() {
     fi
 
     # Shared filesystem
-    if detect_shared_fs "/shared" 2>/dev/null; then
+    local shared_root="${AI_FLUX_SHARED_ROOT:-/shared}"
+    if detect_shared_fs "${shared_root}" 2>/dev/null; then
         local shared_free_gb
-        shared_free_gb=$(df -BG /shared 2>/dev/null | awk 'NR==2 {gsub(/G/,""); print $4}')
-        check_pass "Shared filesystem mounted at /shared (${shared_free_gb} GB free)"
+        shared_free_gb=$(df -BG "${shared_root}" 2>/dev/null | awk 'NR==2 {gsub(/G/,""); print $4}')
+        check_pass "Shared filesystem mounted at ${shared_root} (${shared_free_gb} GB free)"
     else
-        check_fail "No filesystem mounted at /shared — worker nodes require access to shared storage"
+        check_fail "No filesystem mounted at ${shared_root} — set AI_FLUX_SHARED_ROOT and verify NFS/GPFS mount"
     fi
 
     # Container image
