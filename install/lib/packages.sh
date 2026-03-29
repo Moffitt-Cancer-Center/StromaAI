@@ -200,6 +200,14 @@ install_head_python_deps() {
         "openai>=1.65.0" \
         "huggingface_hub"
 
+    # Hardware-aware model selection tool — detects GPU/VRAM and filters Hub
+    # search results to models that fit; suggests quantization when a model
+    # is slightly too large.  Installs as `hfw` (safe alias) and `hf` (hub wrapper).
+    # Downloads are routed to ${AI_FLUX_SHARED_ROOT}/models/ automatically.
+    log_info "Installing hfmodel-check ..."
+    run_cmd "${AI_FLUX_PIP}" install \
+        "git+https://git@github.com/Moffitt-Cancer-Center/hfmodel-check"
+
     log_ok "Python packages installed successfully."
 }
 

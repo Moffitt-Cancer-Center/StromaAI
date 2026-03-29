@@ -62,14 +62,50 @@ ls /shared/models/   # or ls /<your-shared-root>/models/
 
 ### 1.4 Pre-stage model weights (air-gapped)
 
-Download on an internet-connected machine, then transfer:
-```bash
-# On internet-connected machine:
-pip install huggingface_hub
-huggingface-cli download \
-  Qwen/Qwen2.5-Coder-32B-Instruct-AWQ \
-  --local-dir ~/models/Qwen2.5-Coder-32B-Instruct-AWQ
+AI_Flux includes the `hfmodel-check` utility (`hfw`) on the head node for hardware-aware model selection. Use it on any internet-connected machine that has the AI_Flux venv active, or install it standalone:
 
+```bash
+pip install "git+https://git@github.com/Moffitt-Cancer-Center/hfmodel-check"
+```
+
+#### Step 1: Check hardware and find a compatible model
+
+```bash
+# Show detected GPU, VRAM, and available memory:
+hfw hardware
+
+# Search for text-generation models that fit your hardware.
+# Green = fits natively. Yellow = fits with quantization (recommended level shown).
+# Red = too large even with Q2.
+hfw search "Qwen coder" --task text-generation
+
+# Narrow to AWQ pre-quantized variants:
+hfw search "Qwen2.5-Coder-32B AWQ" --task text-generation
+```
+
+The search output shows a fit status for each result based on your actual GPU and VRAM. Models marked yellow come with a specific quantization recommendation (e.g., `~ AWQ (18.2 GB)`).
+
+#### Step 2: Download to shared storage
+
+`hfw download` checks hardware compatibility first, then downloads directly to `$AI_FLUX_SHARED_ROOT/models/<repo>` if `AI_FLUX_SHARED_ROOT` is set in the environment:
+
+```bash
+# Set your shared root so the download goes to the right place:
+export AI_FLUX_SHARED_ROOT=/shared   # adjust to your mount path
+
+# Download — hardware check runs first, quantization advice shown if needed:
+hfw download Qwen/Qwen2.5-Coder-32B-Instruct-AWQ
+
+# Or download to an explicit path:
+hfw download Qwen/Qwen2.5-Coder-32B-Instruct-AWQ \
+  --local-dir /shared/models/Qwen2.5-Coder-32B-Instruct-AWQ
+```
+
+If the model doesn't fit natively, `hfw download` lists compatible quantization levels and asks for confirmation before proceeding.
+
+#### Step 3: Transfer to the cluster (if downloading off-cluster)
+
+```bash
 # Verify checksum of every file:
 sha256sum ~/models/Qwen2.5-Coder-32B-Instruct-AWQ/* > checksums.sha256
 
@@ -80,6 +116,9 @@ rsync -avz checksums.sha256 cluster:/shared/models/
 
 # On the cluster, verify (replace /shared with your AI_FLUX_SHARED_ROOT):
 cd /shared/models && sha256sum -c checksums.sha256
+```
+
+> **Note:** If downloading directly on the head node with `AI_FLUX_SHARED_ROOT` set, Step 3 is skipped — `hfw download` already placed the weights in the right location.
 ```
 
 ### 1.5 Slurm partition and account
