@@ -481,6 +481,7 @@ def tick(state: WatcherState, known_ray_nodes: set[str]) -> set[str]:
     # Scale-up decision
     # ----------------------------------------------------------------
     if waiting >= UP_THRESHOLD and scale_up_ok(state):
+        state.idle_since = None  # activity seen — clear idle timer regardless of submit outcome
         jid = slurm_submit()
         if jid:
             state.jobs[jid] = {
@@ -490,7 +491,6 @@ def tick(state: WatcherState, known_ray_nodes: set[str]) -> set[str]:
             }
             state.last_scale_up = _iso()
             state.total_submitted += 1
-            state.idle_since = None  # reset idle timer on any scale-up
             changed = True
             log.info(
                 "Scale-up: submitted job %s (%d/%d burst workers active)",

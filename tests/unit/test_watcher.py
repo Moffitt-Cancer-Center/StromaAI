@@ -457,6 +457,8 @@ class TestTick:
         assert "42" not in state.jobs
 
     def test_tick_resets_idle_timer_when_requests_resume(self, watcher, tmp_state_file):
+        # waiting=1 is below UP_THRESHOLD (2) so scale-up is not attempted;
+        # the "activity seen" elif branch should clear idle_since.
         state = watcher.WatcherState(
             jobs={"42": {"state": "joined"}},
             idle_since="2026-03-28T00:00:00+00:00",
@@ -464,7 +466,7 @@ class TestTick:
         with patch.object(watcher, "STATE_FILE", tmp_state_file), \
              patch.object(watcher, "vllm_healthy", return_value=True), \
              patch.object(watcher, "fetch_metrics",
-                          return_value={"vllm:num_requests_waiting": 3.0,
+                          return_value={"vllm:num_requests_waiting": 1.0,
                                         "vllm:num_requests_running": 1.0}), \
              patch.object(watcher, "reconcile_against_slurm", return_value=False), \
              patch.object(watcher, "advance_pending_jobs", return_value=set()):
