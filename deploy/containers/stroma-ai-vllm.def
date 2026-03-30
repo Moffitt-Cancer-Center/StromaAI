@@ -41,7 +41,7 @@ From: nvcr.io/nvidia/pytorch:24.10-py3
     org.opencontainers.image.title       stroma-ai-vllm
     org.opencontainers.image.description "vLLM + Ray worker for StromaAI HPC burst inference"
     org.opencontainers.image.licenses    Apache-2.0
-    stroma-ai.vllm-version                 0.7.3
+    stroma-ai.vllm-version                 0.7.2
     stroma-ai.ray-version                  2.40.0
     stroma-ai.cuda-base                    nvcr.io/nvidia/pytorch:24.10-py3
     stroma-ai.tested-gpu                   NVIDIA A30 (Ampere, CC 8.0)
@@ -90,9 +90,12 @@ From: nvcr.io/nvidia/pytorch:24.10-py3
     # Core packages — ALL pinned to exact versions
     # Test compatibility before bumping ANY version:
     #   vLLM and Ray must be upgraded together (they share Pydantic + gRPC deps)
+    # NOTE: vLLM 0.7.3 introduced DeepseekVLV2Config which uses a Python 3.11+
+    #   dataclass pattern — it crashes on Python 3.10 (NGC 24.10-py3 base).
+    #   Stay on 0.7.2 until the base image is upgraded to a Python 3.11 build.
     # -------------------------------------------------------------------------
     python3 -m pip install --no-cache-dir \
-        "vllm==0.7.3" \
+        "vllm==0.7.2" \
         "ray[serve]==2.40.0" \
         "requests==2.32.3" \
         "pyyaml==6.0.2" \
