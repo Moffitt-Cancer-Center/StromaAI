@@ -1,6 +1,6 @@
-# AI_Flux Roadmap
+# StromaAI Roadmap
 
-This document describes the planned evolution of AI_Flux — an HPC burst-inference platform for large-language model serving at Moffitt Cancer Center.
+This document describes the planned evolution of StromaAI — an HPC burst-inference platform for large-language model serving at Moffitt Cancer Center.
 
 ---
 
@@ -14,7 +14,7 @@ Shipped features:
 - **API gateway**: nginx reverse proxy with TLS termination and bearer-token authentication
 - **Slurm integration**: sbatch job templates for GPU-partitioned inference bursts
 - **Open OnDemand app**: Batch-connect template for researcher self-service
-- **Systemd services**: `ai-flux-watcher`, `ai-flux-vllm`, `ai-flux-metrics`
+- **Systemd services**: `stroma-ai-watcher`, `stroma-ai-vllm`, `stroma-ai-metrics`
 - **Ops tooling**: Prometheus `/metrics` endpoint, structured logging, dry-run install mode
 - **SDLC baseline**: pytest unit tests, shell integration smoke test, GitHub Actions CI, semantic versioning, branching strategy
 
@@ -62,7 +62,7 @@ Target: Q4 2025
 
 ## Versioning Policy
 
-AI_Flux follows [Semantic Versioning](https://semver.org/) (`vMAJOR.MINOR.PATCH`):
+StromaAI follows [Semantic Versioning](https://semver.org/) (`vMAJOR.MINOR.PATCH`):
 
 - **PATCH**: Bug fixes and documentation corrections that do not change behaviour
 - **MINOR**: Backward-compatible new features or installer improvements

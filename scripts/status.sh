@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Operator Status Dashboard
+# StromaAI — Operator Status Dashboard
 # =============================================================================
-# Prints a quick-glance status of all AI_Flux components:
+# Prints a quick-glance status of all StromaAI components:
 #   • systemd service states
-#   • Active Slurm burst jobs in the ai-flux partition
+#   • Active Slurm burst jobs in the stroma-ai partition
 #   • Head-node GPU utilization (nvidia-smi)
 #   • Watcher state summary (job count, last scale-up, idle timer)
 #   • Recent watcher log lines from the journal
@@ -13,29 +13,29 @@
 #   scripts/status.sh
 #
 # Environment overrides:
-#   AI_FLUX_CONFIG             path to config.env (default: /opt/ai-flux/config.env)
-#   AI_FLUX_STATUS_LOG_LINES   number of watcher log lines to show (default: 20)
+#   STROMA_CONFIG             path to config.env (default: /opt/stroma-ai/config.env)
+#   STROMA_STATUS_LOG_LINES   number of watcher log lines to show (default: 20)
 # =============================================================================
 
 set -euo pipefail
 
-CONFIG_FILE="${AI_FLUX_CONFIG:-/opt/ai-flux/config.env}"
-STATE_FILE="${AI_FLUX_STATE_FILE:-/opt/ai-flux/watcher_state.json}"
-SLURM_PARTITION="${AI_FLUX_SLURM_PARTITION:-ai-flux-gpu}"
-LOG_LINES="${AI_FLUX_STATUS_LOG_LINES:-20}"
+CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
+STATE_FILE="${STROMA_STATE_FILE:-/opt/stroma-ai/watcher_state.json}"
+SLURM_PARTITION="${STROMA_SLURM_PARTITION:-ai-flux-gpu}"
+LOG_LINES="${STROMA_STATUS_LOG_LINES:-20}"
 
 # Load config if present (non-fatal if missing)
 # shellcheck source=/dev/null
 [[ -f "${CONFIG_FILE}" ]] && source "${CONFIG_FILE}" || true
 
-STATE_FILE="${AI_FLUX_STATE_FILE:-${STATE_FILE}}"
-SLURM_PARTITION="${AI_FLUX_SLURM_PARTITION:-${SLURM_PARTITION}}"
+STATE_FILE="${STROMA_STATE_FILE:-${STATE_FILE}}"
+SLURM_PARTITION="${STROMA_SLURM_PARTITION:-${SLURM_PARTITION}}"
 
 hr() { printf '%.0s─' {1..62}; echo; }
 
 echo
 echo "╔════════════════════════════════════════════════════════════╗"
-printf  "║   AI_Flux Status  —  %-37s║\n" "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+printf  "║   StromaAI Status  —  %-37s║\n" "$(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo
 
@@ -45,7 +45,7 @@ echo
 hr
 echo "  SERVICES"
 hr
-for svc in ray-head ai-flux-vllm ai-flux-watcher; do
+for svc in ray-head stroma-ai-vllm stroma-ai-watcher; do
     if systemctl list-unit-files "${svc}.service" &>/dev/null 2>&1; then
         active=$(systemctl is-active "${svc}" 2>/dev/null || echo "inactive")
         if [[ "${active}" == "active" ]]; then
@@ -140,7 +140,7 @@ PYEOF
     fi
 else
     echo "  State file not found: ${STATE_FILE}"
-    echo "  (watcher has not yet run, or AI_FLUX_STATE_FILE is not set)"
+    echo "  (watcher has not yet run, or STROMA_STATE_FILE is not set)"
 fi
 echo
 
@@ -151,7 +151,7 @@ hr
 echo "  RECENT WATCHER LOGS  (last ${LOG_LINES} lines)"
 hr
 if command -v journalctl &>/dev/null; then
-    journalctl -u ai-flux-watcher -n "${LOG_LINES}" --no-pager --output=short-iso \
+    journalctl -u stroma-ai-watcher -n "${LOG_LINES}" --no-pager --output=short-iso \
         2>/dev/null || echo "  (no journal output — service may not have started yet)"
 else
     echo "  journalctl not available"

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — SELinux / AppArmor / Firewall configuration
+# StromaAI — SELinux / AppArmor / Firewall configuration
 # =============================================================================
 # Provides: configure_selinux(), configure_apparmor(), configure_firewall()
 # Supports: RHEL 8, Rocky Linux 9 (SELinux + firewalld)
 #           Ubuntu 22.04 (AppArmor + ufw)
 # =============================================================================
 
-[[ -n "${_AI_FLUX_SELINUX_LOADED:-}" ]] && return 0
-readonly _AI_FLUX_SELINUX_LOADED=1
+[[ -n "${_STROMA_SELINUX_LOADED:-}" ]] && return 0
+readonly _STROMA_SELINUX_LOADED=1
 
 # ---------------------------------------------------------------------------
 # configure_security — dispatch to SELinux or AppArmor based on OS
@@ -29,7 +29,7 @@ configure_security() {
 #   httpd_can_network_connect — nginx → vLLM reverse proxy
 # ---------------------------------------------------------------------------
 configure_selinux() {
-    log_step "Configuring SELinux booleans for AI_Flux"
+    log_step "Configuring SELinux booleans for StromaAI"
 
     if ! check_cmd getenforce; then
         log_info "getenforce not found — SELinux not installed, skipping."
@@ -81,9 +81,9 @@ configure_selinux() {
 
     # If nginx is being installed, set correct file context on log directory
     if [[ "${mode}" == "head" ]] && check_cmd semanage 2>/dev/null; then
-        # Allow nginx to read ssl certs in /etc/ssl/ai-flux
-        run_cmd semanage fcontext -a -t cert_t "/etc/ssl/ai-flux(/.*)?" 2>/dev/null || true
-        run_cmd restorecon -Rv /etc/ssl/ai-flux 2>/dev/null || true
+        # Allow nginx to read ssl certs in /etc/ssl/stroma-ai
+        run_cmd semanage fcontext -a -t cert_t "/etc/ssl/stroma-ai(/.*)?" 2>/dev/null || true
+        run_cmd restorecon -Rv /etc/ssl/stroma-ai 2>/dev/null || true
     fi
 
     log_ok "SELinux booleans configured."
@@ -109,9 +109,9 @@ configure_apparmor() {
         log_warn "kernel.unprivileged_userns_clone=0 — Apptainer rootless mode will fail."
         log_info "Setting kernel.unprivileged_userns_clone=1 (persistent)"
         run_cmd sysctl -w kernel.unprivileged_userns_clone=1
-        if [[ "${AI_FLUX_DRY_RUN:-0}" == "0" ]]; then
+        if [[ "${STROMA_DRY_RUN:-0}" == "0" ]]; then
             echo "kernel.unprivileged_userns_clone=1" \
-                >> /etc/sysctl.d/99-ai-flux.conf
+                >> /etc/sysctl.d/99-stroma-ai.conf
         fi
     else
         log_ok "kernel.unprivileged_userns_clone is enabled."
@@ -131,7 +131,7 @@ configure_apparmor() {
 # Ports:
 #   443  — nginx HTTPS (user-facing API)
 #   80   — nginx HTTP (redirects to HTTPS)
-#   6380 — Ray GCS (AI_FLUX_RAY_PORT; Slurm workers connect inbound)
+#   6380 — Ray GCS (STROMA_RAY_PORT; Slurm workers connect inbound)
 #   8265 — Ray dashboard (bind to localhost; not opened externally)
 # ---------------------------------------------------------------------------
 configure_firewall() {
@@ -152,7 +152,7 @@ _configure_firewalld() {
 
     if ! check_cmd firewall-cmd; then
         log_warn "firewalld not found — skipping firewall configuration."
-        log_warn "Ensure ports 443, 80, and ${AI_FLUX_RAY_PORT:-6380} are open in your site firewall."
+        log_warn "Ensure ports 443, 80, and ${STROMA_RAY_PORT:-6380} are open in your site firewall."
         return 0
     fi
 
@@ -162,10 +162,10 @@ _configure_firewalld() {
     fi
 
     if [[ "${mode}" == "head" ]]; then
-        log_info "Opening head node ports: 80/tcp, 443/tcp, ${AI_FLUX_RAY_PORT:-6380}/tcp"
+        log_info "Opening head node ports: 80/tcp, 443/tcp, ${STROMA_RAY_PORT:-6380}/tcp"
         run_cmd firewall-cmd --permanent --add-service=http
         run_cmd firewall-cmd --permanent --add-service=https
-        run_cmd firewall-cmd --permanent --add-port="${AI_FLUX_RAY_PORT:-6380}/tcp"
+        run_cmd firewall-cmd --permanent --add-port="${STROMA_RAY_PORT:-6380}/tcp"
     fi
 
     # Worker nodes only need outbound access (they connect TO the head node).
@@ -187,10 +187,10 @@ _configure_ufw() {
     fi
 
     if [[ "${mode}" == "head" ]]; then
-        log_info "Opening head node ports: 80, 443, ${AI_FLUX_RAY_PORT:-6380}"
+        log_info "Opening head node ports: 80, 443, ${STROMA_RAY_PORT:-6380}"
         run_cmd ufw allow 80/tcp
         run_cmd ufw allow 443/tcp
-        run_cmd ufw allow "${AI_FLUX_RAY_PORT:-6380}/tcp"
+        run_cmd ufw allow "${STROMA_RAY_PORT:-6380}/tcp"
     fi
 
     # Enable ufw if not already active (non-interactively)

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Main Installer
+# StromaAI — Main Installer
 # =============================================================================
-# Installs the AI_Flux HPC burst inference platform on RHEL 8, Rocky Linux 9,
+# Installs the StromaAI HPC burst inference platform on RHEL 8, Rocky Linux 9,
 # or Ubuntu 22.04. Supports head node, Slurm worker node, and OOD integration.
 #
 # Usage:
@@ -48,8 +48,8 @@ source "${SCRIPT_DIR}/lib/selinux.sh"
 # ---------------------------------------------------------------------------
 MODE=""
 CONFIG_FILE=""
-export AI_FLUX_DRY_RUN=0
-export AI_FLUX_YES=0
+export STROMA_DRY_RUN=0
+export STROMA_YES=0
 
 usage() {
     cat <<EOF
@@ -73,8 +73,8 @@ for arg in "$@"; do
     case "${arg}" in
         --mode=*)     MODE="${arg#*=}" ;;
         --config=*)   CONFIG_FILE="${arg#*=}" ;;
-        --dry-run)    AI_FLUX_DRY_RUN=1 ;;
-        --yes)        AI_FLUX_YES=1 ;;
+        --dry-run)    STROMA_DRY_RUN=1 ;;
+        --yes)        STROMA_YES=1 ;;
         --help|-h)    usage ;;
         *)            die "Unknown argument: ${arg}. Run with --help for usage." ;;
     esac
@@ -89,11 +89,11 @@ require_root
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════╗${RESET}"
-echo -e "${BOLD}║       AI_Flux Installer v1.0             ║${RESET}"
+echo -e "${BOLD}║       StromaAI Installer v1.0             ║${RESET}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${RESET}"
 echo ""
 
-if [[ "${AI_FLUX_DRY_RUN}" == "1" ]]; then
+if [[ "${STROMA_DRY_RUN}" == "1" ]]; then
     log_warn "DRY-RUN mode — no changes will be made."
     echo ""
 fi
@@ -111,66 +111,67 @@ load_or_prompt_config() {
         log_info "Loading configuration from: ${CONFIG_FILE}"
         # shellcheck source=/dev/null
         source "${CONFIG_FILE}"
-    elif [[ -f /opt/ai-flux/config.env ]]; then
-        log_info "Existing config found at /opt/ai-flux/config.env — loading."
-        source /opt/ai-flux/config.env
+    elif [[ -f ${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env ]]; then
+        log_info "Existing config found at ${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env — loading."
+        source "${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env"
     else
         log_info "No config file found — running interactive setup."
         _interactive_config
     fi
 
     # Apply defaults for any unset values
-    AI_FLUX_SHARED_ROOT="${AI_FLUX_SHARED_ROOT:-/shared}"
-    AI_FLUX_HEAD_HOST="${AI_FLUX_HEAD_HOST:-ai-flux.$(hostname -d 2>/dev/null || echo 'cluster.local')}"
-    AI_FLUX_VLLM_PORT="${AI_FLUX_VLLM_PORT:-8000}"
-    AI_FLUX_HTTPS_PORT="${AI_FLUX_HTTPS_PORT:-443}"
-    AI_FLUX_RAY_PORT="${AI_FLUX_RAY_PORT:-6380}"
-    AI_FLUX_RAY_DASHBOARD_PORT="${AI_FLUX_RAY_DASHBOARD_PORT:-8265}"
-    AI_FLUX_MODEL_PATH="${AI_FLUX_MODEL_PATH:-${AI_FLUX_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
-    AI_FLUX_MODEL_NAME="${AI_FLUX_MODEL_NAME:-ai-flux-coder}"
-    AI_FLUX_CONTAINER="${AI_FLUX_CONTAINER:-${AI_FLUX_SHARED_ROOT}/containers/ai-flux-vllm.sif}"
-    AI_FLUX_SLURM_PARTITION="${AI_FLUX_SLURM_PARTITION:-ai-flux-gpu}"
-    AI_FLUX_SLURM_ACCOUNT="${AI_FLUX_SLURM_ACCOUNT:-ai-flux-service}"
-    AI_FLUX_SLURM_SCRIPT="${AI_FLUX_SLURM_SCRIPT:-${AI_FLUX_SHARED_ROOT}/slurm/ai_flux_worker.slurm}"
-    AI_FLUX_LOG_DIR="${AI_FLUX_LOG_DIR:-${AI_FLUX_SHARED_ROOT}/logs/ai-flux}"
-    AI_FLUX_SLURM_WALLTIME="${AI_FLUX_SLURM_WALLTIME:-7-00:00:00}"
-    AI_FLUX_MAX_BURST_WORKERS="${AI_FLUX_MAX_BURST_WORKERS:-5}"
-    AI_FLUX_GPU_MEM_UTIL="${AI_FLUX_GPU_MEM_UTIL:-0.85}"
-    AI_FLUX_CPU_OFFLOAD_GB="${AI_FLUX_CPU_OFFLOAD_GB:-200}"
-    AI_FLUX_MAX_MODEL_LEN="${AI_FLUX_MAX_MODEL_LEN:-32768}"
-    AI_FLUX_MAX_NUM_SEQS="${AI_FLUX_MAX_NUM_SEQS:-64}"
-    AI_FLUX_VLLM_CPU_KV_THREADS="${AI_FLUX_VLLM_CPU_KV_THREADS:-32}"
-    AI_FLUX_SCALE_UP_THRESHOLD="${AI_FLUX_SCALE_UP_THRESHOLD:-5}"
-    AI_FLUX_SCALE_DOWN_IDLE_SECONDS="${AI_FLUX_SCALE_DOWN_IDLE_SECONDS:-300}"
-    AI_FLUX_SCALE_UP_COOLDOWN="${AI_FLUX_SCALE_UP_COOLDOWN:-120}"
-    AI_FLUX_STATE_FILE="${AI_FLUX_STATE_FILE:-/opt/ai-flux/state/watcher_state.json}"
+    STROMA_INSTALL_DIR="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
+    STROMA_SHARED_ROOT="${STROMA_SHARED_ROOT:-/share}"
+    STROMA_HEAD_HOST="${STROMA_HEAD_HOST:-stroma-ai.$(hostname -d 2>/dev/null || echo 'cluster.local')}"
+    STROMA_VLLM_PORT="${STROMA_VLLM_PORT:-8000}"
+    STROMA_HTTPS_PORT="${STROMA_HTTPS_PORT:-443}"
+    STROMA_RAY_PORT="${STROMA_RAY_PORT:-6380}"
+    STROMA_RAY_DASHBOARD_PORT="${STROMA_RAY_DASHBOARD_PORT:-8265}"
+    STROMA_MODEL_PATH="${STROMA_MODEL_PATH:-${STROMA_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
+    STROMA_MODEL_NAME="${STROMA_MODEL_NAME:-stroma-ai-coder}"
+    STROMA_CONTAINER="${STROMA_CONTAINER:-${STROMA_SHARED_ROOT}/containers/stroma-ai-vllm.sif}"
+    STROMA_SLURM_PARTITION="${STROMA_SLURM_PARTITION:-ai-flux-gpu}"
+    STROMA_SLURM_ACCOUNT="${STROMA_SLURM_ACCOUNT:-ai-flux-service}"
+    STROMA_SLURM_SCRIPT="${STROMA_SLURM_SCRIPT:-${STROMA_SHARED_ROOT}/slurm/stroma_ai_worker.slurm}"
+    STROMA_LOG_DIR="${STROMA_LOG_DIR:-${STROMA_SHARED_ROOT}/logs/stroma-ai}"
+    STROMA_SLURM_WALLTIME="${STROMA_SLURM_WALLTIME:-7-00:00:00}"
+    STROMA_MAX_BURST_WORKERS="${STROMA_MAX_BURST_WORKERS:-5}"
+    STROMA_GPU_MEM_UTIL="${STROMA_GPU_MEM_UTIL:-0.85}"
+    STROMA_CPU_OFFLOAD_GB="${STROMA_CPU_OFFLOAD_GB:-200}"
+    STROMA_MAX_MODEL_LEN="${STROMA_MAX_MODEL_LEN:-32768}"
+    STROMA_MAX_NUM_SEQS="${STROMA_MAX_NUM_SEQS:-64}"
+    STROMA_VLLM_CPU_KV_THREADS="${STROMA_VLLM_CPU_KV_THREADS:-32}"
+    STROMA_SCALE_UP_THRESHOLD="${STROMA_SCALE_UP_THRESHOLD:-5}"
+    STROMA_SCALE_DOWN_IDLE_SECONDS="${STROMA_SCALE_DOWN_IDLE_SECONDS:-300}"
+    STROMA_SCALE_UP_COOLDOWN="${STROMA_SCALE_UP_COOLDOWN:-120}"
+    STROMA_STATE_FILE="${STROMA_STATE_FILE:-${STROMA_INSTALL_DIR}/state/watcher_state.json}"
 
     # Validate API key
-    if [[ -z "${AI_FLUX_API_KEY:-}" || "${AI_FLUX_API_KEY}" == "CHANGEME"* ]]; then
-        if [[ "${AI_FLUX_YES}" == "1" ]]; then
+    if [[ -z "${STROMA_API_KEY:-}" || "${STROMA_API_KEY}" == "CHANGEME"* ]]; then
+        if [[ "${STROMA_YES}" == "1" ]]; then
             log_info "Generating random API key..."
-            AI_FLUX_API_KEY=$(openssl rand -hex 32)
+            STROMA_API_KEY=$(openssl rand -hex 32)
         else
-            echo -en "${BOLD}Enter AI_FLUX_API_KEY (or press Enter to generate one): ${RESET}"
+            echo -en "${BOLD}Enter STROMA_API_KEY (or press Enter to generate one): ${RESET}"
             read -r input_key
             if [[ -z "${input_key}" ]]; then
-                AI_FLUX_API_KEY=$(openssl rand -hex 32)
-                log_info "Generated API key: ${AI_FLUX_API_KEY}"
+                STROMA_API_KEY=$(openssl rand -hex 32)
+                log_info "Generated API key: ${STROMA_API_KEY}"
                 log_warn "SAVE this key — you will need it for OOD configuration."
             else
-                AI_FLUX_API_KEY="${input_key}"
+                STROMA_API_KEY="${input_key}"
             fi
         fi
     fi
 
-    export AI_FLUX_HEAD_HOST AI_FLUX_VLLM_PORT AI_FLUX_HTTPS_PORT AI_FLUX_RAY_PORT
-    export AI_FLUX_RAY_DASHBOARD_PORT AI_FLUX_MODEL_PATH AI_FLUX_MODEL_NAME
-    export AI_FLUX_CONTAINER AI_FLUX_SLURM_PARTITION AI_FLUX_SLURM_ACCOUNT
-    export AI_FLUX_SLURM_SCRIPT AI_FLUX_SLURM_WALLTIME AI_FLUX_MAX_BURST_WORKERS
-    export AI_FLUX_GPU_MEM_UTIL AI_FLUX_CPU_OFFLOAD_GB AI_FLUX_MAX_MODEL_LEN
-    export AI_FLUX_MAX_NUM_SEQS AI_FLUX_VLLM_CPU_KV_THREADS AI_FLUX_SCALE_UP_THRESHOLD
-    export AI_FLUX_SCALE_DOWN_IDLE_SECONDS AI_FLUX_SCALE_UP_COOLDOWN AI_FLUX_STATE_FILE
-    export AI_FLUX_API_KEY AI_FLUX_SHARED_ROOT AI_FLUX_LOG_DIR
+    export STROMA_HEAD_HOST STROMA_VLLM_PORT STROMA_HTTPS_PORT STROMA_RAY_PORT
+    export STROMA_RAY_DASHBOARD_PORT STROMA_MODEL_PATH STROMA_MODEL_NAME
+    export STROMA_CONTAINER STROMA_SLURM_PARTITION STROMA_SLURM_ACCOUNT
+    export STROMA_SLURM_SCRIPT STROMA_SLURM_WALLTIME STROMA_MAX_BURST_WORKERS
+    export STROMA_GPU_MEM_UTIL STROMA_CPU_OFFLOAD_GB STROMA_MAX_MODEL_LEN
+    export STROMA_MAX_NUM_SEQS STROMA_VLLM_CPU_KV_THREADS STROMA_SCALE_UP_THRESHOLD
+    export STROMA_SCALE_DOWN_IDLE_SECONDS STROMA_SCALE_UP_COOLDOWN STROMA_STATE_FILE
+    export STROMA_API_KEY STROMA_SHARED_ROOT STROMA_LOG_DIR
 
     log_ok "Configuration loaded."
 }
@@ -178,32 +179,35 @@ load_or_prompt_config() {
 _interactive_config() {
     cat <<EOF
 
-This installer needs a few site-specific values to configure AI_Flux.
+This installer needs a few site-specific values to configure StromaAI.
 Press Enter to accept the default shown in [brackets].
 
 EOF
-    local default_host="ai-flux.$(hostname -d 2>/dev/null || echo 'cluster.local')"
+    local default_host="stroma-ai.$(hostname -d 2>/dev/null || echo 'cluster.local')"
 
-    echo -en "Shared filesystem root [/shared]: "
-    read -r input; AI_FLUX_SHARED_ROOT="${input:-/shared}"
+    echo -en "Install directory [/opt/stroma-ai]: "
+    read -r input; STROMA_INSTALL_DIR="${input:-/opt/stroma-ai}"
+
+    echo -en "Shared filesystem root [/share]: "
+    read -r input; STROMA_SHARED_ROOT="${input:-/share}"
 
     echo -en "Head node hostname [${default_host}]: "
-    read -r input; AI_FLUX_HEAD_HOST="${input:-${default_host}}"
+    read -r input; STROMA_HEAD_HOST="${input:-${default_host}}"
 
-    echo -en "Shared model weight path [${AI_FLUX_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ]: "
-    read -r input; AI_FLUX_MODEL_PATH="${input:-${AI_FLUX_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
+    echo -en "Shared model weight path [${STROMA_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ]: "
+    read -r input; STROMA_MODEL_PATH="${input:-${STROMA_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
 
-    echo -en "Shared container SIF path [${AI_FLUX_SHARED_ROOT}/containers/ai-flux-vllm.sif]: "
-    read -r input; AI_FLUX_CONTAINER="${input:-${AI_FLUX_SHARED_ROOT}/containers/ai-flux-vllm.sif}"
+    echo -en "Shared container SIF path [${STROMA_SHARED_ROOT}/containers/stroma-ai-vllm.sif]: "
+    read -r input; STROMA_CONTAINER="${input:-${STROMA_SHARED_ROOT}/containers/stroma-ai-vllm.sif}"
 
     echo -en "Slurm GPU partition [ai-flux-gpu]: "
-    read -r input; AI_FLUX_SLURM_PARTITION="${input:-ai-flux-gpu}"
+    read -r input; STROMA_SLURM_PARTITION="${input:-ai-flux-gpu}"
 
     echo -en "Slurm account [ai-flux-service]: "
-    read -r input; AI_FLUX_SLURM_ACCOUNT="${input:-ai-flux-service}"
+    read -r input; STROMA_SLURM_ACCOUNT="${input:-ai-flux-service}"
 
     echo -en "Max concurrent burst workers [5]: "
-    read -r input; AI_FLUX_MAX_BURST_WORKERS="${input:-5}"
+    read -r input; STROMA_MAX_BURST_WORKERS="${input:-5}"
 
     echo ""
 }
@@ -212,7 +216,7 @@ EOF
 # ── HEAD NODE INSTALLATION ──────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 install_head() {
-    log_step "Installing AI_Flux head node on ${OS_PRETTY}"
+    log_step "Installing StromaAI head node on ${OS_PRETTY}"
     confirm "This will install Ray, vLLM, nginx, and configure systemd services. Continue?" \
         || die "Installation cancelled."
 
@@ -231,37 +235,36 @@ install_head() {
 }
 
 _create_system_user() {
-    log_step "Creating aiflux system user"
-    if id aiflux &>/dev/null; then
-        log_info "User 'aiflux' already exists."
+    log_step "Creating stromaai system user"
+    if id stromaai &>/dev/null; then
+        log_info "User 'stromaai' already exists."
         return 0
     fi
     run_cmd useradd \
         --system \
         --no-create-home \
-        --home-dir /opt/ai-flux \
+        --home-dir "${STROMA_INSTALL_DIR}" \
         --shell /sbin/nologin \
-        --comment "AI_Flux service account" \
-        aiflux
-    log_ok "User 'aiflux' created."
+        --comment "StromaAI service account" \
+        stromaai
+    log_ok "User 'stromaai' created."
 }
 
 _create_directories() {
     log_step "Creating directory structure"
     local dirs=(
-        /opt/ai-flux
-        /opt/ai-flux/src
-        /opt/ai-flux/state
-        /etc/ssl/ai-flux
-        "${AI_FLUX_LOG_DIR}"
+        "${STROMA_INSTALL_DIR}"
+        "${STROMA_INSTALL_DIR}/src"
+        "${STROMA_INSTALL_DIR}/state"
+        /etc/ssl/stroma-ai
+        "${STROMA_LOG_DIR}"
     )
     for dir in "${dirs[@]}"; do
         run_cmd mkdir -p "${dir}"
     done
-    run_cmd chown -R aiflux:aiflux /opt/ai-flux
-    run_cmd chmod 750 /opt/ai-flux
-    run_cmd chown aiflux:aiflux "${AI_FLUX_LOG_DIR}" 2>/dev/null || true
-    log_ok "Directories created."
+    run_cmd chown -R stromaai:stromaai "${STROMA_INSTALL_DIR}"
+    run_cmd chmod 750 "${STROMA_INSTALL_DIR}"
+    run_cmd chown stromaai:stromaai "${STROMA_LOG_DIR}" 2>/dev/null || true
 }
 
 _install_head_packages() {
@@ -271,83 +274,84 @@ _install_head_packages() {
     install_python311
     install_nginx
 
-    # Install Python venv into /opt/ai-flux/venv
+    # Install Python venv into ${STROMA_INSTALL_DIR}/venv
     install_head_python_deps
 }
 
 _deploy_config_env() {
-    log_step "Writing /opt/ai-flux/config.env"
-    if [[ -f /opt/ai-flux/config.env && "${AI_FLUX_YES}" != "1" ]]; then
-        backup_file /opt/ai-flux/config.env
-        if ! confirm "/opt/ai-flux/config.env already exists. Overwrite?"; then
+    log_step "Writing ${STROMA_INSTALL_DIR}/config.env"
+    if [[ -f ${STROMA_INSTALL_DIR}/config.env && "${STROMA_YES}" != "1" ]]; then
+        backup_file "${STROMA_INSTALL_DIR}/config.env"
+        if ! confirm "${STROMA_INSTALL_DIR}/config.env already exists. Overwrite?"; then
             log_info "Keeping existing config.env."
             return 0
         fi
     fi
 
-    if [[ "${AI_FLUX_DRY_RUN}" == "0" ]]; then
-        cat > /opt/ai-flux/config.env <<EOF
-# AI_Flux configuration — generated by install.sh on $(date)
+    if [[ "${STROMA_DRY_RUN}" == "0" ]]; then
+        cat > "${STROMA_INSTALL_DIR}/config.env" <<EOF
+# StromaAI configuration — generated by install.sh on $(date)
 # Do NOT commit this file. Contains secrets.
 
-AI_FLUX_SHARED_ROOT=${AI_FLUX_SHARED_ROOT}
+STROMA_INSTALL_DIR=${STROMA_INSTALL_DIR}
+STROMA_SHARED_ROOT=${STROMA_SHARED_ROOT}
 
-AI_FLUX_HEAD_HOST=${AI_FLUX_HEAD_HOST}
-AI_FLUX_VLLM_PORT=${AI_FLUX_VLLM_PORT}
-AI_FLUX_HTTPS_PORT=${AI_FLUX_HTTPS_PORT}
-AI_FLUX_RAY_PORT=${AI_FLUX_RAY_PORT}
-AI_FLUX_RAY_DASHBOARD_PORT=${AI_FLUX_RAY_DASHBOARD_PORT}
-AI_FLUX_API_KEY=${AI_FLUX_API_KEY}
+STROMA_HEAD_HOST=${STROMA_HEAD_HOST}
+STROMA_VLLM_PORT=${STROMA_VLLM_PORT}
+STROMA_HTTPS_PORT=${STROMA_HTTPS_PORT}
+STROMA_RAY_PORT=${STROMA_RAY_PORT}
+STROMA_RAY_DASHBOARD_PORT=${STROMA_RAY_DASHBOARD_PORT}
+STROMA_API_KEY=${STROMA_API_KEY}
 
-AI_FLUX_MODEL_PATH=${AI_FLUX_MODEL_PATH}
-AI_FLUX_MODEL_NAME=${AI_FLUX_MODEL_NAME}
-AI_FLUX_CONTAINER=${AI_FLUX_CONTAINER}
+STROMA_MODEL_PATH=${STROMA_MODEL_PATH}
+STROMA_MODEL_NAME=${STROMA_MODEL_NAME}
+STROMA_CONTAINER=${STROMA_CONTAINER}
 
-AI_FLUX_SLURM_PARTITION=${AI_FLUX_SLURM_PARTITION}
-AI_FLUX_SLURM_ACCOUNT=${AI_FLUX_SLURM_ACCOUNT}
-AI_FLUX_SLURM_SCRIPT=${AI_FLUX_SLURM_SCRIPT}
-AI_FLUX_SLURM_WALLTIME=${AI_FLUX_SLURM_WALLTIME}
-AI_FLUX_MAX_BURST_WORKERS=${AI_FLUX_MAX_BURST_WORKERS}
-AI_FLUX_WARM_RESERVATION=ai-flux-warm
-AI_FLUX_LOG_DIR=${AI_FLUX_LOG_DIR}
+STROMA_SLURM_PARTITION=${STROMA_SLURM_PARTITION}
+STROMA_SLURM_ACCOUNT=${STROMA_SLURM_ACCOUNT}
+STROMA_SLURM_SCRIPT=${STROMA_SLURM_SCRIPT}
+STROMA_SLURM_WALLTIME=${STROMA_SLURM_WALLTIME}
+STROMA_MAX_BURST_WORKERS=${STROMA_MAX_BURST_WORKERS}
+STROMA_WARM_RESERVATION=ai-flux-warm
+STROMA_LOG_DIR=${STROMA_LOG_DIR}
 
-AI_FLUX_GPU_MEM_UTIL=${AI_FLUX_GPU_MEM_UTIL}
-AI_FLUX_CPU_OFFLOAD_GB=${AI_FLUX_CPU_OFFLOAD_GB}
-AI_FLUX_MAX_MODEL_LEN=${AI_FLUX_MAX_MODEL_LEN}
-AI_FLUX_MAX_NUM_SEQS=${AI_FLUX_MAX_NUM_SEQS}
-AI_FLUX_VLLM_CPU_KV_THREADS=${AI_FLUX_VLLM_CPU_KV_THREADS}
+STROMA_GPU_MEM_UTIL=${STROMA_GPU_MEM_UTIL}
+STROMA_CPU_OFFLOAD_GB=${STROMA_CPU_OFFLOAD_GB}
+STROMA_MAX_MODEL_LEN=${STROMA_MAX_MODEL_LEN}
+STROMA_MAX_NUM_SEQS=${STROMA_MAX_NUM_SEQS}
+STROMA_VLLM_CPU_KV_THREADS=${STROMA_VLLM_CPU_KV_THREADS}
 
-AI_FLUX_SCALE_UP_THRESHOLD=${AI_FLUX_SCALE_UP_THRESHOLD}
-AI_FLUX_SCALE_DOWN_IDLE_SECONDS=${AI_FLUX_SCALE_DOWN_IDLE_SECONDS}
-AI_FLUX_SCALE_UP_COOLDOWN=${AI_FLUX_SCALE_UP_COOLDOWN}
-AI_FLUX_STATE_FILE=${AI_FLUX_STATE_FILE}
+STROMA_SCALE_UP_THRESHOLD=${STROMA_SCALE_UP_THRESHOLD}
+STROMA_SCALE_DOWN_IDLE_SECONDS=${STROMA_SCALE_DOWN_IDLE_SECONDS}
+STROMA_SCALE_UP_COOLDOWN=${STROMA_SCALE_UP_COOLDOWN}
+STROMA_STATE_FILE=${STROMA_STATE_FILE}
 EOF
-        chown aiflux:aiflux /opt/ai-flux/config.env
-        chmod 640 /opt/ai-flux/config.env
+        chown stromaai:stromaai "${STROMA_INSTALL_DIR}/config.env"
+        chmod 640 "${STROMA_INSTALL_DIR}/config.env"
     else
-        log_dry "Would write /opt/ai-flux/config.env with site values"
+        log_dry "Would write ${STROMA_INSTALL_DIR}/config.env with site values"
     fi
     log_ok "config.env written."
 }
 
 _deploy_source_files() {
-    log_step "Deploying AI_Flux source files to /opt/ai-flux"
+    log_step "Deploying StromaAI source files to ${STROMA_INSTALL_DIR}"
 
     # Copy watcher
-    run_cmd cp "${REPO_DIR}/src/vllm_watcher.py" /opt/ai-flux/src/vllm_watcher.py
-    run_cmd chown aiflux:aiflux /opt/ai-flux/src/vllm_watcher.py
-    run_cmd chmod 750 /opt/ai-flux/src/vllm_watcher.py
+    run_cmd cp "${REPO_DIR}/src/vllm_watcher.py" "${STROMA_INSTALL_DIR}/src/vllm_watcher.py"
+    run_cmd chown stromaai:stromaai "${STROMA_INSTALL_DIR}/src/vllm_watcher.py"
+    run_cmd chmod 750 "${STROMA_INSTALL_DIR}/src/vllm_watcher.py"
 
     # Copy shared Slurm script to shared filesystem (if mounted)
     local slurm_script_dir
-    slurm_script_dir="$(dirname "${AI_FLUX_SLURM_SCRIPT}")"
+    slurm_script_dir="$(dirname "${STROMA_SLURM_SCRIPT}")"
     if [[ -d "${slurm_script_dir}" ]]; then
-        run_cmd cp "${REPO_DIR}/deploy/slurm/ai_flux_worker.slurm" "${AI_FLUX_SLURM_SCRIPT}"
-        run_cmd chmod 755 "${AI_FLUX_SLURM_SCRIPT}"
-        log_ok "Slurm script deployed to ${AI_FLUX_SLURM_SCRIPT}"
+        run_cmd cp "${REPO_DIR}/deploy/slurm/stroma_ai_worker.slurm" "${STROMA_SLURM_SCRIPT}"
+        run_cmd chmod 755 "${STROMA_SLURM_SCRIPT}"
+        log_ok "Slurm script deployed to ${STROMA_SLURM_SCRIPT}"
     else
         log_warn "Slurm script directory ${slurm_script_dir} not found — copy manually:"
-        log_warn "  cp deploy/slurm/ai_flux_worker.slurm ${AI_FLUX_SLURM_SCRIPT}"
+        log_warn "  cp deploy/slurm/stroma_ai_worker.slurm ${STROMA_SLURM_SCRIPT}"
     fi
 }
 
@@ -359,21 +363,21 @@ _deploy_nginx() {
     case "${OS_FAMILY}" in
         rhel)
             # RHEL/Rocky: drop file in conf.d (nginx reads all *.conf there)
-            nginx_conf_path="/etc/nginx/conf.d/ai-flux.conf"
+            nginx_conf_path="/etc/nginx/conf.d/stroma-ai.conf"
             ;;
         debian)
             # Ubuntu: use sites-available + symlink
-            nginx_conf_path="/etc/nginx/sites-available/ai-flux"
+            nginx_conf_path="/etc/nginx/sites-available/stroma-ai"
             ;;
     esac
 
     backup_file "${nginx_conf_path}" 2>/dev/null || true
-    run_cmd cp "${REPO_DIR}/deploy/nginx/ai-flux.conf" "${nginx_conf_path}"
+    run_cmd cp "${REPO_DIR}/deploy/nginx/stroma-ai.conf" "${nginx_conf_path}"
     log_ok "nginx config installed at ${nginx_conf_path}"
 
     # Ubuntu: enable the site
     if [[ "${OS_FAMILY}" == "debian" ]]; then
-        run_cmd ln -sf "${nginx_conf_path}" /etc/nginx/sites-enabled/ai-flux
+        run_cmd ln -sf "${nginx_conf_path}" /etc/nginx/sites-enabled/stroma-ai
         # Disable default site if present (conflicts with port 80)
         if [[ -f /etc/nginx/sites-enabled/default ]]; then
             run_cmd rm -f /etc/nginx/sites-enabled/default
@@ -393,7 +397,7 @@ _deploy_nginx() {
     fi
 
     # Validate nginx config
-    if [[ "${AI_FLUX_DRY_RUN}" == "0" ]]; then
+    if [[ "${STROMA_DRY_RUN}" == "0" ]]; then
         nginx -t && log_ok "nginx config syntax OK" \
             || log_warn "nginx -t failed — check ${nginx_conf_path} before starting nginx."
     fi
@@ -402,23 +406,23 @@ _deploy_nginx() {
 _generate_tls_cert() {
     log_step "TLS certificate"
 
-    if [[ -f /etc/ssl/ai-flux/server.crt && -f /etc/ssl/ai-flux/server.key ]]; then
-        log_ok "TLS certificate already exists at /etc/ssl/ai-flux/ — skipping generation."
+    if [[ -f /etc/ssl/stroma-ai/server.crt && -f /etc/ssl/stroma-ai/server.key ]]; then
+        log_ok "TLS certificate already exists at /etc/ssl/stroma-ai/ — skipping generation."
         return 0
     fi
 
-    log_info "Generating self-signed TLS certificate for ${AI_FLUX_HEAD_HOST}"
+    log_info "Generating self-signed TLS certificate for ${STROMA_HEAD_HOST}"
     log_warn "For production, replace with a CA-signed certificate."
 
-    run_cmd mkdir -p /etc/ssl/ai-flux
+    run_cmd mkdir -p /etc/ssl/stroma-ai
     run_cmd openssl req -x509 -nodes -days 3650 -newkey rsa:4096 \
-        -keyout /etc/ssl/ai-flux/server.key \
-        -out    /etc/ssl/ai-flux/server.crt \
-        -subj "/CN=${AI_FLUX_HEAD_HOST}" \
-        -addext "subjectAltName=DNS:${AI_FLUX_HEAD_HOST}"
-    run_cmd chmod 600 /etc/ssl/ai-flux/server.key
-    run_cmd chmod 644 /etc/ssl/ai-flux/server.crt
-    run_cmd chown root:root /etc/ssl/ai-flux/server.*
+        -keyout /etc/ssl/stroma-ai/server.key \
+        -out    /etc/ssl/stroma-ai/server.crt \
+        -subj "/CN=${STROMA_HEAD_HOST}" \
+        -addext "subjectAltName=DNS:${STROMA_HEAD_HOST}"
+    run_cmd chmod 600 /etc/ssl/stroma-ai/server.key
+    run_cmd chmod 644 /etc/ssl/stroma-ai/server.crt
+    run_cmd chown root:root /etc/ssl/stroma-ai/server.*
 
     log_ok "Self-signed TLS certificate generated (valid 10 years)."
 }
@@ -428,28 +432,35 @@ _deploy_systemd_units() {
 
     local units=(
         "deploy/systemd/ray-head.service:ray-head.service"
-        "deploy/systemd/ai-flux-vllm.service:ai-flux-vllm.service"
-        "deploy/systemd/ai-flux-watcher.service:ai-flux-watcher.service"
+        "deploy/systemd/stroma-ai-vllm.service:stroma-ai-vllm.service"
+        "deploy/systemd/stroma-ai-watcher.service:stroma-ai-watcher.service"
     )
 
     for entry in "${units[@]}"; do
         local src="${REPO_DIR}/${entry%%:*}"
-        local dest="${AI_FLUX_SYSTEMD_DIR}/${entry##*:}"
+        local dest="${STROMA_SYSTEMD_DIR}/${entry##*:}"
         backup_file "${dest}" 2>/dev/null || true
         run_cmd cp "${src}" "${dest}"
         log_ok "Installed ${dest}"
     done
 
-    # Patch ReadWritePaths in ai-flux-vllm.service to use the actual shared
-    # storage root. systemd cannot expand shell variables in ReadWritePaths,
-    # so the installer substitutes the configured path at deploy time.
-    local vllm_unit="${AI_FLUX_SYSTEMD_DIR}/ai-flux-vllm.service"
-    if [[ "${AI_FLUX_DRY_RUN}" == "0" && -f "${vllm_unit}" ]]; then
-        sed -i "s|ReadWritePaths=/opt/ai-flux /tmp /shared|ReadWritePaths=/opt/ai-flux /tmp ${AI_FLUX_SHARED_ROOT}|" \
-            "${vllm_unit}"
-        log_ok "Patched ReadWritePaths in ai-flux-vllm.service to use ${AI_FLUX_SHARED_ROOT}"
-    elif [[ "${AI_FLUX_DRY_RUN}" != "0" ]]; then
-        log_dry "Would patch ReadWritePaths in ai-flux-vllm.service: /shared -> ${AI_FLUX_SHARED_ROOT}"
+    # Patch all deployed units: substitute the actual install dir and shared root.
+    # systemd cannot expand shell variables in paths, so the installer does it.
+    if [[ "${STROMA_DRY_RUN}" == "0" ]]; then
+        for unit in ray-head stroma-ai-vllm stroma-ai-watcher; do
+            local dest="${STROMA_SYSTEMD_DIR}/${unit}.service"
+            [[ -f "${dest}" ]] || continue
+            sed -i "s|/opt/stroma-ai|${STROMA_INSTALL_DIR}|g" "${dest}"
+        done
+        # Also patch ReadWritePaths shared-root placeholder in vllm unit
+        local vllm_unit="${STROMA_SYSTEMD_DIR}/stroma-ai-vllm.service"
+        if [[ -f "${vllm_unit}" ]]; then
+            sed -i "s|ReadWritePaths=${STROMA_INSTALL_DIR} /tmp /share|ReadWritePaths=${STROMA_INSTALL_DIR} /tmp ${STROMA_SHARED_ROOT}|" \
+                "${vllm_unit}"
+        fi
+        log_ok "Patched systemd units: install_dir=${STROMA_INSTALL_DIR}, shared_root=${STROMA_SHARED_ROOT}"
+    else
+        log_dry "Would patch systemd units: /opt/stroma-ai -> ${STROMA_INSTALL_DIR}, /share -> ${STROMA_SHARED_ROOT}"
     fi
 
     run_cmd systemctl daemon-reload
@@ -464,49 +475,49 @@ _enable_services() {
     run_cmd systemctl restart nginx
     log_ok "nginx started."
 
-    # AI_Flux services (Ray → vLLM → Watcher, in dependency order)
-    local services=(ray-head ai-flux-vllm ai-flux-watcher)
+    # StromaAI services (Ray → vLLM → Watcher, in dependency order)
+    local services=(ray-head stroma-ai-vllm stroma-ai-watcher)
     for svc in "${services[@]}"; do
         run_cmd systemctl enable "${svc}"
     done
 
     # Ask before starting (vLLM takes 5+ minutes to load)
-    if confirm "Start AI_Flux services now? (Ray, vLLM, Watcher — model loading takes 3-10 minutes)"; then
+    if confirm "Start StromaAI services now? (Ray, vLLM, Watcher — model loading takes 3-10 minutes)"; then
         for svc in "${services[@]}"; do
             run_cmd systemctl start "${svc}"
             log_ok "Started ${svc}."
         done
     else
         log_info "Services are enabled but not started."
-        log_info "Start manually: systemctl start ray-head ai-flux-vllm ai-flux-watcher"
+        log_info "Start manually: systemctl start ray-head stroma-ai-vllm stroma-ai-watcher"
     fi
 }
 
 _print_head_summary() {
-    local api_url="https://${AI_FLUX_HEAD_HOST}:${AI_FLUX_HTTPS_PORT}"
+    local api_url="https://${STROMA_HEAD_HOST}:${STROMA_HTTPS_PORT}"
     echo ""
     echo -e "${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}║   AI_Flux Head Node Installation Complete                ║${RESET}"
+    echo -e "${BOLD}║   StromaAI Head Node Installation Complete                ║${RESET}"
     echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
     echo ""
     echo -e "  API endpoint:   ${CYAN}${api_url}/v1${RESET}"
     echo -e "  Health check:   ${CYAN}${api_url}/health${RESET}"
     echo -e "  Metrics:        ${CYAN}${api_url}/metrics${RESET} (internal only)"
-    echo -e "  Config file:    /opt/ai-flux/config.env"
-    echo -e "  API key:        ${YELLOW}${AI_FLUX_API_KEY}${RESET}"
+    echo -e "  Config file:    ${STROMA_INSTALL_DIR}/config.env"
+    echo -e "  API key:        ${YELLOW}${STROMA_API_KEY}${RESET}"
     echo ""
     echo -e "  Log commands:"
     echo -e "    journalctl -u ray-head -f"
-    echo -e "    journalctl -u ai-flux-vllm -f"
-    echo -e "    journalctl -u ai-flux-watcher -f"
+    echo -e "    journalctl -u stroma-ai-vllm -f"
+    echo -e "    journalctl -u stroma-ai-watcher -f"
     echo ""
     echo -e "  Next steps:"
     echo -e "    1. Run preflight on Slurm worker nodes:"
     echo -e "       sudo ./install/preflight.sh --mode=worker"
     echo -e "    2. Build the Apptainer container:"
-    echo -e "       apptainer build ${AI_FLUX_CONTAINER} deploy/containers/ai-flux-vllm.def"
+    echo -e "       apptainer build ${STROMA_CONTAINER} deploy/containers/stroma-ai-vllm.def"
     echo -e "    3. Configure OOD integration:"
-    echo -e "       sudo ./install/install.sh --mode=ood --config=/opt/ai-flux/config.env"
+    echo -e "       sudo ./install/install.sh --mode=ood --config=${STROMA_INSTALL_DIR}/config.env"
     echo ""
 }
 
@@ -533,7 +544,7 @@ install_worker() {
 }
 
 _create_shared_log_dirs() {
-    local log_dir="${AI_FLUX_LOG_DIR:-/shared/logs/ai-flux}"
+    local log_dir="${STROMA_LOG_DIR:-/share/logs/stroma-ai}"
     if [[ -d "$(dirname "${log_dir}")" ]]; then
         run_cmd mkdir -p "${log_dir}"
         run_cmd chmod 2775 "${log_dir}"
@@ -546,22 +557,22 @@ _create_shared_log_dirs() {
 _print_worker_summary() {
     echo ""
     echo -e "${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}║   AI_Flux Worker Node Configuration Complete             ║${RESET}"
+    echo -e "${BOLD}║   StromaAI Worker Node Configuration Complete             ║${RESET}"
     echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
     echo ""
     echo -e "  Container runtime: ${CONTAINER_RUNTIME:-apptainer}"
     echo -e "  SELinux status:    ${SELINUX_STATUS:-N/A}"
     echo ""
     echo -e "  Verify GPU access inside container:"
-    echo -e "    ${CONTAINER_RUNTIME:-apptainer} exec --nv ${AI_FLUX_CONTAINER} \\"
+    echo -e "    ${CONTAINER_RUNTIME:-apptainer} exec --nv ${STROMA_CONTAINER} \\"
     echo -e "      python3 -c 'import torch; print(torch.cuda.is_available())'"
     echo ""
     echo -e "  Build the container (on an internet-connected machine):"
-    echo -e "    apptainer build ${AI_FLUX_CONTAINER} deploy/containers/ai-flux-vllm.def"
+    echo -e "    apptainer build ${STROMA_CONTAINER} deploy/containers/stroma-ai-vllm.def"
     echo ""
     echo -e "  Next step: verify shared filesystem and Slurm account:"
-    echo -e "    scontrol show partition ${AI_FLUX_SLURM_PARTITION}"
-    echo -e "    sacctmgr show account ${AI_FLUX_SLURM_ACCOUNT}"
+    echo -e "    scontrol show partition ${STROMA_SLURM_PARTITION}"
+    echo -e "    sacctmgr show account ${STROMA_SLURM_ACCOUNT}"
     echo ""
 }
 
@@ -584,24 +595,24 @@ install_ood() {
 }
 
 _deploy_ood_config() {
-    log_step "Deploying /etc/ood/ai-flux.conf"
+    log_step "Deploying /etc/ood/stroma-ai.conf"
 
-    if [[ "${AI_FLUX_DRY_RUN}" == "0" ]]; then
-        backup_file /etc/ood/ai-flux.conf 2>/dev/null || true
-        cat > /etc/ood/ai-flux.conf <<EOF
-# AI_Flux OOD configuration — generated by install.sh on $(date)
+    if [[ "${STROMA_DRY_RUN}" == "0" ]]; then
+        backup_file /etc/ood/stroma-ai.conf 2>/dev/null || true
+        cat > /etc/ood/stroma-ai.conf <<EOF
+# StromaAI OOD configuration — generated by install.sh on $(date)
 # Sourced by deploy/ood/script.sh.erb at code-server session start.
 
-AI_FLUX_HEAD_HOST=${AI_FLUX_HEAD_HOST}
-AI_FLUX_HTTPS_PORT=${AI_FLUX_HTTPS_PORT}
-AI_FLUX_API_KEY=${AI_FLUX_API_KEY}
-AI_FLUX_MODEL_NAME=${AI_FLUX_MODEL_NAME}
+STROMA_HEAD_HOST=${STROMA_HEAD_HOST}
+STROMA_HTTPS_PORT=${STROMA_HTTPS_PORT}
+STROMA_API_KEY=${STROMA_API_KEY}
+STROMA_MODEL_NAME=${STROMA_MODEL_NAME}
 EOF
-        chmod 640 /etc/ood/ai-flux.conf
-        chown root:ood /etc/ood/ai-flux.conf 2>/dev/null || \
-            chown root:root /etc/ood/ai-flux.conf
+        chmod 640 /etc/ood/stroma-ai.conf
+        chown root:ood /etc/ood/stroma-ai.conf 2>/dev/null || \
+            chown root:root /etc/ood/stroma-ai.conf
     fi
-    log_ok "/etc/ood/ai-flux.conf written."
+    log_ok "/etc/ood/stroma-ai.conf written."
 }
 
 _deploy_ood_app() {
@@ -623,26 +634,26 @@ _deploy_ood_app() {
         return 0
     fi
 
-    local ai_flux_app_dir="${ood_apps_dir}/ai-flux-code"
-    run_cmd mkdir -p "${ai_flux_app_dir}/template"
-    run_cmd cp "${REPO_DIR}/deploy/ood/ai-flux.conf" "${ai_flux_app_dir}/"
-    run_cmd cp "${REPO_DIR}/deploy/ood/script.sh.erb" "${ai_flux_app_dir}/template/"
+    local stroma_ai_app_dir="${ood_apps_dir}/stroma-ai-code"
+    run_cmd mkdir -p "${stroma_ai_app_dir}/template"
+    run_cmd cp "${REPO_DIR}/deploy/ood/stroma-ai.conf" "${stroma_ai_app_dir}/"
+    run_cmd cp "${REPO_DIR}/deploy/ood/script.sh.erb" "${stroma_ai_app_dir}/template/"
 
-    log_ok "OOD app files deployed to ${ai_flux_app_dir}"
+    log_ok "OOD app files deployed to ${stroma_ai_app_dir}"
 }
 
 _print_ood_summary() {
     echo ""
     echo -e "${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}║   AI_Flux OOD Integration Complete                       ║${RESET}"
+    echo -e "${BOLD}║   StromaAI OOD Integration Complete                       ║${RESET}"
     echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
     echo ""
-    echo -e "  OOD config:  /etc/ood/ai-flux.conf"
+    echo -e "  OOD config:  /etc/ood/stroma-ai.conf"
     echo ""
     echo -e "  Manual verification steps:"
     echo -e "  1. Start a code-server session via OOD"
     echo -e "  2. Open the terminal and run:"
-    echo -e "     curl -sk https://${AI_FLUX_HEAD_HOST}/health"
+    echo -e "     curl -sk https://${STROMA_HEAD_HOST}/health"
     echo -e "  3. Verify Kilo Code settings.json key names:"
     echo -e "     cat ~/.local/share/code-server/extensions/kilocode.kilo-code-*/package.json \\"
     echo -e "       | python3 -c \"import json,sys; d=json.load(sys.stdin); \\"

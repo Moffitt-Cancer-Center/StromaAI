@@ -1,4 +1,4 @@
-# AI_Flux — .gitignore
+# StromaAI — .gitignore
 # =============================================================================
 # Never commit secrets or site-specific config to version control.
 # All site-specific values belong in config.env (not config.example.env).
@@ -18,8 +18,8 @@ kilo_update.patch
 
 # Local config files (contain secrets — never commit)
 config/config.env
-/opt/ai-flux/config.env
-/etc/ood/ai-flux.conf
+/opt/stroma-ai/config.env
+/etc/ood/stroma-ai.conf
 
 # Built Apptainer images (binary, large — store on shared storage instead)
 *.sif

@@ -1,12 +1,12 @@
 # =============================================================================
-# AI_Flux — Prometheus Scrape Configuration
+# StromaAI — Prometheus Scrape Configuration
 # =============================================================================
 # Add the contents of this file to your existing prometheus.yml, or use it
-# as a standalone config if deploying Prometheus for AI_Flux only.
+# as a standalone config if deploying Prometheus for StromaAI only.
 #
 # Install with alerting rules:
-#   cp monitoring/prometheus.yml /etc/prometheus/conf.d/ai-flux.yml
-#   cp monitoring/alerts/ai-flux.yml /etc/prometheus/rules/ai-flux.yml
+#   cp monitoring/prometheus.yml /etc/prometheus/conf.d/stroma-ai.yml
+#   cp monitoring/alerts/stroma-ai.yml /etc/prometheus/rules/stroma-ai.yml
 #   systemctl reload prometheus
 #
 # Metrics exposed by vLLM at /metrics (Prometheus format):
@@ -24,13 +24,13 @@ global:
   evaluation_interval: 15s
   external_labels:
     cluster: "your-cluster-name"   # edit to your site identifier
-    service: "ai-flux"
+    service: "stroma-ai"
 
 # ---------------------------------------------------------------------------
 # Rule files — alert thresholds defined below
 # ---------------------------------------------------------------------------
 rule_files:
-  - "/etc/prometheus/rules/ai-flux.yml"
+  - "/etc/prometheus/rules/stroma-ai.yml"
 
 # ---------------------------------------------------------------------------
 # Scrape configuration
@@ -40,72 +40,72 @@ scrape_configs:
   # vLLM metrics — scraped via nginx HTTPS proxy
   # /metrics is restricted to internal CIDRs in nginx config;
   # Prometheus must run on the same host or within the allowed CIDR.
-  - job_name: "ai-flux-vllm"
+  - job_name: "stroma-ai-vllm"
     scheme: https
     metrics_path: /metrics
     tls_config:
       # For self-signed certs. Remove once using a CA-signed certificate.
       insecure_skip_verify: true
-    # If AI_FLUX_API_KEY is required for /metrics:
+    # If STROMA_API_KEY is required for /metrics:
     # authorization:
     #   type: Bearer
     #   credentials: "your-api-key"
     static_configs:
       - targets:
-          - "ai-flux.your-cluster.example:443"
+          - "stroma-ai.your-cluster.example:443"
         labels:
-          instance: "ai-flux-head"
+          instance: "stroma-ai-head"
 
   # Ray cluster metrics (if Ray Prom exporter is enabled)
   # ray start --head --metrics-export-port=8080
-  # - job_name: "ai-flux-ray"
+  # - job_name: "stroma-ai-ray"
   #   static_configs:
-  #     - targets: ["ai-flux.your-cluster.example:8080"]
+  #     - targets: ["stroma-ai.your-cluster.example:8080"]
 
 ---
 # =============================================================================
-# Alerting Rules (save separately as /etc/prometheus/rules/ai-flux.yml)
+# Alerting Rules (save separately as /etc/prometheus/rules/stroma-ai.yml)
 # =============================================================================
 # groups:
-#   - name: ai-flux
+#   - name: stroma-ai
 #     rules:
 #
 #       # WARNING: GPU KV cache > 85% — approaching VRAM saturation
-#       - alert: AIFluxGPUCacheHigh
+#       - alert: StromaAIGPUCacheHigh
 #         expr: vllm:gpu_cache_usage_perc > 0.85
 #         for: 2m
 #         labels:
 #           severity: warning
 #         annotations:
-#           summary: "AI_Flux GPU cache usage high ({{ $value | humanizePercentage }})"
+#           summary: "StromaAI GPU cache usage high ({{ $value | humanizePercentage }})"
 #           description: "Scale up burst workers or reduce max-num-seqs."
 #
 #       # CRITICAL: Many requests stuck in queue — users experiencing latency
-#       - alert: AIFluxQueueBacklog
+#       - alert: StromaAIQueueBacklog
 #         expr: vllm:num_requests_waiting > 20
 #         for: 5m
 #         labels:
 #           severity: critical
 #         annotations:
-#           summary: "AI_Flux request queue backlog ({{ $value }} waiting)"
+#           summary: "StromaAI request queue backlog ({{ $value }} waiting)"
 #           description: "Burst worker scale-up may be saturated or Slurm queue is full."
 #
 #       # INFO: CPU KV cache usage high — memory pressure on head node
-#       - alert: AIFluxCPUCacheHigh
+#       - alert: StromaAICPUCacheHigh
 #         expr: vllm:cpu_cache_usage_perc > 0.80
 #         for: 5m
 #         labels:
 #           severity: info
 #         annotations:
-#           summary: "AI_Flux CPU cache usage high ({{ $value | humanizePercentage }})"
-#           description: "Consider reducing AI_FLUX_CPU_OFFLOAD_GB or scaling burst workers."
+#           summary: "StromaAI CPU cache usage high ({{ $value | humanizePercentage }})"
+#           description: "Consider reducing STROMA_CPU_OFFLOAD_GB or scaling burst workers."
 #
 #       # WARNING: vLLM health endpoint down
-#       - alert: AIFluxVLLMDown
-#         expr: up{job="ai-flux-vllm"} == 0
+#       - alert: StromaAIVLLMDown
+#         expr: up{job="stroma-ai-vllm"} == 0
 #         for: 1m
 #         labels:
 #           severity: critical
 #         annotations:
-#           summary: "AI_Flux vLLM endpoint is unreachable"
-#           description: "Check: systemctl status ai-flux-vllm && journalctl -u ai-flux-vllm -n 50"
+#           summary: "StromaAI vLLM endpoint is unreachable"
+#           description: "Check: systemctl status stroma-ai-vllm && journalctl -u stroma-ai-vllm -n 50"

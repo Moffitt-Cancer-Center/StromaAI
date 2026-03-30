@@ -1,6 +1,6 @@
-# Contributing to AI_Flux
+# Contributing to StromaAI
 
-Thank you for considering a contribution to AI_Flux. This project is maintained by the Moffitt Cancer Center HPC team and open to the research computing community.
+Thank you for considering a contribution to StromaAI. This project is maintained by the Moffitt Cancer Center HPC team and open to the research computing community.
 
 ## Branching strategy
 
@@ -25,7 +25,7 @@ Thank you for considering a contribution to AI_Flux. This project is maintained 
 
 ### Semantic versioning
 
-AI_Flux follows `vMAJOR.MINOR.PATCH` (see [semver.org](https://semver.org)):
+StromaAI follows `vMAJOR.MINOR.PATCH` (see [semver.org](https://semver.org)):
 
 - **PATCH** — bug fixes, doc corrections, no behaviour change
 - **MINOR** — backward-compatible new features or installer improvements
@@ -58,7 +58,7 @@ Open a GitHub issue with:
 - A clear description of the problem
 - The component affected (watcher, Slurm script, container, nginx, OOD)
 - Your OS / Slurm / NVIDIA driver versions
-- Relevant log output from `journalctl -u ai-flux-*`
+- Relevant log output from `journalctl -u stroma-ai-*`
 
 ### Suggesting changes
 
@@ -70,7 +70,7 @@ Open a GitHub issue before submitting a PR for significant changes. For small fi
 2. Make your changes
 3. Verify shell scripts pass `shellcheck`:
    ```bash
-   shellcheck deploy/slurm/ai_flux_worker.slurm deploy/ood/script.sh.erb
+   shellcheck deploy/slurm/stroma_ai_worker.slurm deploy/ood/script.sh.erb
    ```
 4. Verify Python passes basic linting:
    ```bash

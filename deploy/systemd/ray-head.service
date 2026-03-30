@@ -1,49 +1,49 @@
 [Unit]
-Description=AI_Flux — Ray Head Node
-Documentation=https://github.com/your-org/ai-flux
+Description=StromaAI — Ray Head Node
+Documentation=https://github.com/your-org/stroma-ai
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=aiflux
-Group=aiflux
-WorkingDirectory=/opt/ai-flux
+User=stromaai
+Group=stromaai
+WorkingDirectory=/opt/stroma-ai
 
-# Sources all AI_FLUX_* environment variables from config.env.
-# Permissions: chmod 640, chown aiflux:aiflux
-EnvironmentFile=/opt/ai-flux/config.env
+# Sources all STROMA_* environment variables from config.env.
+# Permissions: chmod 640, chown stromaai:stromaai
+EnvironmentFile=/opt/stroma-ai/config.env
 
 # Ray head starts with --num-cpus=0 --num-gpus=0 so the Proxmox VM
 # (which has no GPU) does not accidentally attract inference work.
 # Workers join separately via Slurm sbatch.
 #
-# Binaries are installed by install.sh into /opt/ai-flux/venv.
-ExecStart=/opt/ai-flux/venv/bin/ray start \
+# Binaries are installed by install.sh into /opt/stroma-ai/venv.
+ExecStart=/opt/stroma-ai/venv/bin/ray start \
     --head \
-    --port=${AI_FLUX_RAY_PORT} \
-    --dashboard-port=${AI_FLUX_RAY_DASHBOARD_PORT} \
+    --port=${STROMA_RAY_PORT} \
+    --dashboard-port=${STROMA_RAY_DASHBOARD_PORT} \
     --dashboard-host=127.0.0.1 \
     --num-cpus=0 \
     --num-gpus=0 \
     --block
 
-ExecStop=/opt/ai-flux/venv/bin/ray stop
+ExecStop=/opt/stroma-ai/venv/bin/ray stop
 
 Restart=on-failure
 RestartSec=15s
 TimeoutStartSec=60s
 TimeoutStopSec=30s
 
-# Journal logging — view with: journalctl -u ai-flux-ray -f
+# Journal logging — view with: journalctl -u stroma-ai-ray -f
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=ai-flux-ray
+SyslogIdentifier=stroma-ai-ray
 
 # Security hardening (Debian/systemd 245+)
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/ai-flux /tmp
+ReadWritePaths=/opt/stroma-ai /tmp
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectControlGroups=true

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Pre-flight checks
+# StromaAI — Pre-flight checks
 # =============================================================================
 # Run this BEFORE install.sh to verify the system meets requirements.
 # Safe to run on head nodes, worker nodes, or OOD nodes.
@@ -127,7 +127,7 @@ check_head() {
     fi
 
     # Port for Ray GCS
-    local ray_port="${AI_FLUX_RAY_PORT:-6380}"
+    local ray_port="${STROMA_RAY_PORT:-6380}"
     if ! ss -tlnp 2>/dev/null | grep -q ":${ray_port} "; then
         check_pass "Port ${ray_port} (Ray GCS) is available"
     else
@@ -135,20 +135,20 @@ check_head() {
     fi
 
     # TLS certificate path
-    if [[ -f /etc/ssl/ai-flux/server.crt && -f /etc/ssl/ai-flux/server.key ]]; then
+    if [[ -f /etc/ssl/stroma-ai/server.crt && -f /etc/ssl/stroma-ai/server.key ]]; then
         local expiry
-        expiry=$(openssl x509 -enddate -noout -in /etc/ssl/ai-flux/server.crt 2>/dev/null | cut -d= -f2)
+        expiry=$(openssl x509 -enddate -noout -in /etc/ssl/stroma-ai/server.crt 2>/dev/null | cut -d= -f2)
         check_pass "TLS certificate found (expires: ${expiry})"
     else
-        check_warn "TLS certificate not found at /etc/ssl/ai-flux/ — installer will generate a self-signed cert"
+        check_warn "TLS certificate not found at /etc/ssl/stroma-ai/ — installer will generate a self-signed cert"
     fi
 
     # Shared filesystem (for model weights)
-    local shared_root="${AI_FLUX_SHARED_ROOT:-/shared}"
+    local shared_root="${STROMA_SHARED_ROOT:-/share}"
     if detect_shared_fs "${shared_root}" 2>/dev/null; then
         check_pass "Shared filesystem mounted at ${shared_root}"
     else
-        check_warn "No filesystem mounted at ${shared_root} — set AI_FLUX_SHARED_ROOT in config and verify mount"
+        check_warn "No filesystem mounted at ${shared_root} — set STROMA_SHARED_ROOT in config and verify mount"
     fi
 
     # RAM recommendation (head node needs RAM for CPU KV cache offload)
@@ -159,18 +159,19 @@ check_head() {
         check_warn "Total RAM: ${TOTAL_RAM_GB} GB (recommend 256+ GB for CPU KV cache offload)"
     fi
 
-    # aiflux user
-    if id aiflux &>/dev/null; then
-        check_pass "System user 'aiflux' exists"
+    # stromaai user
+    if id stromaai &>/dev/null; then
+        check_pass "System user 'stromaai' exists"
     else
-        check_warn "System user 'aiflux' not found — installer will create it"
+        check_warn "System user 'stromaai' not found — installer will create it"
     fi
 
-    # /opt/ai-flux directory
-    if [[ -d /opt/ai-flux ]]; then
-        check_pass "/opt/ai-flux directory exists"
+    # Install directory
+    local install_dir="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
+    if [[ -d "${install_dir}" ]]; then
+        check_pass "${install_dir} directory exists"
     else
-        check_warn "/opt/ai-flux not found — installer will create it"
+        check_warn "${install_dir} not found — installer will create it"
     fi
 }
 
@@ -216,17 +217,17 @@ check_worker() {
     fi
 
     # Shared filesystem
-    local shared_root="${AI_FLUX_SHARED_ROOT:-/shared}"
+    local shared_root="${STROMA_SHARED_ROOT:-/share}"
     if detect_shared_fs "${shared_root}" 2>/dev/null; then
         local shared_free_gb
         shared_free_gb=$(df -BG "${shared_root}" 2>/dev/null | awk 'NR==2 {gsub(/G/,""); print $4}')
         check_pass "Shared filesystem mounted at ${shared_root} (${shared_free_gb} GB free)"
     else
-        check_fail "No filesystem mounted at ${shared_root} — set AI_FLUX_SHARED_ROOT and verify NFS/GPFS mount"
+        check_fail "No filesystem mounted at ${shared_root} — set STROMA_SHARED_ROOT and verify NFS/GPFS mount"
     fi
 
     # Container image
-    local sif_path="${AI_FLUX_CONTAINER:-/shared/containers/ai-flux-vllm.sif}"
+    local sif_path="${STROMA_CONTAINER:-/share/containers/stroma-ai-vllm.sif}"
     if [[ -f "${sif_path}" ]]; then
         local sif_size_gb
         sif_size_gb=$(du -BG "${sif_path}" 2>/dev/null | awk '{gsub(/G/,""); print $1}')
@@ -236,7 +237,7 @@ check_worker() {
     fi
 
     # Model weights
-    local model_path="${AI_FLUX_MODEL_PATH:-/shared/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
+    local model_path="${STROMA_MODEL_PATH:-/share/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
     if [[ -d "${model_path}" ]]; then
         check_pass "Model directory found: ${model_path}"
     else
@@ -285,24 +286,24 @@ check_ood() {
         check_warn "code-server not in PATH — may be launched by OOD"
     fi
 
-    # AI_Flux OOD config
-    if [[ -f /etc/ood/ai-flux.conf ]]; then
-        check_pass "AI_Flux OOD config found: /etc/ood/ai-flux.conf"
+    # StromaAI OOD config
+    if [[ -f /etc/ood/stroma-ai.conf ]]; then
+        check_pass "StromaAI OOD config found: /etc/ood/stroma-ai.conf"
     else
-        check_warn "AI_Flux OOD config not found — installer will create it"
+        check_warn "StromaAI OOD config not found — installer will create it"
     fi
 
     # Connectivity to head node
-    local head="${AI_FLUX_HEAD_HOST:-ai-flux.your-cluster.example}"
-    local port="${AI_FLUX_HTTPS_PORT:-443}"
+    local head="${STROMA_HEAD_HOST:-stroma-ai.your-cluster.example}"
+    local port="${STROMA_HTTPS_PORT:-443}"
     if [[ "${head}" != *"example"* ]]; then
         if curl -fsS --max-time 5 --insecure "https://${head}:${port}/health" &>/dev/null; then
-            check_pass "AI_Flux API reachable at https://${head}:${port}"
+            check_pass "StromaAI API reachable at https://${head}:${port}"
         else
-            check_warn "Cannot reach AI_Flux API at https://${head}:${port} — check hostname and firewall"
+            check_warn "Cannot reach StromaAI API at https://${head}:${port} — check hostname and firewall"
         fi
     else
-        check_warn "AI_FLUX_HEAD_HOST not set — skipping API connectivity test"
+        check_warn "STROMA_HEAD_HOST not set — skipping API connectivity test"
     fi
 }
 
@@ -311,7 +312,7 @@ check_ood() {
 # ---------------------------------------------------------------------------
 main() {
     echo ""
-    echo -e "${BOLD}AI_Flux Pre-flight Check${RESET}"
+    echo -e "${BOLD}StromaAI Pre-flight Check${RESET}"
     echo -e "${BOLD}========================${RESET}"
     echo "Mode: ${MODE}"
     echo ""

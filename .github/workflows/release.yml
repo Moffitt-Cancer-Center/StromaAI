@@ -57,15 +57,15 @@ jobs:
           # Create a clean source tarball (exclude dev/CI artifacts)
           git archive \
             --format=tar.gz \
-            --prefix="ai-flux-${TAG#v}/" \
-            --output="/tmp/ai-flux-${TAG}.tar.gz" \
+            --prefix="stroma-ai-${TAG#v}/" \
+            --output="/tmp/stroma-ai-${TAG}.tar.gz" \
             HEAD
-          echo "archive=/tmp/ai-flux-${TAG}.tar.gz" >> "$GITHUB_ENV"
+          echo "archive=/tmp/stroma-ai-${TAG}.tar.gz" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "AI_Flux ${{ github.ref_name }}"
+          name: "StromaAI ${{ github.ref_name }}"
           body_path: /tmp/release_notes.txt
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}

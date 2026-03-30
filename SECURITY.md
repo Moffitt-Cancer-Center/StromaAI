@@ -2,7 +2,7 @@
 
 ## Scope
 
-This policy covers the AI_Flux platform: the vLLM Watcher script, Slurm worker template, Apptainer container definition, nginx configuration, systemd services, and OOD integration scripts.
+This policy covers the StromaAI platform: the vLLM Watcher script, Slurm worker template, Apptainer container definition, nginx configuration, systemd services, and OOD integration scripts.
 
 ## Supported versions
 
@@ -25,10 +25,10 @@ You will receive an acknowledgement within 5 business days. We will work with yo
 
 ## Security model
 
-AI_Flux is designed for **internal HPC environments behind a firewall**. The security model assumes:
+StromaAI is designed for **internal HPC environments behind a firewall**. The security model assumes:
 
 - Only authenticated HPC users can reach the vLLM HTTPS endpoint (network-level control)
-- The API key (`AI_FLUX_API_KEY`) is an internal shared secret that prevents unauthorized lateral-movement calls within the HPC network — it is not a user credential
+- The API key (`STROMA_API_KEY`) is an internal shared secret that prevents unauthorized lateral-movement calls within the HPC network — it is not a user credential
 - The Slurm burst jobs run under a dedicated service account (`ai-flux-service`) with no elevated cluster privileges
 - The Proxmox VM is managed by HPC admins and not accessible to regular users
 
@@ -40,7 +40,7 @@ AI_Flux is designed for **internal HPC environments behind a firewall**. The sec
 
 ## Dependency security
 
-All container package versions are pinned in `deploy/containers/ai-flux-vllm.def`. When upgrading:
+All container package versions are pinned in `deploy/containers/stroma-ai-vllm.def`. When upgrading:
 
 1. Review the vLLM and Ray changelogs for security fixes
 2. Rebuild and test the container on RHEL before updating shared storage

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Package management (dnf / apt wrappers)
+# StromaAI — Package management (dnf / apt wrappers)
 # =============================================================================
 # Provides: pkg_install(), pkg_update(), enable_epel(), enable_crb(),
 #           install_python311(), install_nginx()
 # Requires: OS_FAMILY set by detect.sh
 # =============================================================================
 
-[[ -n "${_AI_FLUX_PACKAGES_LOADED:-}" ]] && return 0
-readonly _AI_FLUX_PACKAGES_LOADED=1
+[[ -n "${_STROMA_PACKAGES_LOADED:-}" ]] && return 0
+readonly _STROMA_PACKAGES_LOADED=1
 
 # ---------------------------------------------------------------------------
 # pkg_update — refresh package metadata
@@ -170,32 +170,32 @@ install_nginx() {
 
 # ---------------------------------------------------------------------------
 # install_head_python_deps — install vLLM, Ray, and supporting packages
-# into the AI_Flux virtual environment.
+# into the StromaAI virtual environment.
 # ---------------------------------------------------------------------------
 install_head_python_deps() {
-    log_step "Installing Python packages into ${AI_FLUX_VENV}"
+    log_step "Installing Python packages into ${STROMA_VENV}"
 
     # Ensure venv exists
-    if [[ ! -d "${AI_FLUX_VENV}" ]]; then
-        log_info "Creating Python virtual environment at ${AI_FLUX_VENV}"
-        run_cmd "${PYTHON311}" -m venv "${AI_FLUX_VENV}"
+    if [[ ! -d "${STROMA_VENV}" ]]; then
+        log_info "Creating Python virtual environment at ${STROMA_VENV}"
+        run_cmd "${PYTHON311}" -m venv "${STROMA_VENV}"
     fi
 
     # Upgrade pip first
-    run_cmd "${AI_FLUX_PIP}" install --upgrade pip wheel setuptools
+    run_cmd "${STROMA_PIP}" install --upgrade pip wheel setuptools
 
     # Install Ray before vLLM — vLLM pulls it anyway, but pinning first avoids conflicts
     log_info "Installing Ray 2.40.0 ..."
-    run_cmd "${AI_FLUX_PIP}" install \
+    run_cmd "${STROMA_PIP}" install \
         "ray[default]==2.40.0"
 
     # Install vLLM — may take 5–15 minutes depending on bandwidth
     log_info "Installing vLLM 0.7.3 (this may take several minutes) ..."
-    run_cmd "${AI_FLUX_PIP}" install \
+    run_cmd "${STROMA_PIP}" install \
         "vllm==0.7.3"
 
     # Additional runtime dependencies
-    run_cmd "${AI_FLUX_PIP}" install \
+    run_cmd "${STROMA_PIP}" install \
         "requests>=2.32.3" \
         "openai>=1.65.0" \
         "huggingface_hub"
@@ -203,9 +203,9 @@ install_head_python_deps() {
     # Hardware-aware model selection tool — detects GPU/VRAM and filters Hub
     # search results to models that fit; suggests quantization when a model
     # is slightly too large.  Installs as `hfw` (safe alias) and `hf` (hub wrapper).
-    # Downloads are routed to ${AI_FLUX_SHARED_ROOT}/models/ automatically.
+    # Downloads are routed to ${STROMA_SHARED_ROOT}/models/ automatically.
     log_info "Installing hfmodel-check ..."
-    run_cmd "${AI_FLUX_PIP}" install \
+    run_cmd "${STROMA_PIP}" install \
         "git+https://git@github.com/Moffitt-Cancer-Center/hfmodel-check"
 
     log_ok "Python packages installed successfully."

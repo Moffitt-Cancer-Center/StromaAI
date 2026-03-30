@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Integration Smoke Test
+# StromaAI — Integration Smoke Test
 # =============================================================================
-# Verifies that a running AI_Flux deployment is operational. Run this AFTER
+# Verifies that a running StromaAI deployment is operational. Run this AFTER
 # install.sh on the head node, once services have started.
 #
 # Usage:
 #   ./tests/integration/smoke_test.sh [HEAD_HOST] [HTTPS_PORT] [API_KEY]
 #
 # Arguments (all optional — fall back to environment variables):
-#   HEAD_HOST   Hostname of the AI_Flux head node  (AI_FLUX_HEAD_HOST)
-#   HTTPS_PORT  HTTPS port nginx listens on         (AI_FLUX_HTTPS_PORT, default 443)
-#   API_KEY     Bearer token for the vLLM API       (AI_FLUX_API_KEY)
+#   HEAD_HOST   Hostname of the StromaAI head node  (STROMA_HEAD_HOST)
+#   HTTPS_PORT  HTTPS port nginx listens on         (STROMA_HTTPS_PORT, default 443)
+#   API_KEY     Bearer token for the vLLM API       (STROMA_API_KEY)
 #
 # Exit codes:
 #   0 — all tests passed
@@ -24,21 +24,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------------------------------------------------------------------
 # Resolve parameters
 # ---------------------------------------------------------------------------
-HEAD_HOST="${1:-${AI_FLUX_HEAD_HOST:-}}"
-HTTPS_PORT="${2:-${AI_FLUX_HTTPS_PORT:-443}}"
-API_KEY="${3:-${AI_FLUX_API_KEY:-}}"
+HEAD_HOST="${1:-${STROMA_HEAD_HOST:-}}"
+HTTPS_PORT="${2:-${STROMA_HTTPS_PORT:-443}}"
+API_KEY="${3:-${STROMA_API_KEY:-}}"
 
 if [[ -z "${HEAD_HOST}" ]]; then
     # Try loading from installed config
-    if [[ -f /opt/ai-flux/config.env ]]; then
+    if [[ -f /opt/stroma-ai/config.env ]]; then
         # shellcheck source=/dev/null
-        source /opt/ai-flux/config.env
-        HEAD_HOST="${AI_FLUX_HEAD_HOST:-}"
-        API_KEY="${AI_FLUX_API_KEY:-}"
+        source /opt/stroma-ai/config.env
+        HEAD_HOST="${STROMA_HEAD_HOST:-}"
+        API_KEY="${STROMA_API_KEY:-}"
     fi
 fi
 
-[[ -n "${HEAD_HOST}" ]] || { echo "ERROR: HEAD_HOST not set. Pass as arg or set AI_FLUX_HEAD_HOST."; exit 1; }
+[[ -n "${HEAD_HOST}" ]] || { echo "ERROR: HEAD_HOST not set. Pass as arg or set STROMA_HEAD_HOST."; exit 1; }
 
 BASE_URL="https://${HEAD_HOST}:${HTTPS_PORT}"
 
@@ -60,7 +60,7 @@ warn() { echo -e "  ${YELLOW}[WARN]${RESET} $1"; }
 section() { echo -e "\n${BOLD}### $1${RESET}"; }
 
 # curl wrapper — insecure TLS accepted (common for self-signed HPC certs)
-ai_flux_curl() {
+stroma_ai_curl() {
     curl -fsSk --max-time 10 "$@"
 }
 
@@ -69,7 +69,7 @@ ai_flux_curl() {
 # ---------------------------------------------------------------------------
 section "Service Health"
 
-if ai_flux_curl "${BASE_URL}/health" > /dev/null 2>&1; then
+if stroma_ai_curl "${BASE_URL}/health" > /dev/null 2>&1; then
     pass "GET /health → 200"
 else
     fail "GET /health did not return 200 (is nginx running? is vLLM up?)"
@@ -124,7 +124,7 @@ if [[ -n "${API_KEY}" ]]; then
         warn "GET /v1/models without API key → ${unauthed_status} (expected 401)"
     fi
 else
-    warn "AI_FLUX_API_KEY not set — skipping authenticated endpoint tests"
+    warn "STROMA_API_KEY not set — skipping authenticated endpoint tests"
 fi
 
 # ---------------------------------------------------------------------------
@@ -156,7 +156,7 @@ if [[ -n "${API_KEY}" ]]; then
     inference_response=$(curl -fsSk --max-time 30 \
         -H "Authorization: Bearer ${API_KEY}" \
         -H "Content-Type: application/json" \
-        -d '{"model":"'"${AI_FLUX_MODEL_NAME:-ai-flux-coder}"'","messages":[{"role":"user","content":"Reply with exactly: SMOKE_TEST_OK"}],"max_tokens":10}' \
+        -d '{"model":"'"${STROMA_MODEL_NAME:-stroma-ai-coder}"'","messages":[{"role":"user","content":"Reply with exactly: SMOKE_TEST_OK"}],"max_tokens":10}' \
         "${BASE_URL}/v1/chat/completions" 2>/dev/null || echo "{}")
 
     if echo "${inference_response}" | python3 -c \
@@ -201,7 +201,7 @@ section "Systemd Services"
 
 if command -v systemctl &>/dev/null && [[ "$(hostname)" == "${HEAD_HOST%%.*}"* || \
     "$(hostname -f 2>/dev/null)" == "${HEAD_HOST}" ]]; then
-    for svc in ray-head ai-flux-vllm ai-flux-watcher nginx; do
+    for svc in ray-head stroma-ai-vllm stroma-ai-watcher nginx; do
         if systemctl is-active --quiet "${svc}" 2>/dev/null; then
             pass "systemd: ${svc} is active"
         else
