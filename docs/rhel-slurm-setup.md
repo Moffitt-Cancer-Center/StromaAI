@@ -143,11 +143,11 @@ curl -k --max-time 5 https://stroma-ai.your-cluster.example/health
 ## 7. Slurm account verification
 
 ```bash
-# Verify the ai-flux-service account exists:
-sacctmgr show account ai-flux-service
+# Verify the stroma-ai-service account exists:
+sacctmgr show account stroma-ai-service
 
 # Test submitting a job under the account (from the head node or compute node):
-sbatch --partition=ai-flux-gpu --account=ai-flux-service \
+sbatch --partition=stroma-ai-gpu --account=stroma-ai-service \
   --wrap="echo 'Account test OK'; hostname" \
   --output=${STROMA_LOG_DIR:-/share/logs/stroma-ai}/test-%j.out
 
@@ -163,8 +163,8 @@ Run this complete test before enabling the watcher for production use:
 ```bash
 # Step 1: Manually submit a burst worker (from the head node):
 sbatch \
-  --partition=ai-flux-gpu \
-  --account=ai-flux-service \
+  --partition=stroma-ai-gpu \
+  --account=stroma-ai-service \
   --time=00:20:00 \
   --export=ALL,STROMA_HEAD_HOST=stroma-ai.your-cluster.example,STROMA_RAY_PORT=6380 \
   ${STROMA_SHARED_ROOT:-/share}/slurm/stroma_ai_worker.slurm
@@ -197,6 +197,6 @@ scancel <job_id>
 | `Failed to initialize NVML` | NVIDIA driver not visible inside container | Use `--nv` flag; verify driver version |
 | `Container file not found` | `STROMA_SHARED_ROOT` not mounted, wrong path, or SIF not built yet | Verify `STROMA_SHARED_ROOT` mount and that `stroma-ai-vllm.sif` exists |
 | `Connection refused` to Ray GCS port | Firewall blocking port 6380 | Open TCP 6380 from nodes to head |
-| `sbatch: error: Invalid account` | Account not in Slurm DB | `sacctmgr add account ai-flux-service` |
+| `sbatch: error: Invalid account` | Account not in Slurm DB | `sacctmgr add account stroma-ai-service` |
 | `ray: command not found` | Ray not in PATH inside container | Check container was built correctly; run `apptainer test stroma-ai-vllm.sif` |
 | `No module named vllm` | Wrong container or container not found | Verify `STROMA_CONTAINER` path in config |

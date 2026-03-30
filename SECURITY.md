@@ -29,7 +29,7 @@ StromaAI is designed for **internal HPC environments behind a firewall**. The se
 
 - Only authenticated HPC users can reach the vLLM HTTPS endpoint (network-level control)
 - The API key (`STROMA_API_KEY`) is an internal shared secret that prevents unauthorized lateral-movement calls within the HPC network — it is not a user credential
-- The Slurm burst jobs run under a dedicated service account (`ai-flux-service`) with no elevated cluster privileges
+- The Slurm burst jobs run under a dedicated service account (`stroma-ai-service`) with no elevated cluster privileges
 - The Proxmox VM is managed by HPC admins and not accessible to regular users
 
 ### Known limitations

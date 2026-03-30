@@ -21,7 +21,7 @@ set -euo pipefail
 
 CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
 STATE_FILE="${STROMA_STATE_FILE:-/opt/stroma-ai/watcher_state.json}"
-SLURM_PARTITION="${STROMA_SLURM_PARTITION:-ai-flux-gpu}"
+SLURM_PARTITION="${STROMA_SLURM_PARTITION:-stroma-ai-gpu}"
 LOG_LINES="${STROMA_STATUS_LOG_LINES:-20}"
 
 # Load config if present (non-fatal if missing)

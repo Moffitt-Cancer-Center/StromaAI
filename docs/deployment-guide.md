@@ -125,26 +125,26 @@ cd /share/models && sha256sum -c checksums.sha256
 
 ```bash
 # Create dedicated partition (adjust Nodes list for your cluster):
-scontrol create partition Name=ai-flux-gpu \
+scontrol create partition Name=stroma-ai-gpu \
   Nodes=node[001-070] \
   MaxNodes=10 \
   State=UP \
   Default=NO
 
 # Create service account for billing:
-sacctmgr add account ai-flux-service Description="StromaAI burst workers" Organization=hpc
+sacctmgr add account stroma-ai-service Description="StromaAI burst workers" Organization=hpc
 
 # Create always-warm node reservation (1 permanently allocated A30):
-scontrol create Reservation=ai-flux-warm \
+scontrol create Reservation=stroma-ai-warm \
   StartTime=now \
   Duration=UNLIMITED \
   Nodes=node001 \
-  Accounts=ai-flux-service \
+  Accounts=stroma-ai-service \
   Flags=MAINT,IGNORE_JOBS
 
 # Verify:
-sinfo -p ai-flux-gpu
-scontrol show reservation ai-flux-warm
+sinfo -p stroma-ai-gpu
+scontrol show reservation stroma-ai-warm
 ```
 
 ### 1.6 Log directory
@@ -252,8 +252,8 @@ Shared filesystem root [/share]:
 Head node hostname [stroma-ai.your-cluster.example]:
 Shared model weight path [/share/models/Qwen2.5-Coder-32B-Instruct-AWQ]:
 Shared container SIF path [/share/containers/stroma-ai-vllm.sif]:
-Slurm GPU partition [ai-flux-gpu]:
-Slurm account [ai-flux-service]:
+Slurm GPU partition [stroma-ai-gpu]:
+Slurm account [stroma-ai-service]:
 Max concurrent burst workers [5]:
 Enter STROMA_API_KEY (or press Enter to generate one):
 ```
@@ -325,7 +325,7 @@ Before committing to deployment, verify the container works on a RHEL Slurm GPU 
 
 ```bash
 # Run as yourself on an interactive Slurm allocation:
-srun --partition=ai-flux-gpu --gpus=1 --nodes=1 --pty bash
+srun --partition=stroma-ai-gpu --gpus=1 --nodes=1 --pty bash
 
 # Inside the allocation (replace /share with your STROMA_SHARED_ROOT):
 apptainer exec --nv /share/containers/stroma-ai-vllm.sif \
@@ -378,8 +378,8 @@ chown stromaai:stromaai /opt/stroma-ai/config.env
 | `STROMA_MODEL_PATH` | `${SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ` | Path to model weights |
 | `STROMA_MODEL_NAME` | `stroma-ai-coder` | Model alias served by vLLM |
 | `STROMA_CONTAINER` | `${SHARED_ROOT}/containers/stroma-ai-vllm.sif` | Apptainer SIF image path |
-| `STROMA_SLURM_PARTITION` | `ai-flux-gpu` | Slurm GPU partition for burst workers |
-| `STROMA_SLURM_ACCOUNT` | `ai-flux-service` | Slurm account for burst jobs |
+| `STROMA_SLURM_PARTITION` | `stroma-ai-gpu` | Slurm GPU partition for burst workers |
+| `STROMA_SLURM_ACCOUNT` | `stroma-ai-service` | Slurm account for burst jobs |
 | `STROMA_MAX_BURST_WORKERS` | `5` | Maximum concurrent burst Slurm jobs |
 | `STROMA_SLURM_CPUS` | `64` | CPUs per burst worker job (`--cpus-per-task`) |
 | `STROMA_SLURM_MEM` | `900G` | Memory per burst worker job (`--mem`) |
@@ -520,8 +520,8 @@ chmod 755 /share/slurm/stroma_ai_worker.slurm
 
 # Test manual burst worker submission:
 sbatch \
-  --partition=ai-flux-gpu \
-  --account=ai-flux-service \
+  --partition=stroma-ai-gpu \
+  --account=stroma-ai-service \
   --time=01:00:00 \
   --export=ALL,STROMA_HEAD_HOST=stroma-ai.your-cluster.example,STROMA_RAY_PORT=6380 \
   /share/slurm/stroma_ai_worker.slurm

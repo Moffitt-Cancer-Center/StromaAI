@@ -20,7 +20,7 @@ OUTPUT="${1:-/tmp/${BUNDLE_NAME}.tar.gz}"
 
 CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
 STATE_FILE="${STROMA_STATE_FILE:-/opt/stroma-ai/watcher_state.json}"
-SLURM_PARTITION="${STROMA_SLURM_PARTITION:-ai-flux-gpu}"
+SLURM_PARTITION="${STROMA_SLURM_PARTITION:-stroma-ai-gpu}"
 
 # Load config if available (for PARTITION, HEAD_HOST, VLLM_PORT, etc.)
 # shellcheck source=/dev/null

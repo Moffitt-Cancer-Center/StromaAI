@@ -130,8 +130,9 @@ load_or_prompt_config() {
     STROMA_MODEL_PATH="${STROMA_MODEL_PATH:-${STROMA_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
     STROMA_MODEL_NAME="${STROMA_MODEL_NAME:-stroma-ai-coder}"
     STROMA_CONTAINER="${STROMA_CONTAINER:-${STROMA_SHARED_ROOT}/containers/stroma-ai-vllm.sif}"
-    STROMA_SLURM_PARTITION="${STROMA_SLURM_PARTITION:-ai-flux-gpu}"
-    STROMA_SLURM_ACCOUNT="${STROMA_SLURM_ACCOUNT:-ai-flux-service}"
+    STROMA_SLURM_PARTITION="${STROMA_SLURM_PARTITION:-stroma-ai-gpu}"
+    STROMA_SLURM_ACCOUNT="${STROMA_SLURM_ACCOUNT:-stroma-ai-service}"
+    STROMA_WARM_RESERVATION="${STROMA_WARM_RESERVATION:-stroma-ai-warm}"
     STROMA_SLURM_SCRIPT="${STROMA_SLURM_SCRIPT:-${STROMA_SHARED_ROOT}/slurm/stroma_ai_worker.slurm}"
     STROMA_LOG_DIR="${STROMA_LOG_DIR:-${STROMA_SHARED_ROOT}/logs/stroma-ai}"
     STROMA_SLURM_WALLTIME="${STROMA_SLURM_WALLTIME:-7-00:00:00}"
@@ -200,11 +201,11 @@ EOF
     echo -en "Shared container SIF path [${STROMA_SHARED_ROOT}/containers/stroma-ai-vllm.sif]: "
     read -r input; STROMA_CONTAINER="${input:-${STROMA_SHARED_ROOT}/containers/stroma-ai-vllm.sif}"
 
-    echo -en "Slurm GPU partition [ai-flux-gpu]: "
-    read -r input; STROMA_SLURM_PARTITION="${input:-ai-flux-gpu}"
+    echo -en "Slurm GPU partition [stroma-ai-gpu]: "
+    read -r input; STROMA_SLURM_PARTITION="${input:-stroma-ai-gpu}"
 
-    echo -en "Slurm account [ai-flux-service]: "
-    read -r input; STROMA_SLURM_ACCOUNT="${input:-ai-flux-service}"
+    echo -en "Slurm account [stroma-ai-service]: "
+    read -r input; STROMA_SLURM_ACCOUNT="${input:-stroma-ai-service}"
 
     echo -en "Max concurrent burst workers [5]: "
     read -r input; STROMA_MAX_BURST_WORKERS="${input:-5}"
@@ -312,7 +313,7 @@ STROMA_SLURM_ACCOUNT=${STROMA_SLURM_ACCOUNT}
 STROMA_SLURM_SCRIPT=${STROMA_SLURM_SCRIPT}
 STROMA_SLURM_WALLTIME=${STROMA_SLURM_WALLTIME}
 STROMA_MAX_BURST_WORKERS=${STROMA_MAX_BURST_WORKERS}
-STROMA_WARM_RESERVATION=ai-flux-warm
+STROMA_WARM_RESERVATION=${STROMA_WARM_RESERVATION}
 STROMA_LOG_DIR=${STROMA_LOG_DIR}
 
 STROMA_GPU_MEM_UTIL=${STROMA_GPU_MEM_UTIL}

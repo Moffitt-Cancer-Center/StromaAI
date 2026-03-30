@@ -183,16 +183,16 @@ nginx -t && systemctl reload nginx
 #### Configure Slurm partition and warm reservation
 
 ```bash
-scontrol create partition Name=ai-flux-gpu Nodes=node[001-070] MaxNodes=10 State=UP
-sacctmgr add account ai-flux-service Description="StromaAI burst workers"
+scontrol create partition Name=stroma-ai-gpu Nodes=node[001-070] MaxNodes=10 State=UP
+sacctmgr add account stroma-ai-service Description="StromaAI burst workers"
 mkdir -p /share/logs/stroma-ai /share/slurm
 cp deploy/slurm/stroma_ai_worker.slurm /share/slurm/
 
 # Always-warm reservation — 1 node pre-allocated for fast first response:
-scontrol create Reservation=ai-flux-warm \
+scontrol create Reservation=stroma-ai-warm \
   StartTime=now Duration=UNLIMITED \
   Nodes=node001 \
-  Accounts=ai-flux-service \
+  Accounts=stroma-ai-service \
   Flags=MAINT,IGNORE_JOBS
 ```
 
@@ -381,16 +381,16 @@ nginx -t && systemctl reload nginx
 
 ```bash
 # Create burst partition:
-scontrol create partition Name=ai-flux-gpu Nodes=node[001-070] MaxNodes=10 State=UP
-sacctmgr add account ai-flux-service Description="StromaAI burst workers"
+scontrol create partition Name=stroma-ai-gpu Nodes=node[001-070] MaxNodes=10 State=UP
+sacctmgr add account stroma-ai-service Description="StromaAI burst workers"
 mkdir -p /share/logs/stroma-ai /share/slurm
 cp deploy/slurm/stroma_ai_worker.slurm /share/slurm/
 
 # Create always-warm reservation (1 node permanently allocated):
-scontrol create Reservation=ai-flux-warm \
+scontrol create Reservation=stroma-ai-warm \
   StartTime=now Duration=UNLIMITED \
   Nodes=node001 \
-  Accounts=ai-flux-service \
+  Accounts=stroma-ai-service \
   Flags=MAINT,IGNORE_JOBS
 ```
 
