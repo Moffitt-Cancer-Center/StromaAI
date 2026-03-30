@@ -8,7 +8,7 @@
 #
 # Slurm directives:
 #   --nodes=1 --exclusive — entire node dedicated to this single GPU job
-#   --cpus-per-task=64    — matches typical L30 node core count; tune per site
+#   --cpus-per-task=64    — matches typical HPC GPU node core count; tune per site
 #   --mem=900G            — leaves ~100G OS overhead from 1TB; tune per site
 #   --time set at submit time by the Watcher (STROMA_SLURM_WALLTIME)
 #

@@ -385,7 +385,7 @@ chown stromaai:stromaai /opt/stroma-ai/config.env
 | `STROMA_SLURM_MEM` | `900G` | Memory per burst worker job (`--mem`) |
 | `STROMA_NUMA_BIND` | *(unset)* | Optional NUMA node binding (e.g., `0`) — leave unset to disable |
 | `STROMA_VLLM_QUANTIZATION` | `awq` | vLLM quantization method (`awq`, `fp8`, `none`) |
-| `STROMA_KV_CACHE_DTYPE` | `auto` | KV cache dtype — use `fp8` for Ada Lovelace (L40/L30) or Hopper (H100); A30 (Ampere CC 8.0) does not support fp8, use `auto` |
+| `STROMA_KV_CACHE_DTYPE` | `auto` | KV cache dtype — `auto` lets vLLM detect the optimal dtype for the GPU; set `fp8` explicitly only on Ada Lovelace (CC ≥ 8.9, e.g., L40, L40S) or Hopper (e.g., H100, H200) hardware; Ampere (A30, A100) and older do not support fp8 |
 | `STROMA_GPU_MEM_UTIL` | `0.85` | GPU memory utilization fraction for vLLM |
 | `STROMA_CPU_OFFLOAD_GB` | `200` | CPU memory to use for KV cache offload (GB) |
 | `STROMA_SCALE_UP_THRESHOLD` | `5` | Queued requests before a burst worker is submitted |
