@@ -58,7 +58,7 @@ Open a GitHub issue with:
 - A clear description of the problem
 - The component affected (watcher, Slurm script, container, nginx, OOD)
 - Your OS / Slurm / NVIDIA driver versions
-- Relevant log output from `journalctl -u ai-flux-*`
+- Relevant log output from `journalctl -u stroma-ai-*`
 
 ### Suggesting changes
 
@@ -70,7 +70,7 @@ Open a GitHub issue before submitting a PR for significant changes. For small fi
 2. Make your changes
 3. Verify shell scripts pass `shellcheck`:
    ```bash
-   shellcheck deploy/slurm/ai_flux_worker.slurm deploy/ood/script.sh.erb
+   shellcheck deploy/slurm/stroma_ai_worker.slurm deploy/ood/script.sh.erb
    ```
 4. Verify Python passes basic linting:
    ```bash

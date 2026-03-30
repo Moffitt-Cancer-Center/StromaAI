@@ -11,7 +11,7 @@
 #   <app_root>/template/script.sh.erb
 #
 # ERB syntax note: this script uses no ERB interpolation by design (values
-# come from the sourced ai-flux.conf, not OOD form variables). If your
+# come from the sourced stroma-ai.conf, not OOD form variables). If your
 # existing script.sh.erb uses ERB variables like <%= ... %>, merge the
 # StromaAI block below into the appropriate location in that file.
 #
@@ -30,7 +30,7 @@ set -euo pipefail
 # =============================================================================
 # Load StromaAI OOD configuration
 # =============================================================================
-STROMA_OOD_CONF="${STROMA_OOD_CONF:-/etc/ood/ai-flux.conf}"
+STROMA_OOD_CONF="${STROMA_OOD_CONF:-/etc/ood/stroma-ai.conf}"
 
 if [[ -f "${STROMA_OOD_CONF}" ]]; then
     # shellcheck source=/dev/null
@@ -41,10 +41,10 @@ else
 fi
 
 # Defaults (safe fallback if sourcing failed)
-STROMA_HEAD_HOST="${STROMA_HEAD_HOST:-ai-flux.your-cluster.example}"
+STROMA_HEAD_HOST="${STROMA_HEAD_HOST:-stroma-ai.your-cluster.example}"
 STROMA_HTTPS_PORT="${STROMA_HTTPS_PORT:-443}"
 STROMA_API_KEY="${STROMA_API_KEY:-}"
-STROMA_MODEL_NAME="${STROMA_MODEL_NAME:-ai-flux-coder}"
+STROMA_MODEL_NAME="${STROMA_MODEL_NAME:-stroma-ai-coder}"
 
 BASE_URL="https://${STROMA_HEAD_HOST}:${STROMA_HTTPS_PORT}/v1"
 
@@ -55,20 +55,20 @@ KILO_EXT_ID="kilocode.Kilo-Code"
 KILO_EXT_DIR="${HOME}/.local/share/code-server/extensions"
 
 if ! ls "${KILO_EXT_DIR}"/kilocode.kilo-code-* &>/dev/null 2>&1; then
-    echo "[ai-flux] Installing Kilo Code extension (${KILO_EXT_ID})..."
+    echo "[stroma-ai] Installing Kilo Code extension (${KILO_EXT_ID})..."
     if code-server --install-extension "${KILO_EXT_ID}" 2>&1; then
-        echo "[ai-flux] Kilo Code installed successfully."
+        echo "[stroma-ai] Kilo Code installed successfully."
     else
-        echo "[ai-flux] WARNING: Auto-install failed. User must install '${KILO_EXT_ID}' manually." >&2
+        echo "[stroma-ai] WARNING: Auto-install failed. User must install '${KILO_EXT_ID}' manually." >&2
     fi
 else
-    echo "[ai-flux] Kilo Code extension already installed — skipping."
+    echo "[stroma-ai] Kilo Code extension already installed — skipping."
 fi
 
 # =============================================================================
 # Inject StromaAI provider settings into code-server settings.json
 #
-# Only runs if the settings file does not already contain 'ai-flux' to avoid
+# Only runs if the settings file does not already contain 'stroma-ai' to avoid
 # clobbering per-user customizations on every session launch.
 # Remove the grep guard if you want settings forcibly reset each session.
 # =============================================================================
@@ -77,8 +77,8 @@ SETTINGS_FILE="${SETTINGS_DIR}/settings.json"
 
 mkdir -p "${SETTINGS_DIR}"
 
-if ! grep -q "ai-flux" "${SETTINGS_FILE}" 2>/dev/null; then
-    echo "[ai-flux] Injecting StromaAI provider settings into ${SETTINGS_FILE}..."
+if ! grep -q "stroma-ai" "${SETTINGS_FILE}" 2>/dev/null; then
+    echo "[stroma-ai] Injecting StromaAI provider settings into ${SETTINGS_FILE}..."
 
     python3 - <<PYEOF
 import json
@@ -117,13 +117,13 @@ with open(tmp_path, "w") as fh:
     json.dump(settings, fh, indent=2)
 os.replace(tmp_path, settings_path)
 
-print(f"[ai-flux] Settings written to {settings_path}")
-print(f"[ai-flux] Provider: OpenAI-compatible @ {base_url}")
-print(f"[ai-flux] Model: {model_name}")
+print(f"[stroma-ai] Settings written to {settings_path}")
+print(f"[stroma-ai] Provider: OpenAI-compatible @ {base_url}")
+print(f"[stroma-ai] Model: {model_name}")
 PYEOF
 
 else
-    echo "[ai-flux] StromaAI settings already present in ${SETTINGS_FILE} — skipping injection."
+    echo "[stroma-ai] StromaAI settings already present in ${SETTINGS_FILE} — skipping injection."
 fi
 
 # =============================================================================

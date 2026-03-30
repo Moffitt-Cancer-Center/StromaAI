@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-CONFIG_FILE="${STROMA_CONFIG:-/opt/ai-flux/config.env}"
+CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
@@ -89,10 +89,10 @@ fi
 # ---------------------------------------------------------------------------
 echo
 echo "--- Restarting services ---"
-systemctl restart ai-flux-vllm
-echo "  ai-flux-vllm     restarted"
-systemctl restart ai-flux-watcher
-echo "  ai-flux-watcher  restarted"
+systemctl restart stroma-ai-vllm
+echo "  stroma-ai-vllm     restarted"
+systemctl restart stroma-ai-watcher
+echo "  stroma-ai-watcher  restarted"
 
 # ---------------------------------------------------------------------------
 # Health check with new key (wait up to 120s for vLLM to come back)
@@ -120,7 +120,7 @@ if [[ "${HTTP_CODE}" == "200" ]]; then
     exit 0
 else
     echo "ERROR: vLLM did not respond with 200 within 120s after rotation." >&2
-    echo "       Investigate: journalctl -u ai-flux-vllm -n 50" >&2
+    echo "       Investigate: journalctl -u stroma-ai-vllm -n 50" >&2
     echo "       Previous config is backed up at: ${BACKUP}" >&2
     exit 1
 fi

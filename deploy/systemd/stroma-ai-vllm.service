@@ -1,6 +1,6 @@
 [Unit]
 Description=StromaAI — vLLM Inference API Server
-Documentation=https://github.com/your-org/ai-flux
+Documentation=https://github.com/your-org/stroma-ai
 After=network-online.target ray-head.service
 Wants=network-online.target
 Requires=ray-head.service
@@ -9,10 +9,10 @@ Requires=ray-head.service
 Type=simple
 User=aiflux
 Group=aiflux
-WorkingDirectory=/opt/ai-flux
+WorkingDirectory=/opt/stroma-ai
 
 # Sources all STROMA_* environment variables.
-EnvironmentFile=/opt/ai-flux/config.env
+EnvironmentFile=/opt/stroma-ai/config.env
 
 # vLLM CPU KV cache threads — set before vllm process starts.
 # Matches the value baked into the container %environment but can be
@@ -44,8 +44,8 @@ Environment=TRANSFORMERS_OFFLINE=1
 #   --trust-remote-code         — required by AWQ model tokenizer; review any
 #                                 model update against the upstream repo
 # ---------------------------------------------------------------------------
-# Binaries are installed by install.sh into /opt/ai-flux/venv.
-ExecStart=/opt/ai-flux/venv/bin/vllm serve \
+# Binaries are installed by install.sh into /opt/stroma-ai/venv.
+ExecStart=/opt/stroma-ai/venv/bin/vllm serve \
     ${STROMA_MODEL_PATH} \
     --served-model-name ${STROMA_MODEL_NAME} \
     --quantization ${STROMA_VLLM_QUANTIZATION} \
@@ -76,11 +76,11 @@ KillSignal=SIGTERM
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=ai-flux-vllm
+SyslogIdentifier=stroma-ai-vllm
 
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/ai-flux /tmp /share
+ReadWritePaths=/opt/stroma-ai /tmp /share
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectControlGroups=true

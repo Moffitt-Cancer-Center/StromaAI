@@ -14,7 +14,7 @@ Shipped features:
 - **API gateway**: nginx reverse proxy with TLS termination and bearer-token authentication
 - **Slurm integration**: sbatch job templates for GPU-partitioned inference bursts
 - **Open OnDemand app**: Batch-connect template for researcher self-service
-- **Systemd services**: `ai-flux-watcher`, `ai-flux-vllm`, `ai-flux-metrics`
+- **Systemd services**: `stroma-ai-watcher`, `stroma-ai-vllm`, `stroma-ai-metrics`
 - **Ops tooling**: Prometheus `/metrics` endpoint, structured logging, dry-run install mode
 - **SDLC baseline**: pytest unit tests, shell integration smoke test, GitHub Actions CI, semantic versioning, branching strategy
 

@@ -13,7 +13,7 @@ Architecture
     └── vllm_watcher.py  ←  this script
 
   Slurm GPU nodes (RHEL)
-    └── apptainer exec --nv ai-flux-vllm.sif \\
+    └── apptainer exec --nv stroma-ai-vllm.sif \\
           ray start --address=HEAD:6380 --num-gpus=1 --block
 
 State machine per burst job
@@ -26,12 +26,12 @@ State machine per burst job
 Configuration
 -------------
   All parameters come from environment variables (see config.example.env).
-  Systemd EnvironmentFile= sources /opt/ai-flux/config.env before start.
+  Systemd EnvironmentFile= sources /opt/stroma-ai/config.env before start.
 
 Requires
 --------
   pip install requests ray
-  (ray must match the version used in ai-flux-vllm.sif)
+  (ray must match the version used in stroma-ai-vllm.sif)
 """
 
 from __future__ import annotations
@@ -66,14 +66,14 @@ UP_COOLDOWN   = int(os.environ.get("STROMA_SCALE_UP_COOLDOWN", "300"))
 POLL_S        = int(os.environ.get("STROMA_WATCHER_POLL_INTERVAL", "30"))
 SLURM_PART    = os.environ.get("STROMA_SLURM_PARTITION", "ai-flux-gpu")
 SLURM_ACCT    = os.environ.get("STROMA_SLURM_ACCOUNT", "ai-flux-service")
-SLURM_SCRIPT  = os.environ.get("STROMA_SLURM_SCRIPT", "/share/slurm/ai_flux_worker.slurm")
+SLURM_SCRIPT  = os.environ.get("STROMA_SLURM_SCRIPT", "/share/slurm/stroma_ai_worker.slurm")
 SLURM_TIME    = os.environ.get("STROMA_SLURM_WALLTIME", "7-00:00:00")
 SLURM_CPUS    = os.environ.get("STROMA_SLURM_CPUS", "64")
 SLURM_MEM     = os.environ.get("STROMA_SLURM_MEM", "900G")
 SHARED_ROOT   = os.environ.get("STROMA_SHARED_ROOT", "/share")
-SLURM_LOG_DIR = os.environ.get("STROMA_LOG_DIR", f"{SHARED_ROOT}/logs/ai-flux")
+SLURM_LOG_DIR = os.environ.get("STROMA_LOG_DIR", f"{SHARED_ROOT}/logs/stroma-ai")
 VLLM_KV_THREADS = int(os.environ.get("STROMA_VLLM_CPU_KV_THREADS", "32"))
-STATE_FILE    = os.environ.get("STROMA_STATE_FILE", "/opt/ai-flux/watcher_state.json")
+STATE_FILE    = os.environ.get("STROMA_STATE_FILE", "/opt/stroma-ai/watcher_state.json")
 
 VLLM_BASE     = f"http://{HEAD_HOST}:{VLLM_PORT}"
 RAY_ADDR      = f"{HEAD_HOST}:{RAY_PORT}"
@@ -92,7 +92,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
-log = logging.getLogger("ai-flux-watcher")
+log = logging.getLogger("stroma-ai-watcher")
 
 
 # ---------------------------------------------------------------------------

@@ -22,8 +22,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   automatically submits or cancels Slurm jobs to burst inference capacity
 - Prometheus `/metrics` endpoint exposed by the watcher (queue depth, active job count,
   last-scale timestamps)
-- Systemd service units: `ai-flux-watcher.service`, `ai-flux-vllm.service`,
-  `ai-flux-metrics.service`
+- Systemd service units: `stroma-ai-watcher.service`, `stroma-ai-vllm.service`,
+  `stroma-ai-metrics.service`
 
 **Multi-distro installer** (`install/`)
 - `install.sh`: main entry point with `--mode=head|worker|ood`, `--dry-run`, and `--yes` flags
@@ -63,5 +63,5 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
-[Unreleased]: https://github.com/Moffitt-Cancer-Center/ai-flux/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/Moffitt-Cancer-Center/ai-flux/releases/tag/v1.0.0
+[Unreleased]: https://github.com/Moffitt-Cancer-Center/stroma-ai/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Moffitt-Cancer-Center/stroma-ai/releases/tag/v1.0.0

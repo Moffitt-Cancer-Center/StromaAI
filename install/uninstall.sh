@@ -9,18 +9,18 @@
 #   sudo ./install/uninstall.sh [--yes]
 #
 # What is removed:
-#   - systemd service units (ray-head, ai-flux-vllm, ai-flux-watcher)
-#   - /opt/ai-flux/ directory (source, venv, config, state)
-#   - /etc/nginx/conf.d/ai-flux.conf (RHEL/Rocky)
-#     /etc/nginx/sites-{available,enabled}/ai-flux (Ubuntu)
-#   - /etc/ood/ai-flux.conf
-#   - /etc/ssl/ai-flux/ (TLS keys)
+#   - systemd service units (ray-head, stroma-ai-vllm, stroma-ai-watcher)
+#   - /opt/stroma-ai/ directory (source, venv, config, state)
+#   - /etc/nginx/conf.d/stroma-ai.conf (RHEL/Rocky)
+#     /etc/nginx/sites-{available,enabled}/stroma-ai (Ubuntu)
+#   - /etc/ood/stroma-ai.conf
+#   - /etc/ssl/stroma-ai/ (TLS keys)
 #   - 'aiflux' system user
 #
 # What is NOT removed (intentionally):
-#   - /share/containers/ai-flux-vllm.sif  (your data, not ours)
+#   - /share/containers/stroma-ai-vllm.sif  (your data, not ours)
 #   - /share/models/                       (your data, not ours)
-#   - /share/logs/ai-flux/                 (audit trail)
+#   - /share/logs/stroma-ai/                 (audit trail)
 #   - nginx, Python 3.11, NVIDIA toolkit    (shared system packages)
 # =============================================================================
 
@@ -62,7 +62,7 @@ confirm "Proceed with uninstallation?" || { log_info "Aborted."; exit 0; }
 # Stop and disable services
 # ---------------------------------------------------------------------------
 log_step "Stopping StromaAI services"
-for svc in ai-flux-watcher ai-flux-vllm ray-head; do
+for svc in stroma-ai-watcher stroma-ai-vllm ray-head; do
     if systemctl is-active --quiet "${svc}" 2>/dev/null; then
         run_cmd systemctl stop "${svc}" && log_ok "Stopped ${svc}."
     fi
@@ -75,7 +75,7 @@ done
 # Remove systemd units
 # ---------------------------------------------------------------------------
 log_step "Removing systemd service units"
-for unit in ray-head.service ai-flux-vllm.service ai-flux-watcher.service; do
+for unit in ray-head.service stroma-ai-vllm.service stroma-ai-watcher.service; do
     if [[ -f "/etc/systemd/system/${unit}" ]]; then
         run_cmd rm -f "/etc/systemd/system/${unit}"
         log_ok "Removed /etc/systemd/system/${unit}"
@@ -89,14 +89,14 @@ run_cmd systemctl daemon-reload
 log_step "Removing nginx configuration"
 case "${OS_FAMILY}" in
     rhel)
-        if [[ -f /etc/nginx/conf.d/ai-flux.conf ]]; then
-            run_cmd rm -f /etc/nginx/conf.d/ai-flux.conf
-            log_ok "Removed /etc/nginx/conf.d/ai-flux.conf"
+        if [[ -f /etc/nginx/conf.d/stroma-ai.conf ]]; then
+            run_cmd rm -f /etc/nginx/conf.d/stroma-ai.conf
+            log_ok "Removed /etc/nginx/conf.d/stroma-ai.conf"
         fi
         ;;
     debian)
-        run_cmd rm -f /etc/nginx/sites-enabled/ai-flux 2>/dev/null || true
-        run_cmd rm -f /etc/nginx/sites-available/ai-flux 2>/dev/null || true
+        run_cmd rm -f /etc/nginx/sites-enabled/stroma-ai 2>/dev/null || true
+        run_cmd rm -f /etc/nginx/sites-available/stroma-ai 2>/dev/null || true
         log_ok "Removed nginx site config"
         ;;
 esac
@@ -109,10 +109,10 @@ fi
 # Remove TLS certificates
 # ---------------------------------------------------------------------------
 log_step "Removing TLS certificates"
-if [[ -d /etc/ssl/ai-flux ]]; then
-    if confirm "Remove /etc/ssl/ai-flux/ (TLS keys)?"; then
-        run_cmd rm -rf /etc/ssl/ai-flux
-        log_ok "Removed /etc/ssl/ai-flux/"
+if [[ -d /etc/ssl/stroma-ai ]]; then
+    if confirm "Remove /etc/ssl/stroma-ai/ (TLS keys)?"; then
+        run_cmd rm -rf /etc/ssl/stroma-ai
+        log_ok "Removed /etc/ssl/stroma-ai/"
     fi
 fi
 
@@ -120,21 +120,21 @@ fi
 # Remove OOD config
 # ---------------------------------------------------------------------------
 log_step "Removing OOD configuration"
-if [[ -f /etc/ood/ai-flux.conf ]]; then
-    run_cmd rm -f /etc/ood/ai-flux.conf
-    log_ok "Removed /etc/ood/ai-flux.conf"
+if [[ -f /etc/ood/stroma-ai.conf ]]; then
+    run_cmd rm -f /etc/ood/stroma-ai.conf
+    log_ok "Removed /etc/ood/stroma-ai.conf"
 fi
 
 # ---------------------------------------------------------------------------
-# Remove /opt/ai-flux
+# Remove /opt/stroma-ai
 # ---------------------------------------------------------------------------
-log_step "Removing /opt/ai-flux"
-if [[ -d /opt/ai-flux ]]; then
-    if confirm "Remove /opt/ai-flux/ (includes config.env with API key)?"; then
-        run_cmd rm -rf /opt/ai-flux
-        log_ok "Removed /opt/ai-flux/"
+log_step "Removing /opt/stroma-ai"
+if [[ -d /opt/stroma-ai ]]; then
+    if confirm "Remove /opt/stroma-ai/ (includes config.env with API key)?"; then
+        run_cmd rm -rf /opt/stroma-ai
+        log_ok "Removed /opt/stroma-ai/"
     else
-        log_info "Keeping /opt/ai-flux/ — remove manually when ready."
+        log_info "Keeping /opt/stroma-ai/ — remove manually when ready."
     fi
 fi
 
@@ -179,7 +179,7 @@ echo ""
 echo "Remaining (not removed — your data):"
 echo "  /share/containers/  — container images"
 echo "  /share/models/      — model weights"
-echo "  /share/logs/ai-flux — audit logs"
+echo "  /share/logs/stroma-ai — audit logs"
 echo ""
 echo "System packages NOT removed: nginx, python3.11, nvidia-container-toolkit"
 echo "Remove manually if no longer needed."

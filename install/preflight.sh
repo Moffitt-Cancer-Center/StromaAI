@@ -135,12 +135,12 @@ check_head() {
     fi
 
     # TLS certificate path
-    if [[ -f /etc/ssl/ai-flux/server.crt && -f /etc/ssl/ai-flux/server.key ]]; then
+    if [[ -f /etc/ssl/stroma-ai/server.crt && -f /etc/ssl/stroma-ai/server.key ]]; then
         local expiry
-        expiry=$(openssl x509 -enddate -noout -in /etc/ssl/ai-flux/server.crt 2>/dev/null | cut -d= -f2)
+        expiry=$(openssl x509 -enddate -noout -in /etc/ssl/stroma-ai/server.crt 2>/dev/null | cut -d= -f2)
         check_pass "TLS certificate found (expires: ${expiry})"
     else
-        check_warn "TLS certificate not found at /etc/ssl/ai-flux/ — installer will generate a self-signed cert"
+        check_warn "TLS certificate not found at /etc/ssl/stroma-ai/ — installer will generate a self-signed cert"
     fi
 
     # Shared filesystem (for model weights)
@@ -166,11 +166,11 @@ check_head() {
         check_warn "System user 'aiflux' not found — installer will create it"
     fi
 
-    # /opt/ai-flux directory
-    if [[ -d /opt/ai-flux ]]; then
-        check_pass "/opt/ai-flux directory exists"
+    # /opt/stroma-ai directory
+    if [[ -d /opt/stroma-ai ]]; then
+        check_pass "/opt/stroma-ai directory exists"
     else
-        check_warn "/opt/ai-flux not found — installer will create it"
+        check_warn "/opt/stroma-ai not found — installer will create it"
     fi
 }
 
@@ -226,7 +226,7 @@ check_worker() {
     fi
 
     # Container image
-    local sif_path="${STROMA_CONTAINER:-/share/containers/ai-flux-vllm.sif}"
+    local sif_path="${STROMA_CONTAINER:-/share/containers/stroma-ai-vllm.sif}"
     if [[ -f "${sif_path}" ]]; then
         local sif_size_gb
         sif_size_gb=$(du -BG "${sif_path}" 2>/dev/null | awk '{gsub(/G/,""); print $1}')
@@ -286,14 +286,14 @@ check_ood() {
     fi
 
     # StromaAI OOD config
-    if [[ -f /etc/ood/ai-flux.conf ]]; then
-        check_pass "StromaAI OOD config found: /etc/ood/ai-flux.conf"
+    if [[ -f /etc/ood/stroma-ai.conf ]]; then
+        check_pass "StromaAI OOD config found: /etc/ood/stroma-ai.conf"
     else
         check_warn "StromaAI OOD config not found — installer will create it"
     fi
 
     # Connectivity to head node
-    local head="${STROMA_HEAD_HOST:-ai-flux.your-cluster.example}"
+    local head="${STROMA_HEAD_HOST:-stroma-ai.your-cluster.example}"
     local port="${STROMA_HTTPS_PORT:-443}"
     if [[ "${head}" != *"example"* ]]; then
         if curl -fsS --max-time 5 --insecure "https://${head}:${port}/health" &>/dev/null; then

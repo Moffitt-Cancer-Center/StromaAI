@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-CONFIG_FILE="${STROMA_CONFIG:-/opt/ai-flux/config.env}"
+CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in

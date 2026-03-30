@@ -111,9 +111,9 @@ load_or_prompt_config() {
         log_info "Loading configuration from: ${CONFIG_FILE}"
         # shellcheck source=/dev/null
         source "${CONFIG_FILE}"
-    elif [[ -f /opt/ai-flux/config.env ]]; then
-        log_info "Existing config found at /opt/ai-flux/config.env — loading."
-        source /opt/ai-flux/config.env
+    elif [[ -f /opt/stroma-ai/config.env ]]; then
+        log_info "Existing config found at /opt/stroma-ai/config.env — loading."
+        source /opt/stroma-ai/config.env
     else
         log_info "No config file found — running interactive setup."
         _interactive_config
@@ -121,18 +121,18 @@ load_or_prompt_config() {
 
     # Apply defaults for any unset values
     STROMA_SHARED_ROOT="${STROMA_SHARED_ROOT:-/share}"
-    STROMA_HEAD_HOST="${STROMA_HEAD_HOST:-ai-flux.$(hostname -d 2>/dev/null || echo 'cluster.local')}"
+    STROMA_HEAD_HOST="${STROMA_HEAD_HOST:-stroma-ai.$(hostname -d 2>/dev/null || echo 'cluster.local')}"
     STROMA_VLLM_PORT="${STROMA_VLLM_PORT:-8000}"
     STROMA_HTTPS_PORT="${STROMA_HTTPS_PORT:-443}"
     STROMA_RAY_PORT="${STROMA_RAY_PORT:-6380}"
     STROMA_RAY_DASHBOARD_PORT="${STROMA_RAY_DASHBOARD_PORT:-8265}"
     STROMA_MODEL_PATH="${STROMA_MODEL_PATH:-${STROMA_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
-    STROMA_MODEL_NAME="${STROMA_MODEL_NAME:-ai-flux-coder}"
-    STROMA_CONTAINER="${STROMA_CONTAINER:-${STROMA_SHARED_ROOT}/containers/ai-flux-vllm.sif}"
+    STROMA_MODEL_NAME="${STROMA_MODEL_NAME:-stroma-ai-coder}"
+    STROMA_CONTAINER="${STROMA_CONTAINER:-${STROMA_SHARED_ROOT}/containers/stroma-ai-vllm.sif}"
     STROMA_SLURM_PARTITION="${STROMA_SLURM_PARTITION:-ai-flux-gpu}"
     STROMA_SLURM_ACCOUNT="${STROMA_SLURM_ACCOUNT:-ai-flux-service}"
-    STROMA_SLURM_SCRIPT="${STROMA_SLURM_SCRIPT:-${STROMA_SHARED_ROOT}/slurm/ai_flux_worker.slurm}"
-    STROMA_LOG_DIR="${STROMA_LOG_DIR:-${STROMA_SHARED_ROOT}/logs/ai-flux}"
+    STROMA_SLURM_SCRIPT="${STROMA_SLURM_SCRIPT:-${STROMA_SHARED_ROOT}/slurm/stroma_ai_worker.slurm}"
+    STROMA_LOG_DIR="${STROMA_LOG_DIR:-${STROMA_SHARED_ROOT}/logs/stroma-ai}"
     STROMA_SLURM_WALLTIME="${STROMA_SLURM_WALLTIME:-7-00:00:00}"
     STROMA_MAX_BURST_WORKERS="${STROMA_MAX_BURST_WORKERS:-5}"
     STROMA_GPU_MEM_UTIL="${STROMA_GPU_MEM_UTIL:-0.85}"
@@ -143,7 +143,7 @@ load_or_prompt_config() {
     STROMA_SCALE_UP_THRESHOLD="${STROMA_SCALE_UP_THRESHOLD:-5}"
     STROMA_SCALE_DOWN_IDLE_SECONDS="${STROMA_SCALE_DOWN_IDLE_SECONDS:-300}"
     STROMA_SCALE_UP_COOLDOWN="${STROMA_SCALE_UP_COOLDOWN:-120}"
-    STROMA_STATE_FILE="${STROMA_STATE_FILE:-/opt/ai-flux/state/watcher_state.json}"
+    STROMA_STATE_FILE="${STROMA_STATE_FILE:-/opt/stroma-ai/state/watcher_state.json}"
 
     # Validate API key
     if [[ -z "${STROMA_API_KEY:-}" || "${STROMA_API_KEY}" == "CHANGEME"* ]]; then
@@ -182,7 +182,7 @@ This installer needs a few site-specific values to configure StromaAI.
 Press Enter to accept the default shown in [brackets].
 
 EOF
-    local default_host="ai-flux.$(hostname -d 2>/dev/null || echo 'cluster.local')"
+    local default_host="stroma-ai.$(hostname -d 2>/dev/null || echo 'cluster.local')"
 
     echo -en "Shared filesystem root [/share]: "
     read -r input; STROMA_SHARED_ROOT="${input:-/share}"
@@ -193,8 +193,8 @@ EOF
     echo -en "Shared model weight path [${STROMA_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ]: "
     read -r input; STROMA_MODEL_PATH="${input:-${STROMA_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
 
-    echo -en "Shared container SIF path [${STROMA_SHARED_ROOT}/containers/ai-flux-vllm.sif]: "
-    read -r input; STROMA_CONTAINER="${input:-${STROMA_SHARED_ROOT}/containers/ai-flux-vllm.sif}"
+    echo -en "Shared container SIF path [${STROMA_SHARED_ROOT}/containers/stroma-ai-vllm.sif]: "
+    read -r input; STROMA_CONTAINER="${input:-${STROMA_SHARED_ROOT}/containers/stroma-ai-vllm.sif}"
 
     echo -en "Slurm GPU partition [ai-flux-gpu]: "
     read -r input; STROMA_SLURM_PARTITION="${input:-ai-flux-gpu}"
@@ -239,7 +239,7 @@ _create_system_user() {
     run_cmd useradd \
         --system \
         --no-create-home \
-        --home-dir /opt/ai-flux \
+        --home-dir /opt/stroma-ai \
         --shell /sbin/nologin \
         --comment "StromaAI service account" \
         aiflux
@@ -249,17 +249,17 @@ _create_system_user() {
 _create_directories() {
     log_step "Creating directory structure"
     local dirs=(
-        /opt/ai-flux
-        /opt/ai-flux/src
-        /opt/ai-flux/state
-        /etc/ssl/ai-flux
+        /opt/stroma-ai
+        /opt/stroma-ai/src
+        /opt/stroma-ai/state
+        /etc/ssl/stroma-ai
         "${STROMA_LOG_DIR}"
     )
     for dir in "${dirs[@]}"; do
         run_cmd mkdir -p "${dir}"
     done
-    run_cmd chown -R aiflux:aiflux /opt/ai-flux
-    run_cmd chmod 750 /opt/ai-flux
+    run_cmd chown -R aiflux:aiflux /opt/stroma-ai
+    run_cmd chmod 750 /opt/stroma-ai
     run_cmd chown aiflux:aiflux "${STROMA_LOG_DIR}" 2>/dev/null || true
     log_ok "Directories created."
 }
@@ -271,22 +271,22 @@ _install_head_packages() {
     install_python311
     install_nginx
 
-    # Install Python venv into /opt/ai-flux/venv
+    # Install Python venv into /opt/stroma-ai/venv
     install_head_python_deps
 }
 
 _deploy_config_env() {
-    log_step "Writing /opt/ai-flux/config.env"
-    if [[ -f /opt/ai-flux/config.env && "${STROMA_YES}" != "1" ]]; then
-        backup_file /opt/ai-flux/config.env
-        if ! confirm "/opt/ai-flux/config.env already exists. Overwrite?"; then
+    log_step "Writing /opt/stroma-ai/config.env"
+    if [[ -f /opt/stroma-ai/config.env && "${STROMA_YES}" != "1" ]]; then
+        backup_file /opt/stroma-ai/config.env
+        if ! confirm "/opt/stroma-ai/config.env already exists. Overwrite?"; then
             log_info "Keeping existing config.env."
             return 0
         fi
     fi
 
     if [[ "${STROMA_DRY_RUN}" == "0" ]]; then
-        cat > /opt/ai-flux/config.env <<EOF
+        cat > /opt/stroma-ai/config.env <<EOF
 # StromaAI configuration — generated by install.sh on $(date)
 # Do NOT commit this file. Contains secrets.
 
@@ -322,32 +322,32 @@ STROMA_SCALE_DOWN_IDLE_SECONDS=${STROMA_SCALE_DOWN_IDLE_SECONDS}
 STROMA_SCALE_UP_COOLDOWN=${STROMA_SCALE_UP_COOLDOWN}
 STROMA_STATE_FILE=${STROMA_STATE_FILE}
 EOF
-        chown aiflux:aiflux /opt/ai-flux/config.env
-        chmod 640 /opt/ai-flux/config.env
+        chown aiflux:aiflux /opt/stroma-ai/config.env
+        chmod 640 /opt/stroma-ai/config.env
     else
-        log_dry "Would write /opt/ai-flux/config.env with site values"
+        log_dry "Would write /opt/stroma-ai/config.env with site values"
     fi
     log_ok "config.env written."
 }
 
 _deploy_source_files() {
-    log_step "Deploying StromaAI source files to /opt/ai-flux"
+    log_step "Deploying StromaAI source files to /opt/stroma-ai"
 
     # Copy watcher
-    run_cmd cp "${REPO_DIR}/src/vllm_watcher.py" /opt/ai-flux/src/vllm_watcher.py
-    run_cmd chown aiflux:aiflux /opt/ai-flux/src/vllm_watcher.py
-    run_cmd chmod 750 /opt/ai-flux/src/vllm_watcher.py
+    run_cmd cp "${REPO_DIR}/src/vllm_watcher.py" /opt/stroma-ai/src/vllm_watcher.py
+    run_cmd chown aiflux:aiflux /opt/stroma-ai/src/vllm_watcher.py
+    run_cmd chmod 750 /opt/stroma-ai/src/vllm_watcher.py
 
     # Copy shared Slurm script to shared filesystem (if mounted)
     local slurm_script_dir
     slurm_script_dir="$(dirname "${STROMA_SLURM_SCRIPT}")"
     if [[ -d "${slurm_script_dir}" ]]; then
-        run_cmd cp "${REPO_DIR}/deploy/slurm/ai_flux_worker.slurm" "${STROMA_SLURM_SCRIPT}"
+        run_cmd cp "${REPO_DIR}/deploy/slurm/stroma_ai_worker.slurm" "${STROMA_SLURM_SCRIPT}"
         run_cmd chmod 755 "${STROMA_SLURM_SCRIPT}"
         log_ok "Slurm script deployed to ${STROMA_SLURM_SCRIPT}"
     else
         log_warn "Slurm script directory ${slurm_script_dir} not found — copy manually:"
-        log_warn "  cp deploy/slurm/ai_flux_worker.slurm ${STROMA_SLURM_SCRIPT}"
+        log_warn "  cp deploy/slurm/stroma_ai_worker.slurm ${STROMA_SLURM_SCRIPT}"
     fi
 }
 
@@ -359,21 +359,21 @@ _deploy_nginx() {
     case "${OS_FAMILY}" in
         rhel)
             # RHEL/Rocky: drop file in conf.d (nginx reads all *.conf there)
-            nginx_conf_path="/etc/nginx/conf.d/ai-flux.conf"
+            nginx_conf_path="/etc/nginx/conf.d/stroma-ai.conf"
             ;;
         debian)
             # Ubuntu: use sites-available + symlink
-            nginx_conf_path="/etc/nginx/sites-available/ai-flux"
+            nginx_conf_path="/etc/nginx/sites-available/stroma-ai"
             ;;
     esac
 
     backup_file "${nginx_conf_path}" 2>/dev/null || true
-    run_cmd cp "${REPO_DIR}/deploy/nginx/ai-flux.conf" "${nginx_conf_path}"
+    run_cmd cp "${REPO_DIR}/deploy/nginx/stroma-ai.conf" "${nginx_conf_path}"
     log_ok "nginx config installed at ${nginx_conf_path}"
 
     # Ubuntu: enable the site
     if [[ "${OS_FAMILY}" == "debian" ]]; then
-        run_cmd ln -sf "${nginx_conf_path}" /etc/nginx/sites-enabled/ai-flux
+        run_cmd ln -sf "${nginx_conf_path}" /etc/nginx/sites-enabled/stroma-ai
         # Disable default site if present (conflicts with port 80)
         if [[ -f /etc/nginx/sites-enabled/default ]]; then
             run_cmd rm -f /etc/nginx/sites-enabled/default
@@ -402,23 +402,23 @@ _deploy_nginx() {
 _generate_tls_cert() {
     log_step "TLS certificate"
 
-    if [[ -f /etc/ssl/ai-flux/server.crt && -f /etc/ssl/ai-flux/server.key ]]; then
-        log_ok "TLS certificate already exists at /etc/ssl/ai-flux/ — skipping generation."
+    if [[ -f /etc/ssl/stroma-ai/server.crt && -f /etc/ssl/stroma-ai/server.key ]]; then
+        log_ok "TLS certificate already exists at /etc/ssl/stroma-ai/ — skipping generation."
         return 0
     fi
 
     log_info "Generating self-signed TLS certificate for ${STROMA_HEAD_HOST}"
     log_warn "For production, replace with a CA-signed certificate."
 
-    run_cmd mkdir -p /etc/ssl/ai-flux
+    run_cmd mkdir -p /etc/ssl/stroma-ai
     run_cmd openssl req -x509 -nodes -days 3650 -newkey rsa:4096 \
-        -keyout /etc/ssl/ai-flux/server.key \
-        -out    /etc/ssl/ai-flux/server.crt \
+        -keyout /etc/ssl/stroma-ai/server.key \
+        -out    /etc/ssl/stroma-ai/server.crt \
         -subj "/CN=${STROMA_HEAD_HOST}" \
         -addext "subjectAltName=DNS:${STROMA_HEAD_HOST}"
-    run_cmd chmod 600 /etc/ssl/ai-flux/server.key
-    run_cmd chmod 644 /etc/ssl/ai-flux/server.crt
-    run_cmd chown root:root /etc/ssl/ai-flux/server.*
+    run_cmd chmod 600 /etc/ssl/stroma-ai/server.key
+    run_cmd chmod 644 /etc/ssl/stroma-ai/server.crt
+    run_cmd chown root:root /etc/ssl/stroma-ai/server.*
 
     log_ok "Self-signed TLS certificate generated (valid 10 years)."
 }
@@ -428,8 +428,8 @@ _deploy_systemd_units() {
 
     local units=(
         "deploy/systemd/ray-head.service:ray-head.service"
-        "deploy/systemd/ai-flux-vllm.service:ai-flux-vllm.service"
-        "deploy/systemd/ai-flux-watcher.service:ai-flux-watcher.service"
+        "deploy/systemd/stroma-ai-vllm.service:stroma-ai-vllm.service"
+        "deploy/systemd/stroma-ai-watcher.service:stroma-ai-watcher.service"
     )
 
     for entry in "${units[@]}"; do
@@ -440,16 +440,16 @@ _deploy_systemd_units() {
         log_ok "Installed ${dest}"
     done
 
-    # Patch ReadWritePaths in ai-flux-vllm.service to use the actual shared
+    # Patch ReadWritePaths in stroma-ai-vllm.service to use the actual shared
     # storage root. systemd cannot expand shell variables in ReadWritePaths,
     # so the installer substitutes the configured path at deploy time.
-    local vllm_unit="${STROMA_SYSTEMD_DIR}/ai-flux-vllm.service"
+    local vllm_unit="${STROMA_SYSTEMD_DIR}/stroma-ai-vllm.service"
     if [[ "${STROMA_DRY_RUN}" == "0" && -f "${vllm_unit}" ]]; then
-        sed -i "s|ReadWritePaths=/opt/ai-flux /tmp /share|ReadWritePaths=/opt/ai-flux /tmp ${STROMA_SHARED_ROOT}|" \
+        sed -i "s|ReadWritePaths=/opt/stroma-ai /tmp /share|ReadWritePaths=/opt/stroma-ai /tmp ${STROMA_SHARED_ROOT}|" \
             "${vllm_unit}"
-        log_ok "Patched ReadWritePaths in ai-flux-vllm.service to use ${STROMA_SHARED_ROOT}"
+        log_ok "Patched ReadWritePaths in stroma-ai-vllm.service to use ${STROMA_SHARED_ROOT}"
     elif [[ "${STROMA_DRY_RUN}" != "0" ]]; then
-        log_dry "Would patch ReadWritePaths in ai-flux-vllm.service: /share -> ${STROMA_SHARED_ROOT}"
+        log_dry "Would patch ReadWritePaths in stroma-ai-vllm.service: /share -> ${STROMA_SHARED_ROOT}"
     fi
 
     run_cmd systemctl daemon-reload
@@ -465,7 +465,7 @@ _enable_services() {
     log_ok "nginx started."
 
     # StromaAI services (Ray → vLLM → Watcher, in dependency order)
-    local services=(ray-head ai-flux-vllm ai-flux-watcher)
+    local services=(ray-head stroma-ai-vllm stroma-ai-watcher)
     for svc in "${services[@]}"; do
         run_cmd systemctl enable "${svc}"
     done
@@ -478,7 +478,7 @@ _enable_services() {
         done
     else
         log_info "Services are enabled but not started."
-        log_info "Start manually: systemctl start ray-head ai-flux-vllm ai-flux-watcher"
+        log_info "Start manually: systemctl start ray-head stroma-ai-vllm stroma-ai-watcher"
     fi
 }
 
@@ -492,21 +492,21 @@ _print_head_summary() {
     echo -e "  API endpoint:   ${CYAN}${api_url}/v1${RESET}"
     echo -e "  Health check:   ${CYAN}${api_url}/health${RESET}"
     echo -e "  Metrics:        ${CYAN}${api_url}/metrics${RESET} (internal only)"
-    echo -e "  Config file:    /opt/ai-flux/config.env"
+    echo -e "  Config file:    /opt/stroma-ai/config.env"
     echo -e "  API key:        ${YELLOW}${STROMA_API_KEY}${RESET}"
     echo ""
     echo -e "  Log commands:"
     echo -e "    journalctl -u ray-head -f"
-    echo -e "    journalctl -u ai-flux-vllm -f"
-    echo -e "    journalctl -u ai-flux-watcher -f"
+    echo -e "    journalctl -u stroma-ai-vllm -f"
+    echo -e "    journalctl -u stroma-ai-watcher -f"
     echo ""
     echo -e "  Next steps:"
     echo -e "    1. Run preflight on Slurm worker nodes:"
     echo -e "       sudo ./install/preflight.sh --mode=worker"
     echo -e "    2. Build the Apptainer container:"
-    echo -e "       apptainer build ${STROMA_CONTAINER} deploy/containers/ai-flux-vllm.def"
+    echo -e "       apptainer build ${STROMA_CONTAINER} deploy/containers/stroma-ai-vllm.def"
     echo -e "    3. Configure OOD integration:"
-    echo -e "       sudo ./install/install.sh --mode=ood --config=/opt/ai-flux/config.env"
+    echo -e "       sudo ./install/install.sh --mode=ood --config=/opt/stroma-ai/config.env"
     echo ""
 }
 
@@ -533,7 +533,7 @@ install_worker() {
 }
 
 _create_shared_log_dirs() {
-    local log_dir="${STROMA_LOG_DIR:-/share/logs/ai-flux}"
+    local log_dir="${STROMA_LOG_DIR:-/share/logs/stroma-ai}"
     if [[ -d "$(dirname "${log_dir}")" ]]; then
         run_cmd mkdir -p "${log_dir}"
         run_cmd chmod 2775 "${log_dir}"
@@ -557,7 +557,7 @@ _print_worker_summary() {
     echo -e "      python3 -c 'import torch; print(torch.cuda.is_available())'"
     echo ""
     echo -e "  Build the container (on an internet-connected machine):"
-    echo -e "    apptainer build ${STROMA_CONTAINER} deploy/containers/ai-flux-vllm.def"
+    echo -e "    apptainer build ${STROMA_CONTAINER} deploy/containers/stroma-ai-vllm.def"
     echo ""
     echo -e "  Next step: verify shared filesystem and Slurm account:"
     echo -e "    scontrol show partition ${STROMA_SLURM_PARTITION}"
@@ -584,11 +584,11 @@ install_ood() {
 }
 
 _deploy_ood_config() {
-    log_step "Deploying /etc/ood/ai-flux.conf"
+    log_step "Deploying /etc/ood/stroma-ai.conf"
 
     if [[ "${STROMA_DRY_RUN}" == "0" ]]; then
-        backup_file /etc/ood/ai-flux.conf 2>/dev/null || true
-        cat > /etc/ood/ai-flux.conf <<EOF
+        backup_file /etc/ood/stroma-ai.conf 2>/dev/null || true
+        cat > /etc/ood/stroma-ai.conf <<EOF
 # StromaAI OOD configuration — generated by install.sh on $(date)
 # Sourced by deploy/ood/script.sh.erb at code-server session start.
 
@@ -597,11 +597,11 @@ STROMA_HTTPS_PORT=${STROMA_HTTPS_PORT}
 STROMA_API_KEY=${STROMA_API_KEY}
 STROMA_MODEL_NAME=${STROMA_MODEL_NAME}
 EOF
-        chmod 640 /etc/ood/ai-flux.conf
-        chown root:ood /etc/ood/ai-flux.conf 2>/dev/null || \
-            chown root:root /etc/ood/ai-flux.conf
+        chmod 640 /etc/ood/stroma-ai.conf
+        chown root:ood /etc/ood/stroma-ai.conf 2>/dev/null || \
+            chown root:root /etc/ood/stroma-ai.conf
     fi
-    log_ok "/etc/ood/ai-flux.conf written."
+    log_ok "/etc/ood/stroma-ai.conf written."
 }
 
 _deploy_ood_app() {
@@ -623,12 +623,12 @@ _deploy_ood_app() {
         return 0
     fi
 
-    local ai_flux_app_dir="${ood_apps_dir}/ai-flux-code"
-    run_cmd mkdir -p "${ai_flux_app_dir}/template"
-    run_cmd cp "${REPO_DIR}/deploy/ood/ai-flux.conf" "${ai_flux_app_dir}/"
-    run_cmd cp "${REPO_DIR}/deploy/ood/script.sh.erb" "${ai_flux_app_dir}/template/"
+    local stroma_ai_app_dir="${ood_apps_dir}/stroma-ai-code"
+    run_cmd mkdir -p "${stroma_ai_app_dir}/template"
+    run_cmd cp "${REPO_DIR}/deploy/ood/stroma-ai.conf" "${stroma_ai_app_dir}/"
+    run_cmd cp "${REPO_DIR}/deploy/ood/script.sh.erb" "${stroma_ai_app_dir}/template/"
 
-    log_ok "OOD app files deployed to ${ai_flux_app_dir}"
+    log_ok "OOD app files deployed to ${stroma_ai_app_dir}"
 }
 
 _print_ood_summary() {
@@ -637,7 +637,7 @@ _print_ood_summary() {
     echo -e "${BOLD}║   StromaAI OOD Integration Complete                       ║${RESET}"
     echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
     echo ""
-    echo -e "  OOD config:  /etc/ood/ai-flux.conf"
+    echo -e "  OOD config:  /etc/ood/stroma-ai.conf"
     echo ""
     echo -e "  Manual verification steps:"
     echo -e "  1. Start a code-server session via OOD"

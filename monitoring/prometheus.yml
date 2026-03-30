@@ -5,8 +5,8 @@
 # as a standalone config if deploying Prometheus for StromaAI only.
 #
 # Install with alerting rules:
-#   cp monitoring/prometheus.yml /etc/prometheus/conf.d/ai-flux.yml
-#   cp monitoring/alerts/ai-flux.yml /etc/prometheus/rules/ai-flux.yml
+#   cp monitoring/prometheus.yml /etc/prometheus/conf.d/stroma-ai.yml
+#   cp monitoring/alerts/stroma-ai.yml /etc/prometheus/rules/stroma-ai.yml
 #   systemctl reload prometheus
 #
 # Metrics exposed by vLLM at /metrics (Prometheus format):
@@ -24,13 +24,13 @@ global:
   evaluation_interval: 15s
   external_labels:
     cluster: "your-cluster-name"   # edit to your site identifier
-    service: "ai-flux"
+    service: "stroma-ai"
 
 # ---------------------------------------------------------------------------
 # Rule files — alert thresholds defined below
 # ---------------------------------------------------------------------------
 rule_files:
-  - "/etc/prometheus/rules/ai-flux.yml"
+  - "/etc/prometheus/rules/stroma-ai.yml"
 
 # ---------------------------------------------------------------------------
 # Scrape configuration
@@ -40,7 +40,7 @@ scrape_configs:
   # vLLM metrics — scraped via nginx HTTPS proxy
   # /metrics is restricted to internal CIDRs in nginx config;
   # Prometheus must run on the same host or within the allowed CIDR.
-  - job_name: "ai-flux-vllm"
+  - job_name: "stroma-ai-vllm"
     scheme: https
     metrics_path: /metrics
     tls_config:
@@ -52,22 +52,22 @@ scrape_configs:
     #   credentials: "your-api-key"
     static_configs:
       - targets:
-          - "ai-flux.your-cluster.example:443"
+          - "stroma-ai.your-cluster.example:443"
         labels:
-          instance: "ai-flux-head"
+          instance: "stroma-ai-head"
 
   # Ray cluster metrics (if Ray Prom exporter is enabled)
   # ray start --head --metrics-export-port=8080
-  # - job_name: "ai-flux-ray"
+  # - job_name: "stroma-ai-ray"
   #   static_configs:
-  #     - targets: ["ai-flux.your-cluster.example:8080"]
+  #     - targets: ["stroma-ai.your-cluster.example:8080"]
 
 ---
 # =============================================================================
-# Alerting Rules (save separately as /etc/prometheus/rules/ai-flux.yml)
+# Alerting Rules (save separately as /etc/prometheus/rules/stroma-ai.yml)
 # =============================================================================
 # groups:
-#   - name: ai-flux
+#   - name: stroma-ai
 #     rules:
 #
 #       # WARNING: GPU KV cache > 85% — approaching VRAM saturation
@@ -102,10 +102,10 @@ scrape_configs:
 #
 #       # WARNING: vLLM health endpoint down
 #       - alert: AIFluxVLLMDown
-#         expr: up{job="ai-flux-vllm"} == 0
+#         expr: up{job="stroma-ai-vllm"} == 0
 #         for: 1m
 #         labels:
 #           severity: critical
 #         annotations:
 #           summary: "StromaAI vLLM endpoint is unreachable"
-#           description: "Check: systemctl status ai-flux-vllm && journalctl -u ai-flux-vllm -n 50"
+#           description: "Check: systemctl status stroma-ai-vllm && journalctl -u stroma-ai-vllm -n 50"

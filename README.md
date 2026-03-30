@@ -55,15 +55,15 @@ Built and reference-deployed at **Moffitt Cancer Center HPC**.
 ### 1. Configure
 
 ```bash
-cp config/config.example.env /opt/ai-flux/config.env
+cp config/config.example.env /opt/stroma-ai/config.env
 # Edit all CHANGEME values and site-specific settings
-chmod 640 /opt/ai-flux/config.env
+chmod 640 /opt/stroma-ai/config.env
 ```
 
 ### 2. Build the container (on an internet-connected machine)
 
 ```bash
-apptainer build /share/containers/ai-flux-vllm.sif deploy/containers/ai-flux-vllm.def
+apptainer build /share/containers/stroma-ai-vllm.sif deploy/containers/stroma-ai-vllm.def
 ```
 
 ### 3. Deploy systemd services (on the Proxmox VM)
@@ -71,11 +71,11 @@ apptainer build /share/containers/ai-flux-vllm.sif deploy/containers/ai-flux-vll
 ```bash
 useradd -r -s /sbin/nologin aiflux
 cp deploy/systemd/*.service /etc/systemd/system/
-cp src/vllm_watcher.py /opt/ai-flux/
+cp src/vllm_watcher.py /opt/stroma-ai/
 systemctl daemon-reload
 systemctl enable --now ray-head
-systemctl enable --now ai-flux-vllm
-systemctl enable --now ai-flux-watcher
+systemctl enable --now stroma-ai-vllm
+systemctl enable --now stroma-ai-watcher
 ```
 
 ### 4. Configure nginx TLS
@@ -83,13 +83,13 @@ systemctl enable --now ai-flux-watcher
 ```bash
 apt-get install -y nginx
 # Create self-signed cert:
-mkdir -p /etc/ssl/ai-flux
+mkdir -p /etc/ssl/stroma-ai
 openssl req -x509 -nodes -days 3650 -newkey rsa:4096 \
-  -keyout /etc/ssl/ai-flux/server.key \
-  -out    /etc/ssl/ai-flux/server.crt \
-  -subj "/CN=ai-flux.your-cluster.example"
-cp deploy/nginx/ai-flux.conf /etc/nginx/sites-available/ai-flux
-ln -s /etc/nginx/sites-available/ai-flux /etc/nginx/sites-enabled/ai-flux
+  -keyout /etc/ssl/stroma-ai/server.key \
+  -out    /etc/ssl/stroma-ai/server.crt \
+  -subj "/CN=stroma-ai.your-cluster.example"
+cp deploy/nginx/stroma-ai.conf /etc/nginx/sites-available/stroma-ai
+ln -s /etc/nginx/sites-available/stroma-ai /etc/nginx/sites-enabled/stroma-ai
 nginx -t && systemctl reload nginx
 ```
 
@@ -99,8 +99,8 @@ nginx -t && systemctl reload nginx
 # Create burst partition:
 scontrol create partition Name=ai-flux-gpu Nodes=node[001-070] MaxNodes=10 State=UP
 sacctmgr add account ai-flux-service Description="StromaAI burst workers"
-mkdir -p /share/logs/ai-flux /share/slurm
-cp deploy/slurm/ai_flux_worker.slurm /share/slurm/
+mkdir -p /share/logs/stroma-ai /share/slurm
+cp deploy/slurm/stroma_ai_worker.slurm /share/slurm/
 
 # Create always-warm reservation (1 node permanently allocated):
 scontrol create Reservation=ai-flux-warm \
@@ -113,9 +113,9 @@ scontrol create Reservation=ai-flux-warm \
 ### 6. Configure OOD integration
 
 ```bash
-cp deploy/ood/ai-flux.conf /etc/ood/ai-flux.conf
-chmod 640 /etc/ood/ai-flux.conf
-# Edit ai-flux.conf — set STROMA_API_KEY to match /opt/ai-flux/config.env
+cp deploy/ood/stroma-ai.conf /etc/ood/stroma-ai.conf
+chmod 640 /etc/ood/stroma-ai.conf
+# Edit stroma-ai.conf — set STROMA_API_KEY to match /opt/stroma-ai/config.env
 # Merge deploy/ood/script.sh.erb into your code-server OOD app template
 ```
 
@@ -123,14 +123,14 @@ chmod 640 /etc/ood/ai-flux.conf
 
 ```bash
 # API health:
-curl -k https://ai-flux.your-cluster.example/health
+curl -k https://stroma-ai.your-cluster.example/health
 
 # Model list:
-curl -k https://ai-flux.your-cluster.example/v1/models \
+curl -k https://stroma-ai.your-cluster.example/v1/models \
   -H "Authorization: Bearer YOUR_API_KEY"
 
 # Watch logs:
-journalctl -u ai-flux-ray -u ai-flux-vllm -u ai-flux-watcher -f
+journalctl -u stroma-ai-ray -u stroma-ai-vllm -u stroma-ai-watcher -f
 ```
 
 ---
@@ -138,23 +138,23 @@ journalctl -u ai-flux-ray -u ai-flux-vllm -u ai-flux-watcher -f
 ## File structure
 
 ```
-ai-flux/
+stroma-ai/
 ├── config/
 │   └── config.example.env     # All configuration variables with documentation
 ├── deploy/
 │   ├── containers/
-│   │   └── ai-flux-vllm.def   # Apptainer container definition (pinned versions)
+│   │   └── stroma-ai-vllm.def   # Apptainer container definition (pinned versions)
 │   ├── nginx/
-│   │   └── ai-flux.conf       # nginx TLS reverse proxy configuration
+│   │   └── stroma-ai.conf       # nginx TLS reverse proxy configuration
 │   ├── ood/
-│   │   ├── ai-flux.conf       # OOD config file (sourced by script.sh.erb)
+│   │   ├── stroma-ai.conf       # OOD config file (sourced by script.sh.erb)
 │   │   └── script.sh.erb      # code-server session setup template
 │   ├── slurm/
-│   │   └── ai_flux_worker.slurm  # Slurm burst worker sbatch script
+│   │   └── stroma_ai_worker.slurm  # Slurm burst worker sbatch script
 │   └── systemd/
 │       ├── ray-head.service      # Ray head node service
-│       ├── ai-flux-vllm.service  # vLLM API server service
-│       └── ai-flux-watcher.service  # Dynamic burst scaler service
+│       ├── stroma-ai-vllm.service  # vLLM API server service
+│       └── stroma-ai-watcher.service  # Dynamic burst scaler service
 ├── docs/
 │   ├── deployment-guide.md    # Full step-by-step deployment walkthrough
 │   └── rhel-slurm-setup.md   # RHEL-specific pre-flight checklist

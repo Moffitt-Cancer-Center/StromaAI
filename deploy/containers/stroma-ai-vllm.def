@@ -7,10 +7,10 @@
 #
 # Build instructions:
 #   # On an internet-connected machine with Apptainer installed:
-#   apptainer build ai-flux-vllm.sif ai-flux-vllm.def
+#   apptainer build stroma-ai-vllm.sif stroma-ai-vllm.def
 #
 #   # Copy to shared storage:
-#   rsync -avz ai-flux-vllm.sif cluster:/share/containers/
+#   rsync -avz stroma-ai-vllm.sif cluster:/share/containers/
 #
 # RHEL / SELinux notes:
 #   Before running on RHEL Slurm nodes, ensure:
@@ -22,7 +22,7 @@
 # Version pinning:
 #   ALL versions below are explicit — no implicit "latest" anywhere.
 #   When upgrading, update ALL four version variables together and retest
-#   on RHEL before updating ai-flux-vllm.sif on shared storage.
+#   on RHEL before updating stroma-ai-vllm.sif on shared storage.
 #
 # Tested with:
 #   CUDA  12.6 (nvcr.io/nvidia/pytorch:24.10-py3)
@@ -38,13 +38,13 @@ From: nvcr.io/nvidia/pytorch:24.10-py3
 # Get digest: docker pull nvcr.io/nvidia/pytorch:24.10-py3 && docker inspect
 
 %labels
-    org.opencontainers.image.title       ai-flux-vllm
+    org.opencontainers.image.title       stroma-ai-vllm
     org.opencontainers.image.description "vLLM + Ray worker for StromaAI HPC burst inference"
     org.opencontainers.image.licenses    Apache-2.0
-    ai-flux.vllm-version                 0.7.3
-    ai-flux.ray-version                  2.40.0
-    ai-flux.cuda-base                    nvcr.io/nvidia/pytorch:24.10-py3
-    ai-flux.tested-gpu                   NVIDIA L30 (Ada Lovelace, CC 8.9)
+    stroma-ai.vllm-version                 0.7.3
+    stroma-ai.ray-version                  2.40.0
+    stroma-ai.cuda-base                    nvcr.io/nvidia/pytorch:24.10-py3
+    stroma-ai.tested-gpu                   NVIDIA L30 (Ada Lovelace, CC 8.9)
 
 %environment
     # Prevent any attempt to reach the internet at runtime (air-gapped)
@@ -113,7 +113,7 @@ print('Build-time import check: PASS')
 "
 
 %test
-    # Run by: apptainer test ai-flux-vllm.sif
+    # Run by: apptainer test stroma-ai-vllm.sif
     python3 -c "
 import vllm, ray, torch, requests
 print('Container self-test: PASS')
@@ -126,6 +126,6 @@ print(f'  Torch {torch.__version__}')
     # Default entrypoint — override with `apptainer exec` in practice
     echo "StromaAI vLLM container"
     echo "Usage:"
-    echo "  Ray worker:  apptainer exec --nv ai-flux-vllm.sif ray start --address=HEAD:6380 --num-gpus=1 --block"
-    echo "  vLLM server: apptainer exec --nv ai-flux-vllm.sif vllm serve MODEL_PATH [options]"
-    echo "  Shell:       apptainer shell --nv ai-flux-vllm.sif"
+    echo "  Ray worker:  apptainer exec --nv stroma-ai-vllm.sif ray start --address=HEAD:6380 --num-gpus=1 --block"
+    echo "  vLLM server: apptainer exec --nv stroma-ai-vllm.sif vllm serve MODEL_PATH [options]"
+    echo "  Shell:       apptainer shell --nv stroma-ai-vllm.sif"

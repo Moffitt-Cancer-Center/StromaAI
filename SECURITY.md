@@ -40,7 +40,7 @@ StromaAI is designed for **internal HPC environments behind a firewall**. The se
 
 ## Dependency security
 
-All container package versions are pinned in `deploy/containers/ai-flux-vllm.def`. When upgrading:
+All container package versions are pinned in `deploy/containers/stroma-ai-vllm.def`. When upgrading:
 
 1. Review the vLLM and Ray changelogs for security fixes
 2. Rebuild and test the container on RHEL before updating shared storage

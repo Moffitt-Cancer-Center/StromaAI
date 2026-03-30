@@ -81,9 +81,9 @@ configure_selinux() {
 
     # If nginx is being installed, set correct file context on log directory
     if [[ "${mode}" == "head" ]] && check_cmd semanage 2>/dev/null; then
-        # Allow nginx to read ssl certs in /etc/ssl/ai-flux
-        run_cmd semanage fcontext -a -t cert_t "/etc/ssl/ai-flux(/.*)?" 2>/dev/null || true
-        run_cmd restorecon -Rv /etc/ssl/ai-flux 2>/dev/null || true
+        # Allow nginx to read ssl certs in /etc/ssl/stroma-ai
+        run_cmd semanage fcontext -a -t cert_t "/etc/ssl/stroma-ai(/.*)?" 2>/dev/null || true
+        run_cmd restorecon -Rv /etc/ssl/stroma-ai 2>/dev/null || true
     fi
 
     log_ok "SELinux booleans configured."
@@ -111,7 +111,7 @@ configure_apparmor() {
         run_cmd sysctl -w kernel.unprivileged_userns_clone=1
         if [[ "${STROMA_DRY_RUN:-0}" == "0" ]]; then
             echo "kernel.unprivileged_userns_clone=1" \
-                >> /etc/sysctl.d/99-ai-flux.conf
+                >> /etc/sysctl.d/99-stroma-ai.conf
         fi
     else
         log_ok "kernel.unprivileged_userns_clone is enabled."

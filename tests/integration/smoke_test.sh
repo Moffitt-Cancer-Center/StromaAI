@@ -30,9 +30,9 @@ API_KEY="${3:-${STROMA_API_KEY:-}}"
 
 if [[ -z "${HEAD_HOST}" ]]; then
     # Try loading from installed config
-    if [[ -f /opt/ai-flux/config.env ]]; then
+    if [[ -f /opt/stroma-ai/config.env ]]; then
         # shellcheck source=/dev/null
-        source /opt/ai-flux/config.env
+        source /opt/stroma-ai/config.env
         HEAD_HOST="${STROMA_HEAD_HOST:-}"
         API_KEY="${STROMA_API_KEY:-}"
     fi
@@ -60,7 +60,7 @@ warn() { echo -e "  ${YELLOW}[WARN]${RESET} $1"; }
 section() { echo -e "\n${BOLD}### $1${RESET}"; }
 
 # curl wrapper — insecure TLS accepted (common for self-signed HPC certs)
-ai_flux_curl() {
+stroma_ai_curl() {
     curl -fsSk --max-time 10 "$@"
 }
 
@@ -69,7 +69,7 @@ ai_flux_curl() {
 # ---------------------------------------------------------------------------
 section "Service Health"
 
-if ai_flux_curl "${BASE_URL}/health" > /dev/null 2>&1; then
+if stroma_ai_curl "${BASE_URL}/health" > /dev/null 2>&1; then
     pass "GET /health → 200"
 else
     fail "GET /health did not return 200 (is nginx running? is vLLM up?)"
@@ -156,7 +156,7 @@ if [[ -n "${API_KEY}" ]]; then
     inference_response=$(curl -fsSk --max-time 30 \
         -H "Authorization: Bearer ${API_KEY}" \
         -H "Content-Type: application/json" \
-        -d '{"model":"'"${STROMA_MODEL_NAME:-ai-flux-coder}"'","messages":[{"role":"user","content":"Reply with exactly: SMOKE_TEST_OK"}],"max_tokens":10}' \
+        -d '{"model":"'"${STROMA_MODEL_NAME:-stroma-ai-coder}"'","messages":[{"role":"user","content":"Reply with exactly: SMOKE_TEST_OK"}],"max_tokens":10}' \
         "${BASE_URL}/v1/chat/completions" 2>/dev/null || echo "{}")
 
     if echo "${inference_response}" | python3 -c \
@@ -201,7 +201,7 @@ section "Systemd Services"
 
 if command -v systemctl &>/dev/null && [[ "$(hostname)" == "${HEAD_HOST%%.*}"* || \
     "$(hostname -f 2>/dev/null)" == "${HEAD_HOST}" ]]; then
-    for svc in ray-head ai-flux-vllm ai-flux-watcher nginx; do
+    for svc in ray-head stroma-ai-vllm stroma-ai-watcher nginx; do
         if systemctl is-active --quiet "${svc}" 2>/dev/null; then
             pass "systemd: ${svc} is active"
         else

@@ -43,9 +43,9 @@ def _load_watcher(env_overrides: dict[str, str] | None = None):
         "STROMA_WATCHER_POLL_INTERVAL": "30",
         "STROMA_SLURM_PARTITION": "gpu-test",
         "STROMA_SLURM_ACCOUNT": "test-acct",
-        "STROMA_SLURM_SCRIPT": "/share/slurm/ai_flux_worker.slurm",
+        "STROMA_SLURM_SCRIPT": "/share/slurm/stroma_ai_worker.slurm",
         "STROMA_SLURM_WALLTIME": "1-00:00:00",
-        "STROMA_STATE_FILE": "/tmp/ai_flux_test_state.json",
+        "STROMA_STATE_FILE": "/tmp/stroma_ai_test_state.json",
     }
     if env_overrides:
         env.update(env_overrides)
@@ -148,7 +148,7 @@ class TestFetchMetrics:
 vllm:num_requests_waiting 5.0
 # HELP vllm:num_requests_running Number of requests running
 # TYPE vllm:num_requests_running gauge
-vllm:num_requests_running{model_name="ai-flux-coder"} 2.0
+vllm:num_requests_running{model_name="stroma-ai-coder"} 2.0
 # HELP vllm:cpu_kv_cache_usage_perc CPU KV cache usage
 vllm:cpu_kv_cache_usage_perc 0.34
 vllm:gpu_cache_usage_perc 0.72

@@ -153,13 +153,13 @@ _configure_nct_for_apptainer() {
 # ---------------------------------------------------------------------------
 verify_gpu_in_container() {
     local runtime="${CONTAINER_RUNTIME:-apptainer}"
-    local sif="${STROMA_CONTAINER:-/share/containers/ai-flux-vllm.sif}"
+    local sif="${STROMA_CONTAINER:-/share/containers/stroma-ai-vllm.sif}"
 
     log_step "Verifying GPU access inside container"
 
     if [[ ! -f "${sif}" ]]; then
         log_warn "Container image not found at ${sif} — skipping GPU-in-container test."
-        log_warn "Build the container first: apptainer build ${sif} deploy/containers/ai-flux-vllm.def"
+        log_warn "Build the container first: apptainer build ${sif} deploy/containers/stroma-ai-vllm.def"
         return 0
     fi
 

@@ -28,17 +28,17 @@
 #   See docs/rhel-slurm-setup.md
 # =============================================================================
 
-#SBATCH --job-name=ai-flux-burst
+#SBATCH --job-name=stroma-ai-burst
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
 #SBATCH --exclusive
 # NOTE: --output and --error paths are passed by the Watcher via sbatch CLI
 # flags using STROMA_LOG_DIR from config.env. The paths below are fallbacks
-# for manual sbatch runs only. Run 'mkdir -p /share/logs/ai-flux' on shared
+# for manual sbatch runs only. Run 'mkdir -p /share/logs/stroma-ai' on shared
 # storage before first use, matching your STROMA_LOG_DIR setting.
-#SBATCH --output=/share/logs/ai-flux/slurm-%j.out
-#SBATCH --error=/share/logs/ai-flux/slurm-%j.err
+#SBATCH --output=/share/logs/stroma-ai/slurm-%j.out
+#SBATCH --error=/share/logs/stroma-ai/slurm-%j.err
 # NOTE: --partition, --account, --time, --cpus-per-task, and --mem are all
 # passed by the Watcher at submit time via sbatch CLI flags. Do NOT set them
 # here to avoid conflicts. Tune STROMA_SLURM_CPUS and STROMA_SLURM_MEM
@@ -56,7 +56,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Container configuration
 # ---------------------------------------------------------------------------
-STROMA_CONTAINER="${STROMA_CONTAINER:-/share/containers/ai-flux-vllm.sif}"
+STROMA_CONTAINER="${STROMA_CONTAINER:-/share/containers/stroma-ai-vllm.sif}"
 
 # Detect container runtime (apptainer preferred; fall back to singularity)
 if [[ -z "${CONTAINER_CMD:-}" ]]; then
@@ -86,7 +86,7 @@ GPU_FLAG="${STROMA_CONTAINER_GPU_FLAG:---nv}"
 # ---------------------------------------------------------------------------
 if [[ ! -f "${STROMA_CONTAINER}" ]]; then
     echo "ERROR: Container image not found: ${STROMA_CONTAINER}" >&2
-    echo "Build it with: apptainer build ${STROMA_CONTAINER} deploy/containers/ai-flux-vllm.def" >&2
+    echo "Build it with: apptainer build ${STROMA_CONTAINER} deploy/containers/stroma-ai-vllm.def" >&2
     exit 1
 fi
 

@@ -35,7 +35,7 @@ jobs:
       - name: Lint deploy scripts
         run: |
           shellcheck -S warning \
-            deploy/slurm/ai_flux_worker.slurm \
+            deploy/slurm/stroma_ai_worker.slurm \
             deploy/ood/script.sh.erb \
             tests/integration/smoke_test.sh
 
@@ -123,7 +123,7 @@ jobs:
           # We check only that the syntax is valid
           python3 -c "
           import re, sys
-          text = open('deploy/containers/ai-flux-vllm.def').read()
+          text = open('deploy/containers/stroma-ai-vllm.def').read()
           sections = re.findall(r'^%\w+', text, re.MULTILINE)
           required = ['%post', '%environment', '%runscript']
           missing = [s for s in required if s not in sections]
