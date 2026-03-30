@@ -40,13 +40,13 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=stroma-ai-ray
 
-# Security hardening (Debian/systemd 245+)
+# Security hardening
+# Note: ProtectKernelTunables and ProtectControlGroups are intentionally omitted —
+# Ray reads /proc and manages its own cgroup subtree for resource accounting.
+# PrivateTmp is omitted so the /tmp/ray socket is visible to other local services.
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/stroma-ai /tmp
-PrivateTmp=true
-ProtectKernelTunables=true
-ProtectControlGroups=true
+ReadWritePaths=/opt/stroma-ai /tmp /var/tmp
 ProtectHostname=true
 RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
