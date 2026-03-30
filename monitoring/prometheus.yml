@@ -71,7 +71,7 @@ scrape_configs:
 #     rules:
 #
 #       # WARNING: GPU KV cache > 85% — approaching VRAM saturation
-#       - alert: AIFluxGPUCacheHigh
+#       - alert: StromaAIGPUCacheHigh
 #         expr: vllm:gpu_cache_usage_perc > 0.85
 #         for: 2m
 #         labels:
@@ -81,7 +81,7 @@ scrape_configs:
 #           description: "Scale up burst workers or reduce max-num-seqs."
 #
 #       # CRITICAL: Many requests stuck in queue — users experiencing latency
-#       - alert: AIFluxQueueBacklog
+#       - alert: StromaAIQueueBacklog
 #         expr: vllm:num_requests_waiting > 20
 #         for: 5m
 #         labels:
@@ -91,7 +91,7 @@ scrape_configs:
 #           description: "Burst worker scale-up may be saturated or Slurm queue is full."
 #
 #       # INFO: CPU KV cache usage high — memory pressure on head node
-#       - alert: AIFluxCPUCacheHigh
+#       - alert: StromaAICPUCacheHigh
 #         expr: vllm:cpu_cache_usage_perc > 0.80
 #         for: 5m
 #         labels:
@@ -101,7 +101,7 @@ scrape_configs:
 #           description: "Consider reducing STROMA_CPU_OFFLOAD_GB or scaling burst workers."
 #
 #       # WARNING: vLLM health endpoint down
-#       - alert: AIFluxVLLMDown
+#       - alert: StromaAIVLLMDown
 #         expr: up{job="stroma-ai-vllm"} == 0
 #         for: 1m
 #         labels:

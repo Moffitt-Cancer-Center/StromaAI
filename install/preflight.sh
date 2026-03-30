@@ -166,11 +166,12 @@ check_head() {
         check_warn "System user 'stromaai' not found — installer will create it"
     fi
 
-    # /opt/stroma-ai directory
-    if [[ -d /opt/stroma-ai ]]; then
-        check_pass "/opt/stroma-ai directory exists"
+    # Install directory
+    local install_dir="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
+    if [[ -d "${install_dir}" ]]; then
+        check_pass "${install_dir} directory exists"
     else
-        check_warn "/opt/stroma-ai not found — installer will create it"
+        check_warn "${install_dir} not found — installer will create it"
     fi
 }
 

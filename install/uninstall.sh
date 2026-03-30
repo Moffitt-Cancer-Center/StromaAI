@@ -10,7 +10,7 @@
 #
 # What is removed:
 #   - systemd service units (ray-head, stroma-ai-vllm, stroma-ai-watcher)
-#   - /opt/stroma-ai/ directory (source, venv, config, state)
+#   - Install directory (default: /opt/stroma-ai/; source, venv, config, state)
 #   - /etc/nginx/conf.d/stroma-ai.conf (RHEL/Rocky)
 #     /etc/nginx/sites-{available,enabled}/stroma-ai (Ubuntu)
 #   - /etc/ood/stroma-ai.conf
@@ -126,15 +126,15 @@ if [[ -f /etc/ood/stroma-ai.conf ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Remove /opt/stroma-ai
+# Remove ${STROMA_INSTALL_DIR}
 # ---------------------------------------------------------------------------
-log_step "Removing /opt/stroma-ai"
-if [[ -d /opt/stroma-ai ]]; then
-    if confirm "Remove /opt/stroma-ai/ (includes config.env with API key)?"; then
-        run_cmd rm -rf /opt/stroma-ai
-        log_ok "Removed /opt/stroma-ai/"
+log_step "Removing ${STROMA_INSTALL_DIR}"
+if [[ -d ${STROMA_INSTALL_DIR} ]]; then
+    if confirm "Remove ${STROMA_INSTALL_DIR}/ (includes config.env with API key)?"; then
+        run_cmd rm -rf "${STROMA_INSTALL_DIR}"
+        log_ok "Removed ${STROMA_INSTALL_DIR}/"
     else
-        log_info "Keeping /opt/stroma-ai/ — remove manually when ready."
+        log_info "Keeping ${STROMA_INSTALL_DIR}/ — remove manually when ready."
     fi
 fi
 

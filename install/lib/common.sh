@@ -124,18 +124,21 @@ installed_version() {
 }
 
 # ---------------------------------------------------------------------------
-# stroma_ai_venv — path to the Python virtual environment
+# StromaAI installation directories
+# STROMA_INSTALL_DIR may be set by the caller before sourcing this file to
+# install into a non-default location (e.g. /opt/stroma-ai-dev).
 # ---------------------------------------------------------------------------
-readonly STROMA_VENV="/opt/stroma-ai/venv"
-readonly STROMA_PYTHON="${STROMA_VENV}/bin/python3"
-readonly STROMA_PIP="${STROMA_VENV}/bin/pip"
-
-# ---------------------------------------------------------------------------
-# AI_FLUX installation directories
-# ---------------------------------------------------------------------------
-readonly STROMA_INSTALL_DIR="/opt/stroma-ai"
+STROMA_INSTALL_DIR="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
 # STROMA_LOG_DIR must NOT be readonly — it is overridden by STROMA_SHARED_ROOT
 # or STROMA_LOG_DIR from config.env. The value here is the fallback only.
 STROMA_LOG_DIR="${STROMA_LOG_DIR:-${STROMA_SHARED_ROOT:-/share}/logs/stroma-ai}"
-readonly STROMA_STATE_DIR="/opt/stroma-ai/state"
+readonly STROMA_STATE_DIR="${STROMA_INSTALL_DIR}/state"
 readonly STROMA_SYSTEMD_DIR="/etc/systemd/system"
+
+# ---------------------------------------------------------------------------
+# stroma_ai_venv — path to the Python virtual environment
+# (computed after STROMA_INSTALL_DIR is finalised)
+# ---------------------------------------------------------------------------
+readonly STROMA_VENV="${STROMA_INSTALL_DIR}/venv"
+readonly STROMA_PYTHON="${STROMA_VENV}/bin/python3"
+readonly STROMA_PIP="${STROMA_VENV}/bin/pip"
