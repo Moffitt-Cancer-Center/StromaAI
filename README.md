@@ -153,6 +153,8 @@ All vLLM-supported architectures work — dense, MoE, vision-language, and multi
 - CPU KV cache pressure
 - vLLM endpoint availability
 
+`scripts/generate-grafana-dashboard.sh` generates a ready-to-import Grafana 10.x dashboard JSON pre-populated with your site's thresholds, Prometheus data source labels, and queue/GPU metrics queries. Run it after configuring `config.env` — it reads your site-specific values and writes a dashboard you can import directly into Grafana without manual panel editing.
+
 ### Configurable install path
 `STROMA_INSTALL_DIR` (default: `/opt/stroma-ai`) controls the installation root. Systemd units are patched at deploy time, making it trivial to run multiple environments (dev/staging/prod) on the same head node.
 
@@ -296,6 +298,7 @@ stroma-ai/
 │   ├── check-config.sh            # Validate config.env before starting services
 │   ├── debug-bundle.sh            # Collect diagnostic info for support
 │   ├── drain-and-restart.sh       # Safe rolling restart with worker drain
+│   ├── generate-grafana-dashboard.sh # Generate Grafana 10.x dashboard JSON from config.env
 │   ├── rotate-api-key.sh          # Zero-downtime API key rotation
 │   └── status.sh                  # Live service and queue status
 ├── src/
