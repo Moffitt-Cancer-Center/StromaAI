@@ -134,7 +134,7 @@ scontrol create partition Name=ai-flux-gpu \
 # Create service account for billing:
 sacctmgr add account ai-flux-service Description="StromaAI burst workers" Organization=hpc
 
-# Create always-warm node reservation (1 permanently allocated L30):
+# Create always-warm node reservation (1 permanently allocated A30):
 scontrol create Reservation=ai-flux-warm \
   StartTime=now \
   Duration=UNLIMITED \
@@ -385,7 +385,7 @@ chown stromaai:stromaai /opt/stroma-ai/config.env
 | `STROMA_SLURM_MEM` | `900G` | Memory per burst worker job (`--mem`) |
 | `STROMA_NUMA_BIND` | *(unset)* | Optional NUMA node binding (e.g., `0`) — leave unset to disable |
 | `STROMA_VLLM_QUANTIZATION` | `awq` | vLLM quantization method (`awq`, `fp8`, `none`) |
-| `STROMA_KV_CACHE_DTYPE` | `auto` | KV cache dtype — use `fp8` for L30 / H100, `auto` for A100 |
+| `STROMA_KV_CACHE_DTYPE` | `auto` | KV cache dtype — use `fp8` for Ada Lovelace (L40/L30) or Hopper (H100); A30 (Ampere CC 8.0) does not support fp8, use `auto` |
 | `STROMA_GPU_MEM_UTIL` | `0.85` | GPU memory utilization fraction for vLLM |
 | `STROMA_CPU_OFFLOAD_GB` | `200` | CPU memory to use for KV cache offload (GB) |
 | `STROMA_SCALE_UP_THRESHOLD` | `5` | Queued requests before a burst worker is submitted |

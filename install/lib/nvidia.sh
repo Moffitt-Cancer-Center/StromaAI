@@ -39,11 +39,11 @@ verify_nvidia_gpu() {
     log_ok "GPU: ${gpu_name}"
     log_ok "Driver version: ${driver_ver}"
 
-    # Warn if driver is older than 525 (minimum for vLLM FP8 on L30)
+    # Warn if driver is older than 525 (minimum for CUDA 12.x / vLLM on Ampere)
     local driver_major="${driver_ver%%.*}"
     if [[ "${driver_major}" -lt 525 ]]; then
-        log_warn "Driver ${driver_ver} is older than 525.x — FP8 KV cache may not work on Ada Lovelace GPUs."
-        log_warn "Recommended: 535.x or newer for L30/L40 series."
+        log_warn "Driver ${driver_ver} is older than 525.x — CUDA 12.x support requires 525.85+."
+        log_warn "Recommended: 535.x or newer."
     fi
 
     return 0

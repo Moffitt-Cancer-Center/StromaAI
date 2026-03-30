@@ -71,7 +71,7 @@ STROMA_CONTAINER_GPU_FLAG=--nvccli
 
 ## 3. NVIDIA drivers and container toolkit
 
-The L30 requires driver 520+ for CUDA 12.x support. The NGC PyTorch container used as the build base requires CUDA 12.6 (driver 525.85+).
+The A30 requires driver 520+ for CUDA 12.x support. The NGC PyTorch container used as the build base requires CUDA 12.6 (driver 525.85+).
 
 ```bash
 # Check driver version:
