@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AI_Flux — vLLM Watcher
+StromaAI — vLLM Watcher
 =======================
 Dynamically bursts Slurm GPU nodes into the Ray cluster based on vLLM queue
 depth, then scales them back down when idle.
@@ -66,11 +66,11 @@ UP_COOLDOWN   = int(os.environ.get("AI_FLUX_SCALE_UP_COOLDOWN", "300"))
 POLL_S        = int(os.environ.get("AI_FLUX_WATCHER_POLL_INTERVAL", "30"))
 SLURM_PART    = os.environ.get("AI_FLUX_SLURM_PARTITION", "ai-flux-gpu")
 SLURM_ACCT    = os.environ.get("AI_FLUX_SLURM_ACCOUNT", "ai-flux-service")
-SLURM_SCRIPT  = os.environ.get("AI_FLUX_SLURM_SCRIPT", "/shared/slurm/ai_flux_worker.slurm")
+SLURM_SCRIPT  = os.environ.get("AI_FLUX_SLURM_SCRIPT", "/share/slurm/ai_flux_worker.slurm")
 SLURM_TIME    = os.environ.get("AI_FLUX_SLURM_WALLTIME", "7-00:00:00")
 SLURM_CPUS    = os.environ.get("AI_FLUX_SLURM_CPUS", "64")
 SLURM_MEM     = os.environ.get("AI_FLUX_SLURM_MEM", "900G")
-SHARED_ROOT   = os.environ.get("AI_FLUX_SHARED_ROOT", "/shared")
+SHARED_ROOT   = os.environ.get("AI_FLUX_SHARED_ROOT", "/share")
 SLURM_LOG_DIR = os.environ.get("AI_FLUX_LOG_DIR", f"{SHARED_ROOT}/logs/ai-flux")
 VLLM_KV_THREADS = int(os.environ.get("AI_FLUX_VLLM_CPU_KV_THREADS", "32"))
 STATE_FILE    = os.environ.get("AI_FLUX_STATE_FILE", "/opt/ai-flux/watcher_state.json")
@@ -541,7 +541,7 @@ def tick(state: WatcherState, known_ray_nodes: set[str]) -> set[str]:
 def main() -> None:
     _validate_config()
     log.info(
-        "AI_Flux Watcher starting — HEAD=%s RAY_PORT=%d VLLM_PORT=%d MAX_BURST=%d",
+        "StromaAI Watcher starting — HEAD=%s RAY_PORT=%d VLLM_PORT=%d MAX_BURST=%d",
         HEAD_HOST, RAY_PORT, VLLM_PORT, MAX_BURST,
     )
     log.info(

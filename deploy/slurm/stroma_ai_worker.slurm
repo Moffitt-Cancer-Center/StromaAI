@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Slurm Burst Worker Script
+# StromaAI — Slurm Burst Worker Script
 # =============================================================================
 # Submitted by the Watcher (src/vllm_watcher.py) via sbatch when queue depth
 # exceeds the scale-up threshold. Each job starts ONE Ray worker process that
@@ -35,10 +35,10 @@
 #SBATCH --exclusive
 # NOTE: --output and --error paths are passed by the Watcher via sbatch CLI
 # flags using AI_FLUX_LOG_DIR from config.env. The paths below are fallbacks
-# for manual sbatch runs only. Run 'mkdir -p /shared/logs/ai-flux' on shared
+# for manual sbatch runs only. Run 'mkdir -p /share/logs/ai-flux' on shared
 # storage before first use, matching your AI_FLUX_LOG_DIR setting.
-#SBATCH --output=/shared/logs/ai-flux/slurm-%j.out
-#SBATCH --error=/shared/logs/ai-flux/slurm-%j.err
+#SBATCH --output=/share/logs/ai-flux/slurm-%j.out
+#SBATCH --error=/share/logs/ai-flux/slurm-%j.err
 # NOTE: --partition, --account, --time, --cpus-per-task, and --mem are all
 # passed by the Watcher at submit time via sbatch CLI flags. Do NOT set them
 # here to avoid conflicts. Tune AI_FLUX_SLURM_CPUS and AI_FLUX_SLURM_MEM
@@ -51,12 +51,12 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 : "${AI_FLUX_HEAD_HOST:?ERROR: AI_FLUX_HEAD_HOST must be set via --export}"
 : "${AI_FLUX_RAY_PORT:=6380}"
-: "${AI_FLUX_SHARED_ROOT:=/shared}"
+: "${AI_FLUX_SHARED_ROOT:=/share}"
 
 # ---------------------------------------------------------------------------
 # Container configuration
 # ---------------------------------------------------------------------------
-AI_FLUX_CONTAINER="${AI_FLUX_CONTAINER:-/shared/containers/ai-flux-vllm.sif}"
+AI_FLUX_CONTAINER="${AI_FLUX_CONTAINER:-/share/containers/ai-flux-vllm.sif}"
 
 # Detect container runtime (apptainer preferred; fall back to singularity)
 if [[ -z "${CONTAINER_CMD:-}" ]]; then
@@ -93,7 +93,7 @@ fi
 # ---------------------------------------------------------------------------
 # Log node context for diagnostics
 # ---------------------------------------------------------------------------
-echo "=== AI_Flux Burst Worker ==="
+echo "=== StromaAI Burst Worker ==="
 echo "Node     : $(hostname -f)"
 echo "JobID    : ${SLURM_JOB_ID}"
 echo "GPUs     : ${SLURM_GPUS_ON_NODE:-1}"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — OS and hardware detection
+# StromaAI — OS and hardware detection
 # =============================================================================
 # Exports: OS_ID, OS_VERSION, OS_VERSION_MAJOR, OS_FAMILY, OS_PRETTY,
 #          HAS_GPU, GPU_COUNT, GPU_MODEL, TOTAL_RAM_GB, PYTHON311
@@ -128,7 +128,7 @@ detect_ram() {
 # detect_shared_fs — check if the expected shared path is mounted
 # ---------------------------------------------------------------------------
 detect_shared_fs() {
-    local shared_path="${1:-/shared}"
+    local shared_path="${1:-/share}"
     if mountpoint -q "${shared_path}" 2>/dev/null; then
         log_ok "Shared filesystem mounted at ${shared_path}"
         return 0

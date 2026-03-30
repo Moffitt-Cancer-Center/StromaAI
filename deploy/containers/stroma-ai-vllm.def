@@ -1,5 +1,5 @@
 # =============================================================================
-# AI_Flux — Apptainer Container Definition
+# StromaAI — Apptainer Container Definition
 # =============================================================================
 # Builds a single portable container image used by ALL components:
 #   • Slurm burst workers (RHEL/Rocky/AlmaLinux nodes) — GPU inference
@@ -10,7 +10,7 @@
 #   apptainer build ai-flux-vllm.sif ai-flux-vllm.def
 #
 #   # Copy to shared storage:
-#   rsync -avz ai-flux-vllm.sif cluster:/shared/containers/
+#   rsync -avz ai-flux-vllm.sif cluster:/share/containers/
 #
 # RHEL / SELinux notes:
 #   Before running on RHEL Slurm nodes, ensure:
@@ -39,7 +39,7 @@ From: nvcr.io/nvidia/pytorch:24.10-py3
 
 %labels
     org.opencontainers.image.title       ai-flux-vllm
-    org.opencontainers.image.description "vLLM + Ray worker for AI_Flux HPC burst inference"
+    org.opencontainers.image.description "vLLM + Ray worker for StromaAI HPC burst inference"
     org.opencontainers.image.licenses    Apache-2.0
     ai-flux.vllm-version                 0.7.3
     ai-flux.ray-version                  2.40.0
@@ -124,7 +124,7 @@ print(f'  Torch {torch.__version__}')
 
 %runscript
     # Default entrypoint — override with `apptainer exec` in practice
-    echo "AI_Flux vLLM container"
+    echo "StromaAI vLLM container"
     echo "Usage:"
     echo "  Ray worker:  apptainer exec --nv ai-flux-vllm.sif ray start --address=HEAD:6380 --num-gpus=1 --block"
     echo "  vLLM server: apptainer exec --nv ai-flux-vllm.sif vllm serve MODEL_PATH [options]"

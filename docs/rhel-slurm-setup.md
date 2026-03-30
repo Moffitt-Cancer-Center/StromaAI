@@ -1,6 +1,6 @@
-# AI_Flux — RHEL Slurm Node Pre-flight Checklist
+# StromaAI — RHEL Slurm Node Pre-flight Checklist
 
-This guide covers everything that must be verified or configured on **RHEL-family Slurm worker nodes** (Rocky Linux, AlmaLinux, CentOS Stream, RHEL) before running AI_Flux burst workers.
+This guide covers everything that must be verified or configured on **RHEL-family Slurm worker nodes** (Rocky Linux, AlmaLinux, CentOS Stream, RHEL) before running StromaAI burst workers.
 
 The head node (Proxmox VM) runs Debian and does NOT need this checklist.
 
@@ -110,7 +110,7 @@ No host Python upgrade is required. Do not assume the host Python version.
 
 ## 5. Shared filesystem mount
 
-The Slurm worker nodes must mount the shared filesystem at the same path (`AI_FLUX_SHARED_ROOT`) used on the head node. The default is `/shared`; if your cluster uses a different path, set `AI_FLUX_SHARED_ROOT` in `config.env` and re-run `install/preflight.sh --mode=worker` to verify.
+The Slurm worker nodes must mount the shared filesystem at the same path (`AI_FLUX_SHARED_ROOT`) used on the head node. The default is `/share`; if your cluster uses a different path, set `AI_FLUX_SHARED_ROOT` in `config.env` and re-run `install/preflight.sh --mode=worker` to verify.
 
 ```bash
 # Verify the mount exists and key paths are visible:
@@ -149,7 +149,7 @@ sacctmgr show account ai-flux-service
 # Test submitting a job under the account (from the head node or compute node):
 sbatch --partition=ai-flux-gpu --account=ai-flux-service \
   --wrap="echo 'Account test OK'; hostname" \
-  --output=${AI_FLUX_LOG_DIR:-/shared/logs/ai-flux}/test-%j.out
+  --output=${AI_FLUX_LOG_DIR:-/share/logs/ai-flux}/test-%j.out
 
 squeue -u $USER
 ```
@@ -167,7 +167,7 @@ sbatch \
   --account=ai-flux-service \
   --time=00:20:00 \
   --export=ALL,AI_FLUX_HEAD_HOST=ai-flux.your-cluster.example,AI_FLUX_RAY_PORT=6380 \
-  ${AI_FLUX_SHARED_ROOT:-/shared}/slurm/ai_flux_worker.slurm
+  ${AI_FLUX_SHARED_ROOT:-/share}/slurm/ai_flux_worker.slurm
 
 # Step 2: Watch the job reach RUNNING:
 watch -n 5 squeue -j <job_id>

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Integration Smoke Test
+# StromaAI — Integration Smoke Test
 # =============================================================================
-# Verifies that a running AI_Flux deployment is operational. Run this AFTER
+# Verifies that a running StromaAI deployment is operational. Run this AFTER
 # install.sh on the head node, once services have started.
 #
 # Usage:
 #   ./tests/integration/smoke_test.sh [HEAD_HOST] [HTTPS_PORT] [API_KEY]
 #
 # Arguments (all optional — fall back to environment variables):
-#   HEAD_HOST   Hostname of the AI_Flux head node  (AI_FLUX_HEAD_HOST)
+#   HEAD_HOST   Hostname of the StromaAI head node  (AI_FLUX_HEAD_HOST)
 #   HTTPS_PORT  HTTPS port nginx listens on         (AI_FLUX_HTTPS_PORT, default 443)
 #   API_KEY     Bearer token for the vLLM API       (AI_FLUX_API_KEY)
 #

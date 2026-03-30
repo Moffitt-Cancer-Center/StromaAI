@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — SELinux / AppArmor / Firewall configuration
+# StromaAI — SELinux / AppArmor / Firewall configuration
 # =============================================================================
 # Provides: configure_selinux(), configure_apparmor(), configure_firewall()
 # Supports: RHEL 8, Rocky Linux 9 (SELinux + firewalld)
@@ -29,7 +29,7 @@ configure_security() {
 #   httpd_can_network_connect — nginx → vLLM reverse proxy
 # ---------------------------------------------------------------------------
 configure_selinux() {
-    log_step "Configuring SELinux booleans for AI_Flux"
+    log_step "Configuring SELinux booleans for StromaAI"
 
     if ! check_cmd getenforce; then
         log_info "getenforce not found — SELinux not installed, skipping."

@@ -1,5 +1,5 @@
 # =============================================================================
-# AI_Flux — logrotate configuration
+# StromaAI — logrotate configuration
 # =============================================================================
 # Rotates Slurm burst worker output logs on shared storage.
 #
@@ -9,12 +9,12 @@
 # Test (dry-run):
 #   logrotate --debug /etc/logrotate.d/ai-flux
 #
-# Note: AI_FLUX_LOG_DIR from config.env defaults to /shared/logs/ai-flux.
+# Note: AI_FLUX_LOG_DIR from config.env defaults to /share/logs/ai-flux.
 # Update the paths below if your site uses a different log directory.
 # =============================================================================
 
-/shared/logs/ai-flux/*.out
-/shared/logs/ai-flux/*.err {
+/share/logs/ai-flux/*.out
+/share/logs/ai-flux/*.err {
     # Rotate daily; keep 30 days of history
     daily
     rotate 30

@@ -1,6 +1,6 @@
-# Contributing to AI_Flux
+# Contributing to StromaAI
 
-Thank you for considering a contribution to AI_Flux. This project is maintained by the Moffitt Cancer Center HPC team and open to the research computing community.
+Thank you for considering a contribution to StromaAI. This project is maintained by the Moffitt Cancer Center HPC team and open to the research computing community.
 
 ## Branching strategy
 
@@ -25,7 +25,7 @@ Thank you for considering a contribution to AI_Flux. This project is maintained 
 
 ### Semantic versioning
 
-AI_Flux follows `vMAJOR.MINOR.PATCH` (see [semver.org](https://semver.org)):
+StromaAI follows `vMAJOR.MINOR.PATCH` (see [semver.org](https://semver.org)):
 
 - **PATCH** — bug fixes, doc corrections, no behaviour change
 - **MINOR** — backward-compatible new features or installer improvements

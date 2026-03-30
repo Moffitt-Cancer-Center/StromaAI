@@ -1,5 +1,5 @@
 [Unit]
-Description=AI_Flux — Ray Head Node
+Description=StromaAI — Ray Head Node
 Documentation=https://github.com/your-org/ai-flux
 After=network-online.target
 Wants=network-online.target

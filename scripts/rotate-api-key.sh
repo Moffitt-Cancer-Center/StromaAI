@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — API Key Rotation
+# StromaAI — API Key Rotation
 # =============================================================================
 # Generates a new bearer token, updates config.env (and OOD conf if present),
 # then restarts services in the correct dependency order and verifies health.
@@ -46,7 +46,7 @@ HEAD_HOST="${AI_FLUX_HEAD_HOST:-localhost}"
 VLLM_PORT="${AI_FLUX_VLLM_PORT:-8000}"
 OOD_CONF="${AI_FLUX_OOD_CONF:-}"
 
-echo "=== AI_Flux API Key Rotation ==="
+echo "=== StromaAI API Key Rotation ==="
 echo "Config : ${CONFIG_FILE}"
 [[ -n "${OOD_CONF}" && -f "${OOD_CONF}" ]] && echo "OOD    : ${OOD_CONF}"
 echo

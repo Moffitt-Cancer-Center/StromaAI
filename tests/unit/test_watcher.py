@@ -43,7 +43,7 @@ def _load_watcher(env_overrides: dict[str, str] | None = None):
         "AI_FLUX_WATCHER_POLL_INTERVAL": "30",
         "AI_FLUX_SLURM_PARTITION": "gpu-test",
         "AI_FLUX_SLURM_ACCOUNT": "test-acct",
-        "AI_FLUX_SLURM_SCRIPT": "/shared/slurm/ai_flux_worker.slurm",
+        "AI_FLUX_SLURM_SCRIPT": "/share/slurm/ai_flux_worker.slurm",
         "AI_FLUX_SLURM_WALLTIME": "1-00:00:00",
         "AI_FLUX_STATE_FILE": "/tmp/ai_flux_test_state.json",
     }

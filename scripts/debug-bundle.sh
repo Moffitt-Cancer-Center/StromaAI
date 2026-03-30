@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Debug Bundle Generator
+# StromaAI — Debug Bundle Generator
 # =============================================================================
 # Collects diagnostic information into a timestamped tarball for support.
 # AI_FLUX_API_KEY is automatically redacted from all included files.
@@ -29,7 +29,7 @@ SLURM_PARTITION="${AI_FLUX_SLURM_PARTITION:-${SLURM_PARTITION}}"
 HEAD="${AI_FLUX_HEAD_HOST:-localhost}"
 PORT="${AI_FLUX_VLLM_PORT:-8000}"
 
-echo "=== AI_Flux Debug Bundle ==="
+echo "=== StromaAI Debug Bundle ==="
 echo "Collecting diagnostics..."
 mkdir -p "${BUNDLE_DIR}"
 

@@ -1,8 +1,8 @@
 # =============================================================================
-# AI_Flux — Prometheus Scrape Configuration
+# StromaAI — Prometheus Scrape Configuration
 # =============================================================================
 # Add the contents of this file to your existing prometheus.yml, or use it
-# as a standalone config if deploying Prometheus for AI_Flux only.
+# as a standalone config if deploying Prometheus for StromaAI only.
 #
 # Install with alerting rules:
 #   cp monitoring/prometheus.yml /etc/prometheus/conf.d/ai-flux.yml
@@ -77,7 +77,7 @@ scrape_configs:
 #         labels:
 #           severity: warning
 #         annotations:
-#           summary: "AI_Flux GPU cache usage high ({{ $value | humanizePercentage }})"
+#           summary: "StromaAI GPU cache usage high ({{ $value | humanizePercentage }})"
 #           description: "Scale up burst workers or reduce max-num-seqs."
 #
 #       # CRITICAL: Many requests stuck in queue — users experiencing latency
@@ -87,7 +87,7 @@ scrape_configs:
 #         labels:
 #           severity: critical
 #         annotations:
-#           summary: "AI_Flux request queue backlog ({{ $value }} waiting)"
+#           summary: "StromaAI request queue backlog ({{ $value }} waiting)"
 #           description: "Burst worker scale-up may be saturated or Slurm queue is full."
 #
 #       # INFO: CPU KV cache usage high — memory pressure on head node
@@ -97,7 +97,7 @@ scrape_configs:
 #         labels:
 #           severity: info
 #         annotations:
-#           summary: "AI_Flux CPU cache usage high ({{ $value | humanizePercentage }})"
+#           summary: "StromaAI CPU cache usage high ({{ $value | humanizePercentage }})"
 #           description: "Consider reducing AI_FLUX_CPU_OFFLOAD_GB or scaling burst workers."
 #
 #       # WARNING: vLLM health endpoint down
@@ -107,5 +107,5 @@ scrape_configs:
 #         labels:
 #           severity: critical
 #         annotations:
-#           summary: "AI_Flux vLLM endpoint is unreachable"
+#           summary: "StromaAI vLLM endpoint is unreachable"
 #           description: "Check: systemctl status ai-flux-vllm && journalctl -u ai-flux-vllm -n 50"

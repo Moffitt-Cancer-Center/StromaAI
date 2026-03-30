@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Package management (dnf / apt wrappers)
+# StromaAI — Package management (dnf / apt wrappers)
 # =============================================================================
 # Provides: pkg_install(), pkg_update(), enable_epel(), enable_crb(),
 #           install_python311(), install_nginx()
@@ -170,7 +170,7 @@ install_nginx() {
 
 # ---------------------------------------------------------------------------
 # install_head_python_deps — install vLLM, Ray, and supporting packages
-# into the AI_Flux virtual environment.
+# into the StromaAI virtual environment.
 # ---------------------------------------------------------------------------
 install_head_python_deps() {
     log_step "Installing Python packages into ${AI_FLUX_VENV}"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Pre-flight checks
+# StromaAI — Pre-flight checks
 # =============================================================================
 # Run this BEFORE install.sh to verify the system meets requirements.
 # Safe to run on head nodes, worker nodes, or OOD nodes.
@@ -144,7 +144,7 @@ check_head() {
     fi
 
     # Shared filesystem (for model weights)
-    local shared_root="${AI_FLUX_SHARED_ROOT:-/shared}"
+    local shared_root="${AI_FLUX_SHARED_ROOT:-/share}"
     if detect_shared_fs "${shared_root}" 2>/dev/null; then
         check_pass "Shared filesystem mounted at ${shared_root}"
     else
@@ -216,7 +216,7 @@ check_worker() {
     fi
 
     # Shared filesystem
-    local shared_root="${AI_FLUX_SHARED_ROOT:-/shared}"
+    local shared_root="${AI_FLUX_SHARED_ROOT:-/share}"
     if detect_shared_fs "${shared_root}" 2>/dev/null; then
         local shared_free_gb
         shared_free_gb=$(df -BG "${shared_root}" 2>/dev/null | awk 'NR==2 {gsub(/G/,""); print $4}')
@@ -226,7 +226,7 @@ check_worker() {
     fi
 
     # Container image
-    local sif_path="${AI_FLUX_CONTAINER:-/shared/containers/ai-flux-vllm.sif}"
+    local sif_path="${AI_FLUX_CONTAINER:-/share/containers/ai-flux-vllm.sif}"
     if [[ -f "${sif_path}" ]]; then
         local sif_size_gb
         sif_size_gb=$(du -BG "${sif_path}" 2>/dev/null | awk '{gsub(/G/,""); print $1}')
@@ -236,7 +236,7 @@ check_worker() {
     fi
 
     # Model weights
-    local model_path="${AI_FLUX_MODEL_PATH:-/shared/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
+    local model_path="${AI_FLUX_MODEL_PATH:-/share/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
     if [[ -d "${model_path}" ]]; then
         check_pass "Model directory found: ${model_path}"
     else
@@ -285,11 +285,11 @@ check_ood() {
         check_warn "code-server not in PATH — may be launched by OOD"
     fi
 
-    # AI_Flux OOD config
+    # StromaAI OOD config
     if [[ -f /etc/ood/ai-flux.conf ]]; then
-        check_pass "AI_Flux OOD config found: /etc/ood/ai-flux.conf"
+        check_pass "StromaAI OOD config found: /etc/ood/ai-flux.conf"
     else
-        check_warn "AI_Flux OOD config not found — installer will create it"
+        check_warn "StromaAI OOD config not found — installer will create it"
     fi
 
     # Connectivity to head node
@@ -297,9 +297,9 @@ check_ood() {
     local port="${AI_FLUX_HTTPS_PORT:-443}"
     if [[ "${head}" != *"example"* ]]; then
         if curl -fsS --max-time 5 --insecure "https://${head}:${port}/health" &>/dev/null; then
-            check_pass "AI_Flux API reachable at https://${head}:${port}"
+            check_pass "StromaAI API reachable at https://${head}:${port}"
         else
-            check_warn "Cannot reach AI_Flux API at https://${head}:${port} — check hostname and firewall"
+            check_warn "Cannot reach StromaAI API at https://${head}:${port} — check hostname and firewall"
         fi
     else
         check_warn "AI_FLUX_HEAD_HOST not set — skipping API connectivity test"
@@ -311,7 +311,7 @@ check_ood() {
 # ---------------------------------------------------------------------------
 main() {
     echo ""
-    echo -e "${BOLD}AI_Flux Pre-flight Check${RESET}"
+    echo -e "${BOLD}StromaAI Pre-flight Check${RESET}"
     echo -e "${BOLD}========================${RESET}"
     echo "Mode: ${MODE}"
     echo ""

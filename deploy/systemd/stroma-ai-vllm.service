@@ -1,5 +1,5 @@
 [Unit]
-Description=AI_Flux — vLLM Inference API Server
+Description=StromaAI — vLLM Inference API Server
 Documentation=https://github.com/your-org/ai-flux
 After=network-online.target ray-head.service
 Wants=network-online.target
@@ -80,7 +80,7 @@ SyslogIdentifier=ai-flux-vllm
 
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/ai-flux /tmp /shared
+ReadWritePaths=/opt/ai-flux /tmp /share
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectControlGroups=true

@@ -1,6 +1,6 @@
-# AI_Flux — Deployment Guide
+# StromaAI — Deployment Guide
 
-This guide walks through a full AI_Flux deployment from a bare cluster to a running, verified system. Follow the phases in order — each phase is a prerequisite for the next.
+This guide walks through a full StromaAI deployment from a bare cluster to a running, verified system. Follow the phases in order — each phase is a prerequisite for the next.
 
 ---
 
@@ -49,20 +49,20 @@ firewall-cmd --reload
 
 The Proxmox VM must mount your HPC shared filesystem at the same path used on Slurm nodes. Model weights and container images must be visible at identical paths on both sides.
 
-The shared root path is configurable via `AI_FLUX_SHARED_ROOT` (default: `/shared`). The installer will prompt for this value as its first question. If your cluster mounts shared storage at a different path (e.g., `/gpfs/ai`, `/mnt/nfs`), set `AI_FLUX_SHARED_ROOT` accordingly.
+The shared root path is configurable via `AI_FLUX_SHARED_ROOT` (default: `/share`). The installer will prompt for this value as its first question. If your cluster mounts shared storage at a different path (e.g., `/gpfs/ai`, `/mnt/nfs`), set `AI_FLUX_SHARED_ROOT` accordingly.
 
 ```bash
 # Example NFS mount (add to /etc/fstab — adjust mount path as appropriate):
-nfs-server.your-cluster.example:/hpc/shared  /shared  nfs  defaults,_netdev  0  0
+nfs-server.your-cluster.example:/hpc/shared  /share  nfs  defaults,_netdev  0  0
 
 # Mount and verify:
 mount -a
-ls /shared/models/   # or ls /<your-shared-root>/models/
+ls /share/models/   # or ls /<your-shared-root>/models/
 ```
 
 ### 1.4 Pre-stage model weights (air-gapped)
 
-AI_Flux includes the `hfmodel-check` utility (`hfw`) on the head node for hardware-aware model selection. Use it on any internet-connected machine that has the AI_Flux venv active, or install it standalone:
+StromaAI includes the `hfmodel-check` utility (`hfw`) on the head node for hardware-aware model selection. Use it on any internet-connected machine that has the StromaAI venv active, or install it standalone:
 
 ```bash
 pip install "git+https://git@github.com/Moffitt-Cancer-Center/hfmodel-check"
@@ -91,14 +91,14 @@ The search output shows a fit status for each result based on your actual GPU an
 
 ```bash
 # Set your shared root so the download goes to the right place:
-export AI_FLUX_SHARED_ROOT=/shared   # adjust to your mount path
+export AI_FLUX_SHARED_ROOT=/share   # adjust to your mount path
 
 # Download — hardware check runs first, quantization advice shown if needed:
 hfw download Qwen/Qwen2.5-Coder-32B-Instruct-AWQ
 
 # Or download to an explicit path:
 hfw download Qwen/Qwen2.5-Coder-32B-Instruct-AWQ \
-  --local-dir /shared/models/Qwen2.5-Coder-32B-Instruct-AWQ
+  --local-dir /share/models/Qwen2.5-Coder-32B-Instruct-AWQ
 ```
 
 If the model doesn't fit natively, `hfw download` lists compatible quantization levels and asks for confirmation before proceeding.
@@ -109,13 +109,13 @@ If the model doesn't fit natively, `hfw download` lists compatible quantization 
 # Verify checksum of every file:
 sha256sum ~/models/Qwen2.5-Coder-32B-Instruct-AWQ/* > checksums.sha256
 
-# Transfer to shared storage (replace /shared with your AI_FLUX_SHARED_ROOT):
+# Transfer to shared storage (replace /share with your AI_FLUX_SHARED_ROOT):
 rsync -avz --progress ~/models/Qwen2.5-Coder-32B-Instruct-AWQ/ \
-  cluster:/shared/models/Qwen2.5-Coder-32B-Instruct-AWQ/
-rsync -avz checksums.sha256 cluster:/shared/models/
+  cluster:/share/models/Qwen2.5-Coder-32B-Instruct-AWQ/
+rsync -avz checksums.sha256 cluster:/share/models/
 
-# On the cluster, verify (replace /shared with your AI_FLUX_SHARED_ROOT):
-cd /shared/models && sha256sum -c checksums.sha256
+# On the cluster, verify (replace /share with your AI_FLUX_SHARED_ROOT):
+cd /share/models && sha256sum -c checksums.sha256
 ```
 
 > **Note:** If downloading directly on the head node with `AI_FLUX_SHARED_ROOT` set, Step 3 is skipped — `hfw download` already placed the weights in the right location.
@@ -132,7 +132,7 @@ scontrol create partition Name=ai-flux-gpu \
   Default=NO
 
 # Create service account for billing:
-sacctmgr add account ai-flux-service Description="AI_Flux burst workers" Organization=hpc
+sacctmgr add account ai-flux-service Description="StromaAI burst workers" Organization=hpc
 
 # Create always-warm node reservation (1 permanently allocated L30):
 scontrol create Reservation=ai-flux-warm \
@@ -150,10 +150,10 @@ scontrol show reservation ai-flux-warm
 ### 1.6 Log directory
 
 ```bash
-# Replace /shared with your AI_FLUX_SHARED_ROOT if different:
-mkdir -p /shared/logs/ai-flux
-chmod 775 /shared/logs/ai-flux
-chown aiflux:aiflux /shared/logs/ai-flux  # or appropriate service user
+# Replace /share/hpc_shared with your AI_FLUX_SHARED_ROOT if different:
+mkdir -p /share/hpc_shared/logs/ai-flux
+chmod 775 /share/hpc_shared/logs/ai-flux
+chown aiflux:aiflux /share/hpc_shared/logs/ai-flux  # or appropriate service user
 ```
 
 The installer creates this directory automatically using the `AI_FLUX_LOG_DIR` variable (which defaults to `${AI_FLUX_SHARED_ROOT}/logs/ai-flux`).
@@ -162,7 +162,7 @@ The installer creates this directory automatically using the `AI_FLUX_LOG_DIR` v
 
 ## Phase 1.5: Pre-flight Checks
 
-Before running the installer, use `install/preflight.sh` to verify that each node meets AI_Flux requirements. The script is non-destructive and safe to re-run.
+Before running the installer, use `install/preflight.sh` to verify that each node meets StromaAI requirements. The script is non-destructive and safe to re-run.
 
 ```bash
 # Head node pre-flight:
@@ -209,7 +209,7 @@ sudo ./install/preflight.sh --mode=ood
 **OOD node checks:**
 - `/etc/ood/` directory present (Open OnDemand installed)
 - `code-server` availability
-- AI_Flux OOD config at `/etc/ood/ai-flux.conf`
+- StromaAI OOD config at `/etc/ood/ai-flux.conf`
 - HTTPS connectivity to the head node
 
 Address all **FAIL** items before running the installer. **WARN** items are informational — the installer can resolve many of them automatically.
@@ -248,10 +248,10 @@ sudo ./install/install.sh --mode=ood
 On the first run, the installer prompts for site-specific values. Press Enter to accept the bracketed default:
 
 ```
-Shared filesystem root [/shared]:
+Shared filesystem root [/share]:
 Head node hostname [ai-flux.your-cluster.example]:
-Shared model weight path [/shared/models/Qwen2.5-Coder-32B-Instruct-AWQ]:
-Shared container SIF path [/shared/containers/ai-flux-vllm.sif]:
+Shared model weight path [/share/models/Qwen2.5-Coder-32B-Instruct-AWQ]:
+Shared container SIF path [/share/containers/ai-flux-vllm.sif]:
 Slurm GPU partition [ai-flux-gpu]:
 Slurm account [ai-flux-service]:
 Max concurrent burst workers [5]:
@@ -315,8 +315,8 @@ apptainer build ai-flux-vllm.sif deploy/containers/ai-flux-vllm.def
 # Run the built-in test:
 apptainer test ai-flux-vllm.sif
 
-# Copy to shared storage (replace /shared with your AI_FLUX_SHARED_ROOT):
-rsync -avz --progress ai-flux-vllm.sif cluster:/shared/containers/
+# Copy to shared storage (replace /share with your AI_FLUX_SHARED_ROOT):
+rsync -avz --progress ai-flux-vllm.sif cluster:/share/containers/
 ```
 
 ### RHEL node smoke test
@@ -327,8 +327,8 @@ Before committing to deployment, verify the container works on a RHEL Slurm GPU 
 # Run as yourself on an interactive Slurm allocation:
 srun --partition=ai-flux-gpu --gpus=1 --nodes=1 --pty bash
 
-# Inside the allocation (replace /shared with your AI_FLUX_SHARED_ROOT):
-apptainer exec --nv /shared/containers/ai-flux-vllm.sif \
+# Inside the allocation (replace /share with your AI_FLUX_SHARED_ROOT):
+apptainer exec --nv /share/containers/ai-flux-vllm.sif \
   python3 -c "
 import torch, vllm
 print('CUDA available:', torch.cuda.is_available())
@@ -359,7 +359,7 @@ chown aiflux:aiflux /opt/ai-flux
 ```bash
 cp config/config.example.env /opt/ai-flux/config.env
 # Edit ALL CHANGEME values:
-#   AI_FLUX_SHARED_ROOT — your shared filesystem root (e.g., /shared, /gpfs/ai)
+#   AI_FLUX_SHARED_ROOT — your shared filesystem root (e.g., /share, /gpfs/ai)
 #   AI_FLUX_HEAD_HOST  — your actual hostname
 #   AI_FLUX_API_KEY    — generate with: openssl rand -hex 32
 #   AI_FLUX_MODEL_PATH — path to staged model weights
@@ -372,7 +372,7 @@ chown aiflux:aiflux /opt/ai-flux/config.env
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AI_FLUX_SHARED_ROOT` | `/shared` | Shared filesystem root — all shared path defaults derive from this |
+| `AI_FLUX_SHARED_ROOT` | `/share` | Shared filesystem root — all shared path defaults derive from this |
 | `AI_FLUX_HEAD_HOST` | *(required)* | FQDN or hostname of the head node |
 | `AI_FLUX_API_KEY` | *(required)* | Bearer token for API authentication |
 | `AI_FLUX_MODEL_PATH` | `${SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ` | Path to model weights |
@@ -416,7 +416,7 @@ pip3 install vllm==0.7.3
 
 > **Alternative**: Run vLLM inside the Apptainer container on the head node too:
 > ```bash
-> apptainer exec /shared/containers/ai-flux-vllm.sif vllm serve ...   # replace /shared with AI_FLUX_SHARED_ROOT
+> apptainer exec /share/containers/ai-flux-vllm.sif vllm serve ...   # replace /share with AI_FLUX_SHARED_ROOT
 > ```
 > If using container-launch on the head node, update `ExecStart` in  
 > `deploy/systemd/ai-flux-vllm.service` accordingly.
@@ -514,9 +514,9 @@ curl -k https://localhost/health
 
 ```bash
 # Copy to shared storage so all Slurm nodes can find it:
-mkdir -p /shared/slurm    # replace /shared with your AI_FLUX_SHARED_ROOT
-cp deploy/slurm/ai_flux_worker.slurm /shared/slurm/
-chmod 755 /shared/slurm/ai_flux_worker.slurm
+mkdir -p /share/slurm    # replace /share with your AI_FLUX_SHARED_ROOT
+cp deploy/slurm/ai_flux_worker.slurm /share/slurm/
+chmod 755 /share/slurm/ai_flux_worker.slurm
 
 # Test manual burst worker submission:
 sbatch \
@@ -524,7 +524,7 @@ sbatch \
   --account=ai-flux-service \
   --time=01:00:00 \
   --export=ALL,AI_FLUX_HEAD_HOST=ai-flux.your-cluster.example,AI_FLUX_RAY_PORT=6380 \
-  /shared/slurm/ai_flux_worker.slurm
+  /share/slurm/ai_flux_worker.slurm
 
 # Wait for RUNNING state and verify Ray sees the new node:
 squeue -j <job_id>
@@ -550,7 +550,7 @@ chmod 640 /etc/ood/ai-flux.conf
 
 ### 6.2 Integrate script.sh.erb
 
-Merge the AI_Flux block from `deploy/ood/script.sh.erb` into your existing code-server OOD app template, typically at:
+Merge the StromaAI block from `deploy/ood/script.sh.erb` into your existing code-server OOD app template, typically at:
 ```
 /var/www/ood/apps/sys/code-server/template/script.sh.erb
 ```
@@ -699,7 +699,7 @@ systemctl start ai-flux-watcher
 
 ### Updating the model
 
-1. Stage new model weights to `${AI_FLUX_SHARED_ROOT}/models/<new-model>/` (default: `/shared/models/<new-model>/`)
+1. Stage new model weights to `${AI_FLUX_SHARED_ROOT}/models/<new-model>/` (default: `/share/models/<new-model>/`)
 2. Update `AI_FLUX_MODEL_PATH` and `AI_FLUX_MODEL_NAME` in `/opt/ai-flux/config.env`
 3. Update `AI_FLUX_MODEL_NAME` in `/etc/ood/ai-flux.conf`
 4. Follow the graceful drain procedure below (or use `scripts/drain-and-restart.sh`)
@@ -708,14 +708,14 @@ systemctl start ai-flux-watcher
 ### Useful logs
 
 ```bash
-# All AI_Flux service logs together:
+# All StromaAI service logs together:
 journalctl -u ray-head -u ai-flux-vllm -u ai-flux-watcher -f
 
 # Last 50 lines from watcher:
 journalctl -u ai-flux-watcher -n 50 --no-pager
 
 # Slurm worker stdout for job NNNNN:
-cat /shared/logs/ai-flux/slurm-NNNNN.out   # replace /shared with AI_FLUX_SHARED_ROOT
+cat /share/logs/ai-flux/slurm-NNNNN.out   # replace /share with AI_FLUX_SHARED_ROOT
 
 # Watcher state (current tracked burst jobs):
 cat /opt/ai-flux/watcher_state.json | python3 -m json.tool
@@ -792,7 +792,7 @@ Use this instead of a raw `systemctl restart` during business hours.
 
 ## Uninstallation
 
-`install/uninstall.sh` removes AI_Flux from a head node. It does **not** remove system packages (nginx, Python, NVIDIA toolkit) that may be used by other services.
+`install/uninstall.sh` removes StromaAI from a head node. It does **not** remove system packages (nginx, Python, NVIDIA toolkit) that may be used by other services.
 
 ```bash
 sudo ./install/uninstall.sh         # interactive, prompts before each destructive step

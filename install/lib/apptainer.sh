@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Apptainer / Singularity installation
+# StromaAI — Apptainer / Singularity installation
 # =============================================================================
 # Provides: install_apptainer()
 # Supports: RHEL 8, Rocky Linux 9, Ubuntu 22.04

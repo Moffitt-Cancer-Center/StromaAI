@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — NVIDIA Container Toolkit installation
+# StromaAI — NVIDIA Container Toolkit installation
 # =============================================================================
 # Provides: install_nvidia_container_toolkit(), verify_nvidia_gpu()
 # Supports: RHEL 8, Rocky Linux 9, Ubuntu 22.04
@@ -153,7 +153,7 @@ _configure_nct_for_apptainer() {
 # ---------------------------------------------------------------------------
 verify_gpu_in_container() {
     local runtime="${CONTAINER_RUNTIME:-apptainer}"
-    local sif="${AI_FLUX_CONTAINER:-/shared/containers/ai-flux-vllm.sif}"
+    local sif="${AI_FLUX_CONTAINER:-/share/containers/ai-flux-vllm.sif}"
 
     log_step "Verifying GPU access inside container"
 

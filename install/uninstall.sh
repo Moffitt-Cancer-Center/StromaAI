@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Uninstaller
+# StromaAI — Uninstaller
 # =============================================================================
-# Removes AI_Flux from a head node. Does NOT remove system packages (nginx,
+# Removes StromaAI from a head node. Does NOT remove system packages (nginx,
 # Python, NVIDIA toolkit) since those may be used by other services.
 #
 # Usage:
@@ -18,9 +18,9 @@
 #   - 'aiflux' system user
 #
 # What is NOT removed (intentionally):
-#   - /shared/containers/ai-flux-vllm.sif  (your data, not ours)
-#   - /shared/models/                       (your data, not ours)
-#   - /shared/logs/ai-flux/                 (audit trail)
+#   - /share/containers/ai-flux-vllm.sif  (your data, not ours)
+#   - /share/models/                       (your data, not ours)
+#   - /share/logs/ai-flux/                 (audit trail)
 #   - nginx, Python 3.11, NVIDIA toolkit    (shared system packages)
 # =============================================================================
 
@@ -40,7 +40,7 @@ for arg in "$@"; do
         --yes)    AI_FLUX_YES=1 ;;
         --help|-h)
             echo "Usage: sudo $0 [--yes]"
-            echo "Removes AI_Flux from a head node. Use --yes to skip confirmation prompts."
+            echo "Removes StromaAI from a head node. Use --yes to skip confirmation prompts."
             exit 0
             ;;
         *) log_warn "Unknown argument: ${arg}" ;;
@@ -50,9 +50,9 @@ done
 export AI_FLUX_YES="${AI_FLUX_YES:-0}"
 
 echo ""
-echo -e "${BOLD}AI_Flux Uninstaller${RESET}"
+echo -e "${BOLD}StromaAI Uninstaller${RESET}"
 echo ""
-log_warn "This will stop all AI_Flux services and remove installation files."
+log_warn "This will stop all StromaAI services and remove installation files."
 log_warn "Model weights and container images are NOT affected."
 echo ""
 
@@ -61,7 +61,7 @@ confirm "Proceed with uninstallation?" || { log_info "Aborted."; exit 0; }
 # ---------------------------------------------------------------------------
 # Stop and disable services
 # ---------------------------------------------------------------------------
-log_step "Stopping AI_Flux services"
+log_step "Stopping StromaAI services"
 for svc in ai-flux-watcher ai-flux-vllm ray-head; do
     if systemctl is-active --quiet "${svc}" 2>/dev/null; then
         run_cmd systemctl stop "${svc}" && log_ok "Stopped ${svc}."
@@ -174,12 +174,12 @@ case "${OS_FAMILY}" in
 esac
 
 echo ""
-echo -e "${BOLD}AI_Flux uninstallation complete.${RESET}"
+echo -e "${BOLD}StromaAI uninstallation complete.${RESET}"
 echo ""
 echo "Remaining (not removed — your data):"
-echo "  /shared/containers/  — container images"
-echo "  /shared/models/      — model weights"
-echo "  /shared/logs/ai-flux — audit logs"
+echo "  /share/containers/  — container images"
+echo "  /share/models/      — model weights"
+echo "  /share/logs/ai-flux — audit logs"
 echo ""
 echo "System packages NOT removed: nginx, python3.11, nvidia-container-toolkit"
 echo "Remove manually if no longer needed."

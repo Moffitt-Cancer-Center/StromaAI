@@ -1,6 +1,6 @@
-# AI_Flux Roadmap
+# StromaAI Roadmap
 
-This document describes the planned evolution of AI_Flux — an HPC burst-inference platform for large-language model serving at Moffitt Cancer Center.
+This document describes the planned evolution of StromaAI — an HPC burst-inference platform for large-language model serving at Moffitt Cancer Center.
 
 ---
 
@@ -62,7 +62,7 @@ Target: Q4 2025
 
 ## Versioning Policy
 
-AI_Flux follows [Semantic Versioning](https://semver.org/) (`vMAJOR.MINOR.PATCH`):
+StromaAI follows [Semantic Versioning](https://semver.org/) (`vMAJOR.MINOR.PATCH`):
 
 - **PATCH**: Bug fixes and documentation corrections that do not change behaviour
 - **MINOR**: Backward-compatible new features or installer improvements

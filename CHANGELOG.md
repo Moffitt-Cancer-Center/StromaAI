@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to AI_Flux are documented here.
+All notable changes to StromaAI are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -28,7 +28,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 **Multi-distro installer** (`install/`)
 - `install.sh`: main entry point with `--mode=head|worker|ood`, `--dry-run`, and `--yes` flags
 - `install/preflight.sh`: pre-flight checks (disk space, RAM, GPU presence)
-- `install/uninstall.sh`: clean removal of all AI_Flux components
+- `install/uninstall.sh`: clean removal of all StromaAI components
 - `install/lib/common.sh`: logging helpers, dry-run guard, `confirm()` prompt
 - `install/lib/detect.sh`: OS / GPU / RAM / SELinux detection (RHEL, Rocky, Ubuntu)
 - `install/lib/packages.sh`: dnf/apt wrappers, Python 3.11, nginx provisioning

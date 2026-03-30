@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Operator Status Dashboard
+# StromaAI — Operator Status Dashboard
 # =============================================================================
-# Prints a quick-glance status of all AI_Flux components:
+# Prints a quick-glance status of all StromaAI components:
 #   • systemd service states
 #   • Active Slurm burst jobs in the ai-flux partition
 #   • Head-node GPU utilization (nvidia-smi)
@@ -35,7 +35,7 @@ hr() { printf '%.0s─' {1..62}; echo; }
 
 echo
 echo "╔════════════════════════════════════════════════════════════╗"
-printf  "║   AI_Flux Status  —  %-37s║\n" "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+printf  "║   StromaAI Status  —  %-37s║\n" "$(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo
 

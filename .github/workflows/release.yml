@@ -65,7 +65,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "AI_Flux ${{ github.ref_name }}"
+          name: "StromaAI ${{ github.ref_name }}"
           body_path: /tmp/release_notes.txt
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}

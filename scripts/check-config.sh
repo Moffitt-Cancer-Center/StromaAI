@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Configuration Validator
+# StromaAI — Configuration Validator
 # =============================================================================
 # Validates config.env before starting services. Run after install or any
 # config change to catch obvious errors before they cause silent failures.
@@ -45,7 +45,7 @@ _error() { echo "  [ERROR]   $*"; (( ERRORS++ )) || true; }
 _warn()  { echo "  [WARN]    $*"; (( WARNINGS++ )) || true; }
 _ok()    { echo "  [OK]      $*"; }
 
-echo "=== AI_Flux Config Check: ${CONFIG_FILE} ==="
+echo "=== StromaAI Config Check: ${CONFIG_FILE} ==="
 echo
 
 # ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ echo
 echo "=============================="
 if (( ERRORS > 0 )); then
     echo "RESULT: FAILED — ${ERRORS} error(s), ${WARNINGS} warning(s)"
-    echo "        Fix errors before starting AI_Flux services."
+    echo "        Fix errors before starting StromaAI services."
     exit 1
 elif (( WARNINGS > 0 )); then
     echo "RESULT: PASSED with ${WARNINGS} warning(s)"

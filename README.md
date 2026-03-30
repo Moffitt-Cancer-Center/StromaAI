@@ -1,8 +1,8 @@
-# AI_Flux
+# StromaAI
 
 > *"Be water, my friend."* — Bruce Lee
 
-AI_Flux is an open-source **Hybrid AI Orchestration Platform** that bridges a persistent control node with dynamically bursting HPC GPU workers to deliver on-demand LLM inference. It was designed for research computing environments where GPU nodes are shared across many workloads and must be used efficiently.
+StromaAI is an open-source **Hybrid AI Orchestration Platform** that bridges a persistent control node with dynamically bursting HPC GPU workers to deliver on-demand LLM inference. It was designed for research computing environments where GPU nodes are shared across many workloads and must be used efficiently.
 
 Built and reference-deployed at **Moffitt Cancer Center HPC**.
 
@@ -44,7 +44,7 @@ Built and reference-deployed at **Moffitt Cancer Center HPC**.
 |---|---|
 | Head node | Proxmox VM, no GPU, 4–8 cores, ≥32GB RAM, Debian |
 | GPU nodes | NVIDIA L30 24GB (Ada Lovelace), ≥64 cores, ≥512GB RAM, RHEL-family |
-| Shared storage | NFS/Lustre/GPFS mounted at `/shared` on both head and workers |
+| Shared storage | NFS/Lustre/GPFS mounted at `/share` on both head and workers |
 | Model | Qwen/Qwen2.5-Coder-32B-Instruct-AWQ (~18.5GB) |
 | Network | Internal TCP: 443 (API), 6380 (Ray GCS), 10001–19999 (Ray workers) |
 
@@ -63,7 +63,7 @@ chmod 640 /opt/ai-flux/config.env
 ### 2. Build the container (on an internet-connected machine)
 
 ```bash
-apptainer build /shared/containers/ai-flux-vllm.sif deploy/containers/ai-flux-vllm.def
+apptainer build /share/containers/ai-flux-vllm.sif deploy/containers/ai-flux-vllm.def
 ```
 
 ### 3. Deploy systemd services (on the Proxmox VM)
@@ -98,9 +98,9 @@ nginx -t && systemctl reload nginx
 ```bash
 # Create burst partition:
 scontrol create partition Name=ai-flux-gpu Nodes=node[001-070] MaxNodes=10 State=UP
-sacctmgr add account ai-flux-service Description="AI_Flux burst workers"
-mkdir -p /shared/logs/ai-flux /shared/slurm
-cp deploy/slurm/ai_flux_worker.slurm /shared/slurm/
+sacctmgr add account ai-flux-service Description="StromaAI burst workers"
+mkdir -p /share/logs/ai-flux /share/slurm
+cp deploy/slurm/ai_flux_worker.slurm /share/slurm/
 
 # Create always-warm reservation (1 node permanently allocated):
 scontrol create Reservation=ai-flux-warm \

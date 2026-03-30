@@ -1,5 +1,5 @@
 [Unit]
-Description=AI_Flux — vLLM Watcher (Dynamic Slurm Burst Scaling)
+Description=StromaAI — vLLM Watcher (Dynamic Slurm Burst Scaling)
 Documentation=https://github.com/your-org/ai-flux
 After=network-online.target ai-flux-vllm.service
 Wants=network-online.target

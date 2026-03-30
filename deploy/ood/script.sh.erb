@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Open OnDemand code-server Session Setup Script
+# StromaAI — Open OnDemand code-server Session Setup Script
 # =============================================================================
 # This file replaces (or extends) the script.sh.erb template in your site's
 # code-server OOD application. It runs inside the OOD batch job before
@@ -13,7 +13,7 @@
 # ERB syntax note: this script uses no ERB interpolation by design (values
 # come from the sourced ai-flux.conf, not OOD form variables). If your
 # existing script.sh.erb uses ERB variables like <%= ... %>, merge the
-# AI_Flux block below into the appropriate location in that file.
+# StromaAI block below into the appropriate location in that file.
 #
 # Kilo Code settings.json key verification:
 #   If settings fail to apply, inspect the actual key names in the installed
@@ -28,7 +28,7 @@
 set -euo pipefail
 
 # =============================================================================
-# Load AI_Flux OOD configuration
+# Load StromaAI OOD configuration
 # =============================================================================
 AI_FLUX_OOD_CONF="${AI_FLUX_OOD_CONF:-/etc/ood/ai-flux.conf}"
 
@@ -36,7 +36,7 @@ if [[ -f "${AI_FLUX_OOD_CONF}" ]]; then
     # shellcheck source=/dev/null
     source "${AI_FLUX_OOD_CONF}"
 else
-    echo "WARNING: AI_Flux OOD config not found at ${AI_FLUX_OOD_CONF}" >&2
+    echo "WARNING: StromaAI OOD config not found at ${AI_FLUX_OOD_CONF}" >&2
     echo "         Kilo Code will not be auto-configured for this session." >&2
 fi
 
@@ -66,7 +66,7 @@ else
 fi
 
 # =============================================================================
-# Inject AI_Flux provider settings into code-server settings.json
+# Inject StromaAI provider settings into code-server settings.json
 #
 # Only runs if the settings file does not already contain 'ai-flux' to avoid
 # clobbering per-user customizations on every session launch.
@@ -78,7 +78,7 @@ SETTINGS_FILE="${SETTINGS_DIR}/settings.json"
 mkdir -p "${SETTINGS_DIR}"
 
 if ! grep -q "ai-flux" "${SETTINGS_FILE}" 2>/dev/null; then
-    echo "[ai-flux] Injecting AI_Flux provider settings into ${SETTINGS_FILE}..."
+    echo "[ai-flux] Injecting StromaAI provider settings into ${SETTINGS_FILE}..."
 
     python3 - <<PYEOF
 import json
@@ -123,7 +123,7 @@ print(f"[ai-flux] Model: {model_name}")
 PYEOF
 
 else
-    echo "[ai-flux] AI_Flux settings already present in ${SETTINGS_FILE} — skipping injection."
+    echo "[ai-flux] StromaAI settings already present in ${SETTINGS_FILE} — skipping injection."
 fi
 
 # =============================================================================

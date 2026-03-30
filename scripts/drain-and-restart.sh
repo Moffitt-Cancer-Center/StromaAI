@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AI_Flux — Drain and Restart
+# StromaAI — Drain and Restart
 # =============================================================================
 # Gracefully quiesces in-flight inference requests, then restarts all
-# AI_Flux services in the correct dependency order. Use for planned
+# StromaAI services in the correct dependency order. Use for planned
 # maintenance, container image updates, or any config change that requires
 # a full service restart.
 #
@@ -58,7 +58,7 @@ _running_requests() {
         || echo "0"
 }
 
-echo "=== AI_Flux Drain and Restart ==="
+echo "=== StromaAI Drain and Restart ==="
 echo "$(date)"
 echo
 

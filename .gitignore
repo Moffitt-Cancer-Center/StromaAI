@@ -1,4 +1,4 @@
-# AI_Flux — .gitignore
+# StromaAI — .gitignore
 # =============================================================================
 # Never commit secrets or site-specific config to version control.
 # All site-specific values belong in config.env (not config.example.env).
