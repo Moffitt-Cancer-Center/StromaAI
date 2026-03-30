@@ -69,7 +69,7 @@ apptainer build /share/containers/stroma-ai-vllm.sif deploy/containers/stroma-ai
 ### 3. Deploy systemd services (on the Proxmox VM)
 
 ```bash
-useradd -r -s /sbin/nologin aiflux
+useradd -r -s /sbin/nologin stromaai
 cp deploy/systemd/*.service /etc/systemd/system/
 cp src/vllm_watcher.py /opt/stroma-ai/
 systemctl daemon-reload

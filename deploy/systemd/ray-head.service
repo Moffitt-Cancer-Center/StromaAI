@@ -6,12 +6,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=aiflux
-Group=aiflux
+User=stromaai
+Group=stromaai
 WorkingDirectory=/opt/stroma-ai
 
 # Sources all STROMA_* environment variables from config.env.
-# Permissions: chmod 640, chown aiflux:aiflux
+# Permissions: chmod 640, chown stromaai:stromaai
 EnvironmentFile=/opt/stroma-ai/config.env
 
 # Ray head starts with --num-cpus=0 --num-gpus=0 so the Proxmox VM

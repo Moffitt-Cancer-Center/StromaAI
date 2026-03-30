@@ -153,7 +153,7 @@ scontrol show reservation ai-flux-warm
 # Replace /share/hpc_shared with your STROMA_SHARED_ROOT if different:
 mkdir -p /share/hpc_shared/logs/stroma-ai
 chmod 775 /share/hpc_shared/logs/stroma-ai
-chown aiflux:aiflux /share/hpc_shared/logs/stroma-ai  # or appropriate service user
+chown stromaai:stromaai /share/hpc_shared/logs/stroma-ai  # or appropriate service user
 ```
 
 The installer creates this directory automatically using the `STROMA_LOG_DIR` variable (which defaults to `${STROMA_SHARED_ROOT}/logs/stroma-ai`).
@@ -193,7 +193,7 @@ sudo ./install/preflight.sh --mode=ood
 - TLS certificate at `/etc/ssl/stroma-ai/` (warning if missing — installer will generate a self-signed cert)
 - Shared filesystem mounted at `STROMA_SHARED_ROOT`
 - RAM ≥ 256 GB recommended (for CPU KV cache offload)
-- `aiflux` system user and `/opt/stroma-ai/` directory (warning if missing — installer will create them)
+- `stromaai` system user and `/opt/stroma-ai/` directory (warning if missing — installer will create them)
 
 **Worker node checks:**
 - NVIDIA GPU detected via `nvidia-smi`
@@ -262,11 +262,11 @@ Enter STROMA_API_KEY (or press Enter to generate one):
 >
 > If you generate an API key, the installer displays it once. Save it — you will need it for OOD configuration.
 
-The installer writes the final configuration to `/opt/stroma-ai/config.env` and sets `chmod 640 / chown aiflux:aiflux`.
+The installer writes the final configuration to `/opt/stroma-ai/config.env` and sets `chmod 640 / chown stromaai:stromaai`.
 
 ### What head mode installs
 
-1. Creates `aiflux` system user (home: `/opt/stroma-ai`, no shell)
+1. Creates `stromaai` system user (home: `/opt/stroma-ai`, no shell)
 2. Creates directories: `/opt/stroma-ai/{src,state}`, `/etc/ssl/stroma-ai/`, `${STROMA_LOG_DIR}`
 3. Installs system packages (Python 3.11, pip, nginx) for the detected OS
 4. Creates a Python virtualenv in `/opt/stroma-ai/venv` and installs Ray and vLLM
@@ -347,9 +347,9 @@ See [rhel-slurm-setup.md](rhel-slurm-setup.md) if this step fails with SELinux o
 ### 3.1 Create system user
 
 ```bash
-useradd -r -s /sbin/nologin -d /opt/stroma-ai aiflux
+useradd -r -s /sbin/nologin -d /opt/stroma-ai stromaai
 mkdir -p /opt/stroma-ai
-chown aiflux:aiflux /opt/stroma-ai
+chown stromaai:stromaai /opt/stroma-ai
 ```
 
 ### 3.2 Configure
@@ -365,7 +365,7 @@ cp config/config.example.env /opt/stroma-ai/config.env
 #   STROMA_MODEL_PATH — path to staged model weights
 nano /opt/stroma-ai/config.env
 chmod 640 /opt/stroma-ai/config.env
-chown aiflux:aiflux /opt/stroma-ai/config.env
+chown stromaai:stromaai /opt/stroma-ai/config.env
 ```
 
 **Key configuration variables:**
@@ -432,7 +432,7 @@ cp deploy/systemd/stroma-ai-watcher.service /etc/systemd/system/
 # Copy watcher script:
 cp src/vllm_watcher.py /opt/stroma-ai/
 chmod +x /opt/stroma-ai/vllm_watcher.py
-chown aiflux:aiflux /opt/stroma-ai/vllm_watcher.py
+chown stromaai:stromaai /opt/stroma-ai/vllm_watcher.py
 
 # Enable services (start in order):
 systemctl daemon-reload
@@ -641,7 +641,7 @@ journalctl -u stroma-ai-watcher -f
 # Expected: "Scale-up triggered", "Submitted burst worker job NNNNN"
 
 # Verify new Slurm job:
-squeue -u aiflux
+squeue -u stromaai
 ```
 
 ### Scale-down test
@@ -650,7 +650,7 @@ squeue -u aiflux
 sleep 310
 
 # Verify burst workers were cancelled:
-squeue -u aiflux  # should be empty
+squeue -u stromaai  # should be empty
 journalctl -u stroma-ai-watcher | grep -i "cancell"
 ```
 
@@ -683,7 +683,7 @@ systemctl stop stroma-ai-watcher
 watch -n 5 'curl -sk https://stroma-ai.your-cluster.example/metrics | grep "vllm:num_requests"'
 
 # 3. Cancel all active burst jobs:
-squeue -u aiflux -h -o "%i" | xargs -r scancel
+squeue -u stromaai -h -o "%i" | xargs -r scancel
 
 # 4. Stop vLLM and Ray:
 systemctl stop stroma-ai-vllm
@@ -805,7 +805,7 @@ sudo ./install/uninstall.sh --yes   # non-interactive
 - `/etc/nginx/conf.d/stroma-ai.conf` (RHEL/Rocky) or `/etc/nginx/sites-*/stroma-ai` (Ubuntu)
 - `/etc/ood/stroma-ai.conf`
 - `/etc/ssl/stroma-ai/` (TLS keys — confirmed interactively)
-- `aiflux` system user (confirmed interactively)
+- `stromaai` system user (confirmed interactively)
 - Firewall rules (port 6380, 80, 443) — best-effort, non-fatal if rules are absent
 
 **What is NOT removed (intentionally):**

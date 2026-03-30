@@ -7,8 +7,8 @@ Requires=stroma-ai-vllm.service
 
 [Service]
 Type=simple
-User=aiflux
-Group=aiflux
+User=stromaai
+Group=stromaai
 WorkingDirectory=/opt/stroma-ai
 
 # Sources all STROMA_* environment variables.

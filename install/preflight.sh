@@ -159,11 +159,11 @@ check_head() {
         check_warn "Total RAM: ${TOTAL_RAM_GB} GB (recommend 256+ GB for CPU KV cache offload)"
     fi
 
-    # aiflux user
-    if id aiflux &>/dev/null; then
-        check_pass "System user 'aiflux' exists"
+    # stromaai user
+    if id stromaai &>/dev/null; then
+        check_pass "System user 'stromaai' exists"
     else
-        check_warn "System user 'aiflux' not found — installer will create it"
+        check_warn "System user 'stromaai' not found — installer will create it"
     fi
 
     # /opt/stroma-ai directory

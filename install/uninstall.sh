@@ -15,7 +15,7 @@
 #     /etc/nginx/sites-{available,enabled}/stroma-ai (Ubuntu)
 #   - /etc/ood/stroma-ai.conf
 #   - /etc/ssl/stroma-ai/ (TLS keys)
-#   - 'aiflux' system user
+#   - 'stromaai' system user
 #
 # What is NOT removed (intentionally):
 #   - /share/containers/stroma-ai-vllm.sif  (your data, not ours)
@@ -139,13 +139,13 @@ if [[ -d /opt/stroma-ai ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Remove aiflux system user
+# Remove stromaai system user
 # ---------------------------------------------------------------------------
-log_step "Removing aiflux system user"
-if id aiflux &>/dev/null; then
-    if confirm "Remove system user 'aiflux'?"; then
-        run_cmd userdel aiflux
-        log_ok "Removed user 'aiflux'."
+log_step "Removing stromaai system user"
+if id stromaai &>/dev/null; then
+    if confirm "Remove system user 'stromaai'?"; then
+        run_cmd userdel stromaai
+        log_ok "Removed user 'stromaai'."
     fi
 fi
 

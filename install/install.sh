@@ -231,9 +231,9 @@ install_head() {
 }
 
 _create_system_user() {
-    log_step "Creating aiflux system user"
-    if id aiflux &>/dev/null; then
-        log_info "User 'aiflux' already exists."
+    log_step "Creating stromaai system user"
+    if id stromaai &>/dev/null; then
+        log_info "User 'stromaai' already exists."
         return 0
     fi
     run_cmd useradd \
@@ -242,8 +242,8 @@ _create_system_user() {
         --home-dir /opt/stroma-ai \
         --shell /sbin/nologin \
         --comment "StromaAI service account" \
-        aiflux
-    log_ok "User 'aiflux' created."
+        stromaai
+    log_ok "User 'stromaai' created."
 }
 
 _create_directories() {
@@ -258,9 +258,9 @@ _create_directories() {
     for dir in "${dirs[@]}"; do
         run_cmd mkdir -p "${dir}"
     done
-    run_cmd chown -R aiflux:aiflux /opt/stroma-ai
+    run_cmd chown -R stromaai:stromaai /opt/stroma-ai
     run_cmd chmod 750 /opt/stroma-ai
-    run_cmd chown aiflux:aiflux "${STROMA_LOG_DIR}" 2>/dev/null || true
+    run_cmd chown stromaai:stromaai "${STROMA_LOG_DIR}" 2>/dev/null || true
     log_ok "Directories created."
 }
 
@@ -322,7 +322,7 @@ STROMA_SCALE_DOWN_IDLE_SECONDS=${STROMA_SCALE_DOWN_IDLE_SECONDS}
 STROMA_SCALE_UP_COOLDOWN=${STROMA_SCALE_UP_COOLDOWN}
 STROMA_STATE_FILE=${STROMA_STATE_FILE}
 EOF
-        chown aiflux:aiflux /opt/stroma-ai/config.env
+        chown stromaai:stromaai /opt/stroma-ai/config.env
         chmod 640 /opt/stroma-ai/config.env
     else
         log_dry "Would write /opt/stroma-ai/config.env with site values"
@@ -335,7 +335,7 @@ _deploy_source_files() {
 
     # Copy watcher
     run_cmd cp "${REPO_DIR}/src/vllm_watcher.py" /opt/stroma-ai/src/vllm_watcher.py
-    run_cmd chown aiflux:aiflux /opt/stroma-ai/src/vllm_watcher.py
+    run_cmd chown stromaai:stromaai /opt/stroma-ai/src/vllm_watcher.py
     run_cmd chmod 750 /opt/stroma-ai/src/vllm_watcher.py
 
     # Copy shared Slurm script to shared filesystem (if mounted)
