@@ -65,6 +65,7 @@ From: nvcr.io/nvidia/pytorch:24.10-py3
     export TOKENIZERS_PARALLELISM=false
 
 %post
+    #!/bin/bash
     set -euo pipefail
 
     # -------------------------------------------------------------------------
