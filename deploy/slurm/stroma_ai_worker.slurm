@@ -139,6 +139,6 @@ exec ${NUMACTL_OPTS[@]:+"${NUMACTL_OPTS[@]}"} "${CONTAINER_CMD}" exec \
     ray start \
         --address="${STROMA_HEAD_HOST}:${STROMA_RAY_PORT}" \
         --num-cpus="${SLURM_CPUS_PER_TASK:-64}" \
-        --num-gpus=1 \
+        --num-gpus="${STROMA_GPUS_PER_NODE:-1}" \
         --memory="${NODE_MEMORY_BYTES}" \
         --block
