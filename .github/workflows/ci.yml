@@ -91,14 +91,14 @@ jobs:
 
       - name: Dry-run head node install
         run: |
-          sudo AI_FLUX_DRY_RUN=1 AI_FLUX_YES=1 \
-            AI_FLUX_HEAD_HOST=ci-test.example \
-            AI_FLUX_API_KEY=ci-test-key-$(openssl rand -hex 16) \
+          sudo STROMA_DRY_RUN=1 STROMA_YES=1 \
+            STROMA_HEAD_HOST=ci-test.example \
+            STROMA_API_KEY=ci-test-key-$(openssl rand -hex 16) \
             bash install/install.sh --mode=head --dry-run --yes
 
       - name: Dry-run worker install
         run: |
-          sudo AI_FLUX_DRY_RUN=1 AI_FLUX_YES=1 \
+          sudo STROMA_DRY_RUN=1 STROMA_YES=1 \
             bash install/install.sh --mode=worker --dry-run --yes
 
   # ---------------------------------------------------------------------------
@@ -143,33 +143,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check config.example.env documents all AI_FLUX_* vars
+      - name: Check config.example.env documents all STROMA_* vars
         run: |
           python3 - <<'EOF'
           import re, sys
 
           example = open("config/config.example.env").read()
-          defined_keys = set(re.findall(r'^(AI_FLUX_\w+)=', example, re.MULTILINE))
+          defined_keys = set(re.findall(r'^(STROMA_\w+)=', example, re.MULTILINE))
 
           # Vars referenced in systemd units must exist in the example config
           import pathlib
           referenced = set()
           for f in pathlib.Path("deploy/systemd").glob("*.service"):
               text = f.read_text()
-              referenced |= set(re.findall(r'\$\{?(AI_FLUX_\w+)\}?', text))
+              referenced |= set(re.findall(r'\$\{?(STROMA_\w+)\}?', text))
           for f in [pathlib.Path("src/vllm_watcher.py")]:
               text = f.read_text()
-              referenced |= set(re.findall(r'"AI_FLUX_\w+"', text))
+              referenced |= set(re.findall(r'"STROMA_\w+"', text))
               referenced = {k.strip('"') for k in referenced}
 
           missing = referenced - defined_keys - {
               # Known intentionally absent from example (set at install time)
-              "AI_FLUX_DRY_RUN", "AI_FLUX_YES",
+              "STROMA_DRY_RUN", "STROMA_YES",
           }
 
           if missing:
               print(f"WARNING: vars referenced in code but not in config.example.env: {missing}")
               # Warn only — don't fail CI, some vars may be optional
           else:
-              print("All referenced AI_FLUX_* vars are documented in config.example.env")
+              print("All referenced STROMA_* vars are documented in config.example.env")
           EOF

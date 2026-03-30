@@ -6,8 +6,8 @@
 #          HAS_GPU, GPU_COUNT, GPU_MODEL, TOTAL_RAM_GB, PYTHON311
 # =============================================================================
 
-[[ -n "${_AI_FLUX_DETECT_LOADED:-}" ]] && return 0
-readonly _AI_FLUX_DETECT_LOADED=1
+[[ -n "${_STROMA_DETECT_LOADED:-}" ]] && return 0
+readonly _STROMA_DETECT_LOADED=1
 
 # ---------------------------------------------------------------------------
 # detect_os — populate OS_* variables from /etc/os-release

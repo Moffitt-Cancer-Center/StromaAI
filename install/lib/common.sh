@@ -7,8 +7,8 @@
 # =============================================================================
 
 # Guard against double-sourcing
-[[ -n "${_AI_FLUX_COMMON_LOADED:-}" ]] && return 0
-readonly _AI_FLUX_COMMON_LOADED=1
+[[ -n "${_STROMA_COMMON_LOADED:-}" ]] && return 0
+readonly _STROMA_COMMON_LOADED=1
 
 # ---------------------------------------------------------------------------
 # Terminal colors (disabled if stdout is not a TTY)
@@ -51,11 +51,11 @@ require_root() {
 }
 
 # ---------------------------------------------------------------------------
-# confirm — prompt user for yes/no; respects AI_FLUX_YES=1 for automation
+# confirm — prompt user for yes/no; respects STROMA_YES=1 for automation
 # ---------------------------------------------------------------------------
 confirm() {
     local prompt="${1:-Continue?}"
-    if [[ "${AI_FLUX_YES:-0}" == "1" ]]; then
+    if [[ "${STROMA_YES:-0}" == "1" ]]; then
         log_info "Auto-confirming: ${prompt}"
         return 0
     fi
@@ -69,7 +69,7 @@ confirm() {
 # run_cmd — print and run a command; in dry-run mode, print only
 # ---------------------------------------------------------------------------
 run_cmd() {
-    if [[ "${AI_FLUX_DRY_RUN:-0}" == "1" ]]; then
+    if [[ "${STROMA_DRY_RUN:-0}" == "1" ]]; then
         log_dry "$*"
         return 0
     fi
@@ -126,16 +126,16 @@ installed_version() {
 # ---------------------------------------------------------------------------
 # ai_flux_venv — path to the Python virtual environment
 # ---------------------------------------------------------------------------
-readonly AI_FLUX_VENV="/opt/ai-flux/venv"
-readonly AI_FLUX_PYTHON="${AI_FLUX_VENV}/bin/python3"
-readonly AI_FLUX_PIP="${AI_FLUX_VENV}/bin/pip"
+readonly STROMA_VENV="/opt/ai-flux/venv"
+readonly STROMA_PYTHON="${STROMA_VENV}/bin/python3"
+readonly STROMA_PIP="${STROMA_VENV}/bin/pip"
 
 # ---------------------------------------------------------------------------
 # AI_FLUX installation directories
 # ---------------------------------------------------------------------------
-readonly AI_FLUX_INSTALL_DIR="/opt/ai-flux"
-# AI_FLUX_LOG_DIR must NOT be readonly — it is overridden by AI_FLUX_SHARED_ROOT
-# or AI_FLUX_LOG_DIR from config.env. The value here is the fallback only.
-AI_FLUX_LOG_DIR="${AI_FLUX_LOG_DIR:-${AI_FLUX_SHARED_ROOT:-/share}/logs/ai-flux}"
-readonly AI_FLUX_STATE_DIR="/opt/ai-flux/state"
-readonly AI_FLUX_SYSTEMD_DIR="/etc/systemd/system"
+readonly STROMA_INSTALL_DIR="/opt/ai-flux"
+# STROMA_LOG_DIR must NOT be readonly — it is overridden by STROMA_SHARED_ROOT
+# or STROMA_LOG_DIR from config.env. The value here is the fallback only.
+STROMA_LOG_DIR="${STROMA_LOG_DIR:-${STROMA_SHARED_ROOT:-/share}/logs/ai-flux}"
+readonly STROMA_STATE_DIR="/opt/ai-flux/state"
+readonly STROMA_SYSTEMD_DIR="/etc/systemd/system"

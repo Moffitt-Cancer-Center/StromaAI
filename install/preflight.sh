@@ -127,7 +127,7 @@ check_head() {
     fi
 
     # Port for Ray GCS
-    local ray_port="${AI_FLUX_RAY_PORT:-6380}"
+    local ray_port="${STROMA_RAY_PORT:-6380}"
     if ! ss -tlnp 2>/dev/null | grep -q ":${ray_port} "; then
         check_pass "Port ${ray_port} (Ray GCS) is available"
     else
@@ -144,11 +144,11 @@ check_head() {
     fi
 
     # Shared filesystem (for model weights)
-    local shared_root="${AI_FLUX_SHARED_ROOT:-/share}"
+    local shared_root="${STROMA_SHARED_ROOT:-/share}"
     if detect_shared_fs "${shared_root}" 2>/dev/null; then
         check_pass "Shared filesystem mounted at ${shared_root}"
     else
-        check_warn "No filesystem mounted at ${shared_root} — set AI_FLUX_SHARED_ROOT in config and verify mount"
+        check_warn "No filesystem mounted at ${shared_root} — set STROMA_SHARED_ROOT in config and verify mount"
     fi
 
     # RAM recommendation (head node needs RAM for CPU KV cache offload)
@@ -216,17 +216,17 @@ check_worker() {
     fi
 
     # Shared filesystem
-    local shared_root="${AI_FLUX_SHARED_ROOT:-/share}"
+    local shared_root="${STROMA_SHARED_ROOT:-/share}"
     if detect_shared_fs "${shared_root}" 2>/dev/null; then
         local shared_free_gb
         shared_free_gb=$(df -BG "${shared_root}" 2>/dev/null | awk 'NR==2 {gsub(/G/,""); print $4}')
         check_pass "Shared filesystem mounted at ${shared_root} (${shared_free_gb} GB free)"
     else
-        check_fail "No filesystem mounted at ${shared_root} — set AI_FLUX_SHARED_ROOT and verify NFS/GPFS mount"
+        check_fail "No filesystem mounted at ${shared_root} — set STROMA_SHARED_ROOT and verify NFS/GPFS mount"
     fi
 
     # Container image
-    local sif_path="${AI_FLUX_CONTAINER:-/share/containers/ai-flux-vllm.sif}"
+    local sif_path="${STROMA_CONTAINER:-/share/containers/ai-flux-vllm.sif}"
     if [[ -f "${sif_path}" ]]; then
         local sif_size_gb
         sif_size_gb=$(du -BG "${sif_path}" 2>/dev/null | awk '{gsub(/G/,""); print $1}')
@@ -236,7 +236,7 @@ check_worker() {
     fi
 
     # Model weights
-    local model_path="${AI_FLUX_MODEL_PATH:-/share/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
+    local model_path="${STROMA_MODEL_PATH:-/share/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
     if [[ -d "${model_path}" ]]; then
         check_pass "Model directory found: ${model_path}"
     else
@@ -293,8 +293,8 @@ check_ood() {
     fi
 
     # Connectivity to head node
-    local head="${AI_FLUX_HEAD_HOST:-ai-flux.your-cluster.example}"
-    local port="${AI_FLUX_HTTPS_PORT:-443}"
+    local head="${STROMA_HEAD_HOST:-ai-flux.your-cluster.example}"
+    local port="${STROMA_HTTPS_PORT:-443}"
     if [[ "${head}" != *"example"* ]]; then
         if curl -fsS --max-time 5 --insecure "https://${head}:${port}/health" &>/dev/null; then
             check_pass "StromaAI API reachable at https://${head}:${port}"
@@ -302,7 +302,7 @@ check_ood() {
             check_warn "Cannot reach StromaAI API at https://${head}:${port} — check hostname and firewall"
         fi
     else
-        check_warn "AI_FLUX_HEAD_HOST not set — skipping API connectivity test"
+        check_warn "STROMA_HEAD_HOST not set — skipping API connectivity test"
     fi
 }
 

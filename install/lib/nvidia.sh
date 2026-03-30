@@ -12,8 +12,8 @@
 # This script ONLY installs the container toolkit + CDI config.
 # =============================================================================
 
-[[ -n "${_AI_FLUX_NVIDIA_LOADED:-}" ]] && return 0
-readonly _AI_FLUX_NVIDIA_LOADED=1
+[[ -n "${_STROMA_NVIDIA_LOADED:-}" ]] && return 0
+readonly _STROMA_NVIDIA_LOADED=1
 
 # ---------------------------------------------------------------------------
 # verify_nvidia_gpu — confirm nvidia-smi works and driver is loaded
@@ -87,7 +87,7 @@ _install_nct_rhel() {
     local repo_url="https://nvidia.github.io/libnvidia-container/${distro_tag}/${arch}/libnvidia-container.repo"
 
     log_info "Adding NVIDIA Container Toolkit repo for ${distro_tag}/${arch}"
-    if [[ "${AI_FLUX_DRY_RUN:-0}" == "0" ]]; then
+    if [[ "${STROMA_DRY_RUN:-0}" == "0" ]]; then
         curl -fsSL "${repo_url}" \
             -o /etc/yum.repos.d/nvidia-container-toolkit.repo \
             || die "Failed to download NVIDIA repo file. Check network connectivity."
@@ -105,14 +105,14 @@ _install_nct_ubuntu() {
 
     # Add the NVIDIA GPG key
     log_info "Adding NVIDIA Container Toolkit GPG key"
-    if [[ "${AI_FLUX_DRY_RUN:-0}" == "0" ]]; then
+    if [[ "${STROMA_DRY_RUN:-0}" == "0" ]]; then
         curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
             | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
             || die "Failed to download NVIDIA GPG key."
     fi
 
     # Add the APT repo
-    if [[ "${AI_FLUX_DRY_RUN:-0}" == "0" ]]; then
+    if [[ "${STROMA_DRY_RUN:-0}" == "0" ]]; then
         curl -fsSL \
             "https://nvidia.github.io/libnvidia-container/stable/deb/${arch}/libnvidia-container.list" \
             | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
@@ -153,7 +153,7 @@ _configure_nct_for_apptainer() {
 # ---------------------------------------------------------------------------
 verify_gpu_in_container() {
     local runtime="${CONTAINER_RUNTIME:-apptainer}"
-    local sif="${AI_FLUX_CONTAINER:-/share/containers/ai-flux-vllm.sif}"
+    local sif="${STROMA_CONTAINER:-/share/containers/ai-flux-vllm.sif}"
 
     log_step "Verifying GPU access inside container"
 
@@ -163,7 +163,7 @@ verify_gpu_in_container() {
         return 0
     fi
 
-    if [[ "${AI_FLUX_DRY_RUN:-0}" == "0" ]]; then
+    if [[ "${STROMA_DRY_RUN:-0}" == "0" ]]; then
         if "${runtime}" exec --nv "${sif}" python3 -c \
             "import torch; print('CUDA available:', torch.cuda.is_available()); \
              print('GPU count:', torch.cuda.device_count())" 2>/dev/null; then

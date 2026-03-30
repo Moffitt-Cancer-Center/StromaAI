@@ -115,7 +115,7 @@ scontrol create Reservation=ai-flux-warm \
 ```bash
 cp deploy/ood/ai-flux.conf /etc/ood/ai-flux.conf
 chmod 640 /etc/ood/ai-flux.conf
-# Edit ai-flux.conf — set AI_FLUX_API_KEY to match /opt/ai-flux/config.env
+# Edit ai-flux.conf — set STROMA_API_KEY to match /opt/ai-flux/config.env
 # Merge deploy/ood/script.sh.erb into your code-server OOD app template
 ```
 

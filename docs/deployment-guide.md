@@ -49,7 +49,7 @@ firewall-cmd --reload
 
 The Proxmox VM must mount your HPC shared filesystem at the same path used on Slurm nodes. Model weights and container images must be visible at identical paths on both sides.
 
-The shared root path is configurable via `AI_FLUX_SHARED_ROOT` (default: `/share`). The installer will prompt for this value as its first question. If your cluster mounts shared storage at a different path (e.g., `/gpfs/ai`, `/mnt/nfs`), set `AI_FLUX_SHARED_ROOT` accordingly.
+The shared root path is configurable via `STROMA_SHARED_ROOT` (default: `/share`). The installer will prompt for this value as its first question. If your cluster mounts shared storage at a different path (e.g., `/gpfs/ai`, `/mnt/nfs`), set `STROMA_SHARED_ROOT` accordingly.
 
 ```bash
 # Example NFS mount (add to /etc/fstab — adjust mount path as appropriate):
@@ -87,11 +87,11 @@ The search output shows a fit status for each result based on your actual GPU an
 
 #### Step 2: Download to shared storage
 
-`hfw download` checks hardware compatibility first, then downloads directly to `$AI_FLUX_SHARED_ROOT/models/<repo>` if `AI_FLUX_SHARED_ROOT` is set in the environment:
+`hfw download` checks hardware compatibility first, then downloads directly to `$STROMA_SHARED_ROOT/models/<repo>` if `STROMA_SHARED_ROOT` is set in the environment:
 
 ```bash
 # Set your shared root so the download goes to the right place:
-export AI_FLUX_SHARED_ROOT=/share   # adjust to your mount path
+export STROMA_SHARED_ROOT=/share   # adjust to your mount path
 
 # Download — hardware check runs first, quantization advice shown if needed:
 hfw download Qwen/Qwen2.5-Coder-32B-Instruct-AWQ
@@ -109,16 +109,16 @@ If the model doesn't fit natively, `hfw download` lists compatible quantization 
 # Verify checksum of every file:
 sha256sum ~/models/Qwen2.5-Coder-32B-Instruct-AWQ/* > checksums.sha256
 
-# Transfer to shared storage (replace /share with your AI_FLUX_SHARED_ROOT):
+# Transfer to shared storage (replace /share with your STROMA_SHARED_ROOT):
 rsync -avz --progress ~/models/Qwen2.5-Coder-32B-Instruct-AWQ/ \
   cluster:/share/models/Qwen2.5-Coder-32B-Instruct-AWQ/
 rsync -avz checksums.sha256 cluster:/share/models/
 
-# On the cluster, verify (replace /share with your AI_FLUX_SHARED_ROOT):
+# On the cluster, verify (replace /share with your STROMA_SHARED_ROOT):
 cd /share/models && sha256sum -c checksums.sha256
 ```
 
-> **Note:** If downloading directly on the head node with `AI_FLUX_SHARED_ROOT` set, Step 3 is skipped — `hfw download` already placed the weights in the right location.
+> **Note:** If downloading directly on the head node with `STROMA_SHARED_ROOT` set, Step 3 is skipped — `hfw download` already placed the weights in the right location.
 ```
 
 ### 1.5 Slurm partition and account
@@ -150,13 +150,13 @@ scontrol show reservation ai-flux-warm
 ### 1.6 Log directory
 
 ```bash
-# Replace /share/hpc_shared with your AI_FLUX_SHARED_ROOT if different:
+# Replace /share/hpc_shared with your STROMA_SHARED_ROOT if different:
 mkdir -p /share/hpc_shared/logs/ai-flux
 chmod 775 /share/hpc_shared/logs/ai-flux
 chown aiflux:aiflux /share/hpc_shared/logs/ai-flux  # or appropriate service user
 ```
 
-The installer creates this directory automatically using the `AI_FLUX_LOG_DIR` variable (which defaults to `${AI_FLUX_SHARED_ROOT}/logs/ai-flux`).
+The installer creates this directory automatically using the `STROMA_LOG_DIR` variable (which defaults to `${STROMA_SHARED_ROOT}/logs/ai-flux`).
 
 ---
 
@@ -191,7 +191,7 @@ sudo ./install/preflight.sh --mode=ood
 - nginx (warning if missing — installer will install it)
 - Ports 443 and 6380 availability
 - TLS certificate at `/etc/ssl/ai-flux/` (warning if missing — installer will generate a self-signed cert)
-- Shared filesystem mounted at `AI_FLUX_SHARED_ROOT`
+- Shared filesystem mounted at `STROMA_SHARED_ROOT`
 - RAM ≥ 256 GB recommended (for CPU KV cache offload)
 - `aiflux` system user and `/opt/ai-flux/` directory (warning if missing — installer will create them)
 
@@ -201,8 +201,8 @@ sudo ./install/preflight.sh --mode=ood
 - Apptainer or Singularity available as module or binary (warning if missing)
 - Slurm commands (`sbatch`, `squeue`) in PATH
 - Shared filesystem mounted and reachable
-- Container SIF image present at `AI_FLUX_CONTAINER`
-- Model weights directory present at `AI_FLUX_MODEL_PATH`
+- Container SIF image present at `STROMA_CONTAINER`
+- Model weights directory present at `STROMA_MODEL_PATH`
 - SELinux booleans `container_use_cgroups` and `container_manage_cgroup` set
 - RAM ≥ 512 GB recommended (for GPU KV cache workers)
 
@@ -255,7 +255,7 @@ Shared container SIF path [/share/containers/ai-flux-vllm.sif]:
 Slurm GPU partition [ai-flux-gpu]:
 Slurm account [ai-flux-service]:
 Max concurrent burst workers [5]:
-Enter AI_FLUX_API_KEY (or press Enter to generate one):
+Enter STROMA_API_KEY (or press Enter to generate one):
 ```
 
 > **Important:** The **shared filesystem root** is the first prompt. Enter the actual mount path for your cluster (e.g., `/gpfs/ai`, `/mnt/nfs`). All subsequent path defaults derive from this value.
@@ -267,15 +267,15 @@ The installer writes the final configuration to `/opt/ai-flux/config.env` and se
 ### What head mode installs
 
 1. Creates `aiflux` system user (home: `/opt/ai-flux`, no shell)
-2. Creates directories: `/opt/ai-flux/{src,state}`, `/etc/ssl/ai-flux/`, `${AI_FLUX_LOG_DIR}`
+2. Creates directories: `/opt/ai-flux/{src,state}`, `/etc/ssl/ai-flux/`, `${STROMA_LOG_DIR}`
 3. Installs system packages (Python 3.11, pip, nginx) for the detected OS
 4. Creates a Python virtualenv in `/opt/ai-flux/venv` and installs Ray and vLLM
 5. Writes `/opt/ai-flux/config.env` with all configuration values
 6. Deploys `src/vllm_watcher.py` to `/opt/ai-flux/src/` with execute permissions
-7. Deploys `deploy/slurm/ai_flux_worker.slurm` to `${AI_FLUX_SHARED_ROOT}/slurm/`
+7. Deploys `deploy/slurm/ai_flux_worker.slurm` to `${STROMA_SHARED_ROOT}/slurm/`
 8. Deploys and enables nginx with TLS termination; generates a self-signed certificate if none exists
 9. Installs systemd service units (`ray-head`, `ai-flux-vllm`, `ai-flux-watcher`)
-10. Patches `ReadWritePaths` in systemd units to include `AI_FLUX_SHARED_ROOT`
+10. Patches `ReadWritePaths` in systemd units to include `STROMA_SHARED_ROOT`
 11. Configures SELinux booleans (RHEL) or AppArmor (Ubuntu) for container and cgroup access
 12. Opens firewall ports (6380, 443) via `firewall-cmd` (RHEL) or `ufw` (Ubuntu)
 13. Enables and starts `ray-head`, waits for GCS, then starts `ai-flux-vllm` and `ai-flux-watcher`
@@ -289,7 +289,7 @@ The installer writes the final configuration to `/opt/ai-flux/config.env` and se
 4. Installs NVIDIA Container Toolkit and runs `nvidia-ctk cdi generate`
 5. Configures SELinux booleans for Apptainer + GPU (`container_use_cgroups`, `container_manage_cgroup`, `container_use_devices`)
 6. Opens Ray ephemeral ports (10001–19999) in the firewall
-7. Creates the shared log directory (`${AI_FLUX_LOG_DIR}`) on the worker
+7. Creates the shared log directory (`${STROMA_LOG_DIR}`) on the worker
 
 ### Using a pre-filled config file
 
@@ -315,7 +315,7 @@ apptainer build ai-flux-vllm.sif deploy/containers/ai-flux-vllm.def
 # Run the built-in test:
 apptainer test ai-flux-vllm.sif
 
-# Copy to shared storage (replace /share with your AI_FLUX_SHARED_ROOT):
+# Copy to shared storage (replace /share with your STROMA_SHARED_ROOT):
 rsync -avz --progress ai-flux-vllm.sif cluster:/share/containers/
 ```
 
@@ -327,7 +327,7 @@ Before committing to deployment, verify the container works on a RHEL Slurm GPU 
 # Run as yourself on an interactive Slurm allocation:
 srun --partition=ai-flux-gpu --gpus=1 --nodes=1 --pty bash
 
-# Inside the allocation (replace /share with your AI_FLUX_SHARED_ROOT):
+# Inside the allocation (replace /share with your STROMA_SHARED_ROOT):
 apptainer exec --nv /share/containers/ai-flux-vllm.sif \
   python3 -c "
 import torch, vllm
@@ -354,15 +354,15 @@ chown aiflux:aiflux /opt/ai-flux
 
 ### 3.2 Configure
 
-> **Note:** If you used the automated installer (`install/install.sh --mode=head`), this step was performed automatically. The config is at `/opt/ai-flux/config.env` and the installer already set `AI_FLUX_SHARED_ROOT` as the first interactive prompt.
+> **Note:** If you used the automated installer (`install/install.sh --mode=head`), this step was performed automatically. The config is at `/opt/ai-flux/config.env` and the installer already set `STROMA_SHARED_ROOT` as the first interactive prompt.
 
 ```bash
 cp config/config.example.env /opt/ai-flux/config.env
 # Edit ALL CHANGEME values:
-#   AI_FLUX_SHARED_ROOT — your shared filesystem root (e.g., /share, /gpfs/ai)
-#   AI_FLUX_HEAD_HOST  — your actual hostname
-#   AI_FLUX_API_KEY    — generate with: openssl rand -hex 32
-#   AI_FLUX_MODEL_PATH — path to staged model weights
+#   STROMA_SHARED_ROOT — your shared filesystem root (e.g., /share, /gpfs/ai)
+#   STROMA_HEAD_HOST  — your actual hostname
+#   STROMA_API_KEY    — generate with: openssl rand -hex 32
+#   STROMA_MODEL_PATH — path to staged model weights
 nano /opt/ai-flux/config.env
 chmod 640 /opt/ai-flux/config.env
 chown aiflux:aiflux /opt/ai-flux/config.env
@@ -372,25 +372,25 @@ chown aiflux:aiflux /opt/ai-flux/config.env
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AI_FLUX_SHARED_ROOT` | `/share` | Shared filesystem root — all shared path defaults derive from this |
-| `AI_FLUX_HEAD_HOST` | *(required)* | FQDN or hostname of the head node |
-| `AI_FLUX_API_KEY` | *(required)* | Bearer token for API authentication |
-| `AI_FLUX_MODEL_PATH` | `${SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ` | Path to model weights |
-| `AI_FLUX_MODEL_NAME` | `ai-flux-coder` | Model alias served by vLLM |
-| `AI_FLUX_CONTAINER` | `${SHARED_ROOT}/containers/ai-flux-vllm.sif` | Apptainer SIF image path |
-| `AI_FLUX_SLURM_PARTITION` | `ai-flux-gpu` | Slurm GPU partition for burst workers |
-| `AI_FLUX_SLURM_ACCOUNT` | `ai-flux-service` | Slurm account for burst jobs |
-| `AI_FLUX_MAX_BURST_WORKERS` | `5` | Maximum concurrent burst Slurm jobs |
-| `AI_FLUX_SLURM_CPUS` | `64` | CPUs per burst worker job (`--cpus-per-task`) |
-| `AI_FLUX_SLURM_MEM` | `900G` | Memory per burst worker job (`--mem`) |
-| `AI_FLUX_NUMA_BIND` | *(unset)* | Optional NUMA node binding (e.g., `0`) — leave unset to disable |
-| `AI_FLUX_VLLM_QUANTIZATION` | `awq` | vLLM quantization method (`awq`, `fp8`, `none`) |
-| `AI_FLUX_KV_CACHE_DTYPE` | `auto` | KV cache dtype — use `fp8` for L30 / H100, `auto` for A100 |
-| `AI_FLUX_GPU_MEM_UTIL` | `0.85` | GPU memory utilization fraction for vLLM |
-| `AI_FLUX_CPU_OFFLOAD_GB` | `200` | CPU memory to use for KV cache offload (GB) |
-| `AI_FLUX_SCALE_UP_THRESHOLD` | `5` | Queued requests before a burst worker is submitted |
-| `AI_FLUX_SCALE_DOWN_IDLE_SECONDS` | `300` | Idle seconds before a burst worker is cancelled |
-| `AI_FLUX_LOG_DIR` | `${SHARED_ROOT}/logs/ai-flux` | Slurm job output log directory |
+| `STROMA_SHARED_ROOT` | `/share` | Shared filesystem root — all shared path defaults derive from this |
+| `STROMA_HEAD_HOST` | *(required)* | FQDN or hostname of the head node |
+| `STROMA_API_KEY` | *(required)* | Bearer token for API authentication |
+| `STROMA_MODEL_PATH` | `${SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ` | Path to model weights |
+| `STROMA_MODEL_NAME` | `ai-flux-coder` | Model alias served by vLLM |
+| `STROMA_CONTAINER` | `${SHARED_ROOT}/containers/ai-flux-vllm.sif` | Apptainer SIF image path |
+| `STROMA_SLURM_PARTITION` | `ai-flux-gpu` | Slurm GPU partition for burst workers |
+| `STROMA_SLURM_ACCOUNT` | `ai-flux-service` | Slurm account for burst jobs |
+| `STROMA_MAX_BURST_WORKERS` | `5` | Maximum concurrent burst Slurm jobs |
+| `STROMA_SLURM_CPUS` | `64` | CPUs per burst worker job (`--cpus-per-task`) |
+| `STROMA_SLURM_MEM` | `900G` | Memory per burst worker job (`--mem`) |
+| `STROMA_NUMA_BIND` | *(unset)* | Optional NUMA node binding (e.g., `0`) — leave unset to disable |
+| `STROMA_VLLM_QUANTIZATION` | `awq` | vLLM quantization method (`awq`, `fp8`, `none`) |
+| `STROMA_KV_CACHE_DTYPE` | `auto` | KV cache dtype — use `fp8` for L30 / H100, `auto` for A100 |
+| `STROMA_GPU_MEM_UTIL` | `0.85` | GPU memory utilization fraction for vLLM |
+| `STROMA_CPU_OFFLOAD_GB` | `200` | CPU memory to use for KV cache offload (GB) |
+| `STROMA_SCALE_UP_THRESHOLD` | `5` | Queued requests before a burst worker is submitted |
+| `STROMA_SCALE_DOWN_IDLE_SECONDS` | `300` | Idle seconds before a burst worker is cancelled |
+| `STROMA_LOG_DIR` | `${SHARED_ROOT}/logs/ai-flux` | Slurm job output log directory |
 
 Use `scripts/check-config.sh` to validate config before starting services (see [Operational Scripts](#operational-scripts)).
 
@@ -416,7 +416,7 @@ pip3 install vllm==0.7.3
 
 > **Alternative**: Run vLLM inside the Apptainer container on the head node too:
 > ```bash
-> apptainer exec /share/containers/ai-flux-vllm.sif vllm serve ...   # replace /share with AI_FLUX_SHARED_ROOT
+> apptainer exec /share/containers/ai-flux-vllm.sif vllm serve ...   # replace /share with STROMA_SHARED_ROOT
 > ```
 > If using container-launch on the head node, update `ExecStart` in  
 > `deploy/systemd/ai-flux-vllm.service` accordingly.
@@ -457,7 +457,7 @@ ray status --address localhost:6380
 # Check vLLM API (no GPU workers yet — model list should still respond):
 curl http://localhost:8000/health
 curl http://localhost:8000/v1/models \
-  -H "Authorization: Bearer $(grep AI_FLUX_API_KEY /opt/ai-flux/config.env | cut -d= -f2)"
+  -H "Authorization: Bearer $(grep STROMA_API_KEY /opt/ai-flux/config.env | cut -d= -f2)"
 
 # Service status:
 systemctl status ray-head ai-flux-vllm ai-flux-watcher
@@ -510,11 +510,11 @@ curl -k https://localhost/health
 
 ## Phase 5 (Manual Reference): Slurm Worker Template
 
-> **Note:** If you used the automated installer (`install/install.sh --mode=head`), the Slurm script was deployed to `${AI_FLUX_SHARED_ROOT}/slurm/ai_flux_worker.slurm` automatically.
+> **Note:** If you used the automated installer (`install/install.sh --mode=head`), the Slurm script was deployed to `${STROMA_SHARED_ROOT}/slurm/ai_flux_worker.slurm` automatically.
 
 ```bash
 # Copy to shared storage so all Slurm nodes can find it:
-mkdir -p /share/slurm    # replace /share with your AI_FLUX_SHARED_ROOT
+mkdir -p /share/slurm    # replace /share with your STROMA_SHARED_ROOT
 cp deploy/slurm/ai_flux_worker.slurm /share/slurm/
 chmod 755 /share/slurm/ai_flux_worker.slurm
 
@@ -523,7 +523,7 @@ sbatch \
   --partition=ai-flux-gpu \
   --account=ai-flux-service \
   --time=01:00:00 \
-  --export=ALL,AI_FLUX_HEAD_HOST=ai-flux.your-cluster.example,AI_FLUX_RAY_PORT=6380 \
+  --export=ALL,STROMA_HEAD_HOST=ai-flux.your-cluster.example,STROMA_RAY_PORT=6380 \
   /share/slurm/ai_flux_worker.slurm
 
 # Wait for RUNNING state and verify Ray sees the new node:
@@ -540,10 +540,10 @@ ray status --address localhost:6380
 ```bash
 cp deploy/ood/ai-flux.conf /etc/ood/ai-flux.conf
 
-# Edit: set AI_FLUX_API_KEY to EXACTLY the same value as /opt/ai-flux/config.env
+# Edit: set STROMA_API_KEY to EXACTLY the same value as /opt/ai-flux/config.env
 # Mismatch = HTTP 401 for every user. Double-check with:
-#   diff <(grep AI_FLUX_API_KEY /opt/ai-flux/config.env) \
-#        <(grep AI_FLUX_API_KEY /etc/ood/ai-flux.conf)
+#   diff <(grep STROMA_API_KEY /opt/ai-flux/config.env) \
+#        <(grep STROMA_API_KEY /etc/ood/ai-flux.conf)
 nano /etc/ood/ai-flux.conf
 chmod 640 /etc/ood/ai-flux.conf
 ```
@@ -614,7 +614,7 @@ http://prometheus.your-cluster.example:9090/targets
 
 ### API test
 ```bash
-API_KEY=$(grep AI_FLUX_API_KEY /opt/ai-flux/config.env | cut -d= -f2)
+API_KEY=$(grep STROMA_API_KEY /opt/ai-flux/config.env | cut -d= -f2)
 
 curl -k -X POST https://ai-flux.your-cluster.example/v1/chat/completions \
   -H "Authorization: Bearer ${API_KEY}" \
@@ -646,7 +646,7 @@ squeue -u aiflux
 
 ### Scale-down test
 ```bash
-# After load test completes, wait AI_FLUX_SCALE_DOWN_IDLE_SECONDS (default 300s):
+# After load test completes, wait STROMA_SCALE_DOWN_IDLE_SECONDS (default 300s):
 sleep 310
 
 # Verify burst workers were cancelled:
@@ -699,9 +699,9 @@ systemctl start ai-flux-watcher
 
 ### Updating the model
 
-1. Stage new model weights to `${AI_FLUX_SHARED_ROOT}/models/<new-model>/` (default: `/share/models/<new-model>/`)
-2. Update `AI_FLUX_MODEL_PATH` and `AI_FLUX_MODEL_NAME` in `/opt/ai-flux/config.env`
-3. Update `AI_FLUX_MODEL_NAME` in `/etc/ood/ai-flux.conf`
+1. Stage new model weights to `${STROMA_SHARED_ROOT}/models/<new-model>/` (default: `/share/models/<new-model>/`)
+2. Update `STROMA_MODEL_PATH` and `STROMA_MODEL_NAME` in `/opt/ai-flux/config.env`
+3. Update `STROMA_MODEL_NAME` in `/etc/ood/ai-flux.conf`
 4. Follow the graceful drain procedure below (or use `scripts/drain-and-restart.sh`)
 5. Restart services
 
@@ -715,7 +715,7 @@ journalctl -u ray-head -u ai-flux-vllm -u ai-flux-watcher -f
 journalctl -u ai-flux-watcher -n 50 --no-pager
 
 # Slurm worker stdout for job NNNNN:
-cat /share/logs/ai-flux/slurm-NNNNN.out   # replace /share with AI_FLUX_SHARED_ROOT
+cat /share/logs/ai-flux/slurm-NNNNN.out   # replace /share with STROMA_SHARED_ROOT
 
 # Watcher state (current tracked burst jobs):
 cat /opt/ai-flux/watcher_state.json | python3 -m json.tool
@@ -809,9 +809,9 @@ sudo ./install/uninstall.sh --yes   # non-interactive
 - Firewall rules (port 6380, 80, 443) — best-effort, non-fatal if rules are absent
 
 **What is NOT removed (intentionally):**
-- `${AI_FLUX_SHARED_ROOT}/containers/` — container images are your data
-- `${AI_FLUX_SHARED_ROOT}/models/` — model weights are your data
-- `${AI_FLUX_SHARED_ROOT}/logs/ai-flux/` — preserved as audit trail
+- `${STROMA_SHARED_ROOT}/containers/` — container images are your data
+- `${STROMA_SHARED_ROOT}/models/` — model weights are your data
+- `${STROMA_SHARED_ROOT}/logs/ai-flux/` — preserved as audit trail
 - System packages: nginx, Python 3.11, NVIDIA Container Toolkit
 
 To fully clean up shared storage after uninstallation, remove those directories manually when you are certain they are no longer needed.

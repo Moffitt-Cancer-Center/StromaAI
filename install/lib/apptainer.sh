@@ -13,8 +13,8 @@
 # Override with: APPTAINER_VERSION=x.y.z before calling install_apptainer()
 # =============================================================================
 
-[[ -n "${_AI_FLUX_APPTAINER_LOADED:-}" ]] && return 0
-readonly _AI_FLUX_APPTAINER_LOADED=1
+[[ -n "${_STROMA_APPTAINER_LOADED:-}" ]] && return 0
+readonly _STROMA_APPTAINER_LOADED=1
 
 APPTAINER_VERSION="${APPTAINER_VERSION:-1.3.6}"
 
@@ -75,7 +75,7 @@ _install_apptainer_from_github_rpm() {
     local tmp_rpm="/tmp/apptainer-${APPTAINER_VERSION}.rpm"
 
     log_info "Downloading Apptainer RPM from: ${rpm_url}"
-    if [[ "${AI_FLUX_DRY_RUN:-0}" == "0" ]]; then
+    if [[ "${STROMA_DRY_RUN:-0}" == "0" ]]; then
         curl -fsSL -o "${tmp_rpm}" "${rpm_url}" \
             || die "Failed to download Apptainer RPM. Check network or set APPTAINER_VERSION."
     fi
@@ -98,7 +98,7 @@ _install_apptainer_ubuntu() {
         fuse2fs fuse-overlayfs squashfuse libfuse2
 
     log_info "Downloading Apptainer .deb from: ${deb_url}"
-    if [[ "${AI_FLUX_DRY_RUN:-0}" == "0" ]]; then
+    if [[ "${STROMA_DRY_RUN:-0}" == "0" ]]; then
         curl -fsSL -o "${tmp_deb}" "${deb_url}" \
             || die "Failed to download Apptainer .deb. Check network or set APPTAINER_VERSION."
     fi
@@ -158,7 +158,7 @@ verify_apptainer() {
     fi
 
     # Run a trivial container test
-    if [[ "${AI_FLUX_DRY_RUN:-0}" == "0" ]]; then
+    if [[ "${STROMA_DRY_RUN:-0}" == "0" ]]; then
         if "${runtime}" exec --bind /tmp:/tmp \
             docker://alpine:3.19 echo "Apptainer container test OK" 2>/dev/null; then
             log_ok "Apptainer smoke test passed."

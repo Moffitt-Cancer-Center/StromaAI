@@ -11,7 +11,7 @@ User=aiflux
 Group=aiflux
 WorkingDirectory=/opt/ai-flux
 
-# Sources all AI_FLUX_* environment variables.
+# Sources all STROMA_* environment variables.
 EnvironmentFile=/opt/ai-flux/config.env
 
 # Python is installed by install.sh into /opt/ai-flux/venv.

@@ -64,7 +64,7 @@ dnf install -y apptainer
 The worker script defaults to `--nv`. Override with:
 ```bash
 # In /opt/ai-flux/config.env (on head node, passed via --export):
-AI_FLUX_CONTAINER_GPU_FLAG=--nvccli
+STROMA_CONTAINER_GPU_FLAG=--nvccli
 ```
 
 ---
@@ -110,14 +110,14 @@ No host Python upgrade is required. Do not assume the host Python version.
 
 ## 5. Shared filesystem mount
 
-The Slurm worker nodes must mount the shared filesystem at the same path (`AI_FLUX_SHARED_ROOT`) used on the head node. The default is `/share`; if your cluster uses a different path, set `AI_FLUX_SHARED_ROOT` in `config.env` and re-run `install/preflight.sh --mode=worker` to verify.
+The Slurm worker nodes must mount the shared filesystem at the same path (`STROMA_SHARED_ROOT`) used on the head node. The default is `/share`; if your cluster uses a different path, set `STROMA_SHARED_ROOT` in `config.env` and re-run `install/preflight.sh --mode=worker` to verify.
 
 ```bash
 # Verify the mount exists and key paths are visible:
 mount | grep shared    # or grep for your actual mount path
-ls ${AI_FLUX_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ/
-ls ${AI_FLUX_SHARED_ROOT}/containers/ai-flux-vllm.sif
-ls ${AI_FLUX_SHARED_ROOT}/slurm/ai_flux_worker.slurm
+ls ${STROMA_SHARED_ROOT}/models/Qwen2.5-Coder-32B-Instruct-AWQ/
+ls ${STROMA_SHARED_ROOT}/containers/ai-flux-vllm.sif
+ls ${STROMA_SHARED_ROOT}/slurm/ai_flux_worker.slurm
 ```
 
 If the mount is missing, contact your HPC storage admin — this is a cluster-level configuration, not a per-node setting.
@@ -149,7 +149,7 @@ sacctmgr show account ai-flux-service
 # Test submitting a job under the account (from the head node or compute node):
 sbatch --partition=ai-flux-gpu --account=ai-flux-service \
   --wrap="echo 'Account test OK'; hostname" \
-  --output=${AI_FLUX_LOG_DIR:-/share/logs/ai-flux}/test-%j.out
+  --output=${STROMA_LOG_DIR:-/share/logs/ai-flux}/test-%j.out
 
 squeue -u $USER
 ```
@@ -166,8 +166,8 @@ sbatch \
   --partition=ai-flux-gpu \
   --account=ai-flux-service \
   --time=00:20:00 \
-  --export=ALL,AI_FLUX_HEAD_HOST=ai-flux.your-cluster.example,AI_FLUX_RAY_PORT=6380 \
-  ${AI_FLUX_SHARED_ROOT:-/share}/slurm/ai_flux_worker.slurm
+  --export=ALL,STROMA_HEAD_HOST=ai-flux.your-cluster.example,STROMA_RAY_PORT=6380 \
+  ${STROMA_SHARED_ROOT:-/share}/slurm/ai_flux_worker.slurm
 
 # Step 2: Watch the job reach RUNNING:
 watch -n 5 squeue -j <job_id>
@@ -177,7 +177,7 @@ ray status --address localhost:6380
 # Expected: "1 node(s) with resources" showing 1 GPU
 
 # Step 4: Verify vLLM can use the worker (send a request):
-API_KEY=$(grep AI_FLUX_API_KEY /opt/ai-flux/config.env | cut -d= -f2)
+API_KEY=$(grep STROMA_API_KEY /opt/ai-flux/config.env | cut -d= -f2)
 curl -k -X POST https://ai-flux.your-cluster.example/v1/chat/completions \
   -H "Authorization: Bearer ${API_KEY}" \
   -H "Content-Type: application/json" \
@@ -195,8 +195,8 @@ scancel <job_id>
 |---|---|---|
 | `AVC denied { write } on cgroup` | SELinux blocking container cgroup | `setsebool -P container_use_cgroups 1` |
 | `Failed to initialize NVML` | NVIDIA driver not visible inside container | Use `--nv` flag; verify driver version |
-| `Container file not found` | `AI_FLUX_SHARED_ROOT` not mounted, wrong path, or SIF not built yet | Verify `AI_FLUX_SHARED_ROOT` mount and that `ai-flux-vllm.sif` exists |
+| `Container file not found` | `STROMA_SHARED_ROOT` not mounted, wrong path, or SIF not built yet | Verify `STROMA_SHARED_ROOT` mount and that `ai-flux-vllm.sif` exists |
 | `Connection refused` to Ray GCS port | Firewall blocking port 6380 | Open TCP 6380 from nodes to head |
 | `sbatch: error: Invalid account` | Account not in Slurm DB | `sacctmgr add account ai-flux-service` |
 | `ray: command not found` | Ray not in PATH inside container | Check container was built correctly; run `apptainer test ai-flux-vllm.sif` |
-| `No module named vllm` | Wrong container or container not found | Verify `AI_FLUX_CONTAINER` path in config |
+| `No module named vllm` | Wrong container or container not found | Verify `STROMA_CONTAINER` path in config |

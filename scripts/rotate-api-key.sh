@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-CONFIG_FILE="${AI_FLUX_CONFIG:-/opt/ai-flux/config.env}"
+CONFIG_FILE="${STROMA_CONFIG:-/opt/ai-flux/config.env}"
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
@@ -42,9 +42,9 @@ fi
 # shellcheck source=/dev/null
 source "${CONFIG_FILE}"
 
-HEAD_HOST="${AI_FLUX_HEAD_HOST:-localhost}"
-VLLM_PORT="${AI_FLUX_VLLM_PORT:-8000}"
-OOD_CONF="${AI_FLUX_OOD_CONF:-}"
+HEAD_HOST="${STROMA_HEAD_HOST:-localhost}"
+VLLM_PORT="${STROMA_VLLM_PORT:-8000}"
+OOD_CONF="${STROMA_OOD_CONF:-}"
 
 echo "=== StromaAI API Key Rotation ==="
 echo "Config : ${CONFIG_FILE}"
@@ -69,17 +69,17 @@ cp "${CONFIG_FILE}" "${BACKUP}"
 chmod 640 "${BACKUP}"
 echo "Backup : ${BACKUP}"
 
-sed -i "s|^AI_FLUX_API_KEY=.*|AI_FLUX_API_KEY=${NEW_KEY}|" "${CONFIG_FILE}"
+sed -i "s|^STROMA_API_KEY=.*|STROMA_API_KEY=${NEW_KEY}|" "${CONFIG_FILE}"
 echo "Updated: ${CONFIG_FILE}"
 
 # ---------------------------------------------------------------------------
 # Update OOD conf if it exists and references the key
 # ---------------------------------------------------------------------------
 if [[ -n "${OOD_CONF}" && -f "${OOD_CONF}" ]]; then
-    if grep -q "^AI_FLUX_API_KEY=" "${OOD_CONF}" 2>/dev/null; then
+    if grep -q "^STROMA_API_KEY=" "${OOD_CONF}" 2>/dev/null; then
         OOD_BACKUP="${OOD_CONF}.bak.$(date +%Y%m%d_%H%M%S)"
         cp "${OOD_CONF}" "${OOD_BACKUP}"
-        sed -i "s|^AI_FLUX_API_KEY=.*|AI_FLUX_API_KEY=${NEW_KEY}|" "${OOD_CONF}"
+        sed -i "s|^STROMA_API_KEY=.*|STROMA_API_KEY=${NEW_KEY}|" "${OOD_CONF}"
         echo "Updated: ${OOD_CONF} (backup: ${OOD_BACKUP})"
     fi
 fi

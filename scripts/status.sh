@@ -13,23 +13,23 @@
 #   scripts/status.sh
 #
 # Environment overrides:
-#   AI_FLUX_CONFIG             path to config.env (default: /opt/ai-flux/config.env)
-#   AI_FLUX_STATUS_LOG_LINES   number of watcher log lines to show (default: 20)
+#   STROMA_CONFIG             path to config.env (default: /opt/ai-flux/config.env)
+#   STROMA_STATUS_LOG_LINES   number of watcher log lines to show (default: 20)
 # =============================================================================
 
 set -euo pipefail
 
-CONFIG_FILE="${AI_FLUX_CONFIG:-/opt/ai-flux/config.env}"
-STATE_FILE="${AI_FLUX_STATE_FILE:-/opt/ai-flux/watcher_state.json}"
-SLURM_PARTITION="${AI_FLUX_SLURM_PARTITION:-ai-flux-gpu}"
-LOG_LINES="${AI_FLUX_STATUS_LOG_LINES:-20}"
+CONFIG_FILE="${STROMA_CONFIG:-/opt/ai-flux/config.env}"
+STATE_FILE="${STROMA_STATE_FILE:-/opt/ai-flux/watcher_state.json}"
+SLURM_PARTITION="${STROMA_SLURM_PARTITION:-ai-flux-gpu}"
+LOG_LINES="${STROMA_STATUS_LOG_LINES:-20}"
 
 # Load config if present (non-fatal if missing)
 # shellcheck source=/dev/null
 [[ -f "${CONFIG_FILE}" ]] && source "${CONFIG_FILE}" || true
 
-STATE_FILE="${AI_FLUX_STATE_FILE:-${STATE_FILE}}"
-SLURM_PARTITION="${AI_FLUX_SLURM_PARTITION:-${SLURM_PARTITION}}"
+STATE_FILE="${STROMA_STATE_FILE:-${STATE_FILE}}"
+SLURM_PARTITION="${STROMA_SLURM_PARTITION:-${SLURM_PARTITION}}"
 
 hr() { printf '%.0s─' {1..62}; echo; }
 
@@ -140,7 +140,7 @@ PYEOF
     fi
 else
     echo "  State file not found: ${STATE_FILE}"
-    echo "  (watcher has not yet run, or AI_FLUX_STATE_FILE is not set)"
+    echo "  (watcher has not yet run, or STROMA_STATE_FILE is not set)"
 fi
 echo
 

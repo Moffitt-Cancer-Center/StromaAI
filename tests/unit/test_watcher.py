@@ -32,20 +32,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 def _load_watcher(env_overrides: dict[str, str] | None = None):
     """Import vllm_watcher with optional environment variable overrides."""
     env = {
-        "AI_FLUX_HEAD_HOST": "test-head",
-        "AI_FLUX_RAY_PORT": "6380",
-        "AI_FLUX_VLLM_PORT": "8000",
-        "AI_FLUX_API_KEY": "test-secret-key",
-        "AI_FLUX_MAX_BURST_WORKERS": "3",
-        "AI_FLUX_SCALE_UP_THRESHOLD": "2",
-        "AI_FLUX_SCALE_DOWN_IDLE_SECONDS": "300",
-        "AI_FLUX_SCALE_UP_COOLDOWN": "120",
-        "AI_FLUX_WATCHER_POLL_INTERVAL": "30",
-        "AI_FLUX_SLURM_PARTITION": "gpu-test",
-        "AI_FLUX_SLURM_ACCOUNT": "test-acct",
-        "AI_FLUX_SLURM_SCRIPT": "/share/slurm/ai_flux_worker.slurm",
-        "AI_FLUX_SLURM_WALLTIME": "1-00:00:00",
-        "AI_FLUX_STATE_FILE": "/tmp/ai_flux_test_state.json",
+        "STROMA_HEAD_HOST": "test-head",
+        "STROMA_RAY_PORT": "6380",
+        "STROMA_VLLM_PORT": "8000",
+        "STROMA_API_KEY": "test-secret-key",
+        "STROMA_MAX_BURST_WORKERS": "3",
+        "STROMA_SCALE_UP_THRESHOLD": "2",
+        "STROMA_SCALE_DOWN_IDLE_SECONDS": "300",
+        "STROMA_SCALE_UP_COOLDOWN": "120",
+        "STROMA_WATCHER_POLL_INTERVAL": "30",
+        "STROMA_SLURM_PARTITION": "gpu-test",
+        "STROMA_SLURM_ACCOUNT": "test-acct",
+        "STROMA_SLURM_SCRIPT": "/share/slurm/ai_flux_worker.slurm",
+        "STROMA_SLURM_WALLTIME": "1-00:00:00",
+        "STROMA_STATE_FILE": "/tmp/ai_flux_test_state.json",
     }
     if env_overrides:
         env.update(env_overrides)
@@ -251,8 +251,8 @@ class TestSlurmSubmit:
             watcher.slurm_submit()
         cmd = mock_sub.call_args[0][0]
         export_arg = next(a for a in cmd if a.startswith("--export="))
-        assert "AI_FLUX_HEAD_HOST=test-head" in export_arg
-        assert "AI_FLUX_RAY_PORT=6380" in export_arg
+        assert "STROMA_HEAD_HOST=test-head" in export_arg
+        assert "STROMA_RAY_PORT=6380" in export_arg
 
 
 class TestSlurmJobState:

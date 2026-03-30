@@ -26,7 +26,7 @@
 
 set -euo pipefail
 
-CONFIG_FILE="${AI_FLUX_CONFIG:-/opt/ai-flux/config.env}"
+CONFIG_FILE="${STROMA_CONFIG:-/opt/ai-flux/config.env}"
 DRAIN_TIMEOUT=300
 START_TIMEOUT=300
 
@@ -45,9 +45,9 @@ done
 # shellcheck source=/dev/null
 [[ -f "${CONFIG_FILE}" ]] && source "${CONFIG_FILE}" || true
 
-HEAD="${AI_FLUX_HEAD_HOST:-localhost}"
-VLLM_PORT="${AI_FLUX_VLLM_PORT:-8000}"
-API_KEY="${AI_FLUX_API_KEY:-}"
+HEAD="${STROMA_HEAD_HOST:-localhost}"
+VLLM_PORT="${STROMA_VLLM_PORT:-8000}"
+API_KEY="${STROMA_API_KEY:-}"
 AUTH_HDR=()
 [[ -n "${API_KEY}" ]] && AUTH_HDR=(-H "Authorization: Bearer ${API_KEY}")
 

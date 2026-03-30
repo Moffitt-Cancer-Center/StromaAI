@@ -55,25 +55,25 @@ import requests
 # Configuration — all sourced from environment variables, never hardcoded
 # ---------------------------------------------------------------------------
 
-HEAD_HOST     = os.environ.get("AI_FLUX_HEAD_HOST", "localhost")
-RAY_PORT      = int(os.environ.get("AI_FLUX_RAY_PORT", "6380"))
-VLLM_PORT     = int(os.environ.get("AI_FLUX_VLLM_PORT", "8000"))
-API_KEY       = os.environ.get("AI_FLUX_API_KEY", "")
-MAX_BURST     = int(os.environ.get("AI_FLUX_MAX_BURST_WORKERS", "5"))
-UP_THRESHOLD  = int(os.environ.get("AI_FLUX_SCALE_UP_THRESHOLD", "2"))
-DOWN_IDLE_S   = int(os.environ.get("AI_FLUX_SCALE_DOWN_IDLE_SECONDS", "300"))
-UP_COOLDOWN   = int(os.environ.get("AI_FLUX_SCALE_UP_COOLDOWN", "300"))
-POLL_S        = int(os.environ.get("AI_FLUX_WATCHER_POLL_INTERVAL", "30"))
-SLURM_PART    = os.environ.get("AI_FLUX_SLURM_PARTITION", "ai-flux-gpu")
-SLURM_ACCT    = os.environ.get("AI_FLUX_SLURM_ACCOUNT", "ai-flux-service")
-SLURM_SCRIPT  = os.environ.get("AI_FLUX_SLURM_SCRIPT", "/share/slurm/ai_flux_worker.slurm")
-SLURM_TIME    = os.environ.get("AI_FLUX_SLURM_WALLTIME", "7-00:00:00")
-SLURM_CPUS    = os.environ.get("AI_FLUX_SLURM_CPUS", "64")
-SLURM_MEM     = os.environ.get("AI_FLUX_SLURM_MEM", "900G")
-SHARED_ROOT   = os.environ.get("AI_FLUX_SHARED_ROOT", "/share")
-SLURM_LOG_DIR = os.environ.get("AI_FLUX_LOG_DIR", f"{SHARED_ROOT}/logs/ai-flux")
-VLLM_KV_THREADS = int(os.environ.get("AI_FLUX_VLLM_CPU_KV_THREADS", "32"))
-STATE_FILE    = os.environ.get("AI_FLUX_STATE_FILE", "/opt/ai-flux/watcher_state.json")
+HEAD_HOST     = os.environ.get("STROMA_HEAD_HOST", "localhost")
+RAY_PORT      = int(os.environ.get("STROMA_RAY_PORT", "6380"))
+VLLM_PORT     = int(os.environ.get("STROMA_VLLM_PORT", "8000"))
+API_KEY       = os.environ.get("STROMA_API_KEY", "")
+MAX_BURST     = int(os.environ.get("STROMA_MAX_BURST_WORKERS", "5"))
+UP_THRESHOLD  = int(os.environ.get("STROMA_SCALE_UP_THRESHOLD", "2"))
+DOWN_IDLE_S   = int(os.environ.get("STROMA_SCALE_DOWN_IDLE_SECONDS", "300"))
+UP_COOLDOWN   = int(os.environ.get("STROMA_SCALE_UP_COOLDOWN", "300"))
+POLL_S        = int(os.environ.get("STROMA_WATCHER_POLL_INTERVAL", "30"))
+SLURM_PART    = os.environ.get("STROMA_SLURM_PARTITION", "ai-flux-gpu")
+SLURM_ACCT    = os.environ.get("STROMA_SLURM_ACCOUNT", "ai-flux-service")
+SLURM_SCRIPT  = os.environ.get("STROMA_SLURM_SCRIPT", "/share/slurm/ai_flux_worker.slurm")
+SLURM_TIME    = os.environ.get("STROMA_SLURM_WALLTIME", "7-00:00:00")
+SLURM_CPUS    = os.environ.get("STROMA_SLURM_CPUS", "64")
+SLURM_MEM     = os.environ.get("STROMA_SLURM_MEM", "900G")
+SHARED_ROOT   = os.environ.get("STROMA_SHARED_ROOT", "/share")
+SLURM_LOG_DIR = os.environ.get("STROMA_LOG_DIR", f"{SHARED_ROOT}/logs/ai-flux")
+VLLM_KV_THREADS = int(os.environ.get("STROMA_VLLM_CPU_KV_THREADS", "32"))
+STATE_FILE    = os.environ.get("STROMA_STATE_FILE", "/opt/ai-flux/watcher_state.json")
 
 VLLM_BASE     = f"http://{HEAD_HOST}:{VLLM_PORT}"
 RAY_ADDR      = f"{HEAD_HOST}:{RAY_PORT}"
@@ -104,26 +104,26 @@ def _validate_config() -> None:
     errors: list[str] = []
 
     if not API_KEY:
-        errors.append("AI_FLUX_API_KEY is not set")
+        errors.append("STROMA_API_KEY is not set")
     elif API_KEY.upper().startswith("CHANGEME"):
         errors.append(
-            "AI_FLUX_API_KEY is still the placeholder — generate with: openssl rand -hex 32"
+            "STROMA_API_KEY is still the placeholder — generate with: openssl rand -hex 32"
         )
 
     if not re.match(r"^[a-zA-Z0-9._-]+$", HEAD_HOST):
         errors.append(
-            f"AI_FLUX_HEAD_HOST={HEAD_HOST!r} contains invalid characters "
+            f"STROMA_HEAD_HOST={HEAD_HOST!r} contains invalid characters "
             "(only letters, digits, dots, hyphens, underscores allowed)"
         )
 
     if MAX_BURST <= 0:
-        errors.append(f"AI_FLUX_MAX_BURST_WORKERS must be > 0 (got {MAX_BURST})")
+        errors.append(f"STROMA_MAX_BURST_WORKERS must be > 0 (got {MAX_BURST})")
 
     if UP_THRESHOLD <= 0:
-        errors.append(f"AI_FLUX_SCALE_UP_THRESHOLD must be > 0 (got {UP_THRESHOLD})")
+        errors.append(f"STROMA_SCALE_UP_THRESHOLD must be > 0 (got {UP_THRESHOLD})")
 
     if not Path(SLURM_SCRIPT).exists():
-        errors.append(f"AI_FLUX_SLURM_SCRIPT not found: {SLURM_SCRIPT}")
+        errors.append(f"STROMA_SLURM_SCRIPT not found: {SLURM_SCRIPT}")
 
     if errors:
         for msg in errors:
@@ -249,8 +249,8 @@ def slurm_submit() -> Optional[str]:
         f"--output={SLURM_LOG_DIR}/slurm-%j.out",
         f"--error={SLURM_LOG_DIR}/slurm-%j.err",
         # Pass connection params, shared root, and per-worker tuning via env vars
-        f"--export=ALL,AI_FLUX_HEAD_HOST={HEAD_HOST},AI_FLUX_RAY_PORT={RAY_PORT}"
-        f",AI_FLUX_SHARED_ROOT={SHARED_ROOT}"
+        f"--export=ALL,STROMA_HEAD_HOST={HEAD_HOST},STROMA_RAY_PORT={RAY_PORT}"
+        f",STROMA_SHARED_ROOT={SHARED_ROOT}"
         f",VLLM_CPU_KV_CACHE_THREADS={VLLM_KV_THREADS}",
         SLURM_SCRIPT,
     ]

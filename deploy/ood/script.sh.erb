@@ -30,23 +30,23 @@ set -euo pipefail
 # =============================================================================
 # Load StromaAI OOD configuration
 # =============================================================================
-AI_FLUX_OOD_CONF="${AI_FLUX_OOD_CONF:-/etc/ood/ai-flux.conf}"
+STROMA_OOD_CONF="${STROMA_OOD_CONF:-/etc/ood/ai-flux.conf}"
 
-if [[ -f "${AI_FLUX_OOD_CONF}" ]]; then
+if [[ -f "${STROMA_OOD_CONF}" ]]; then
     # shellcheck source=/dev/null
-    source "${AI_FLUX_OOD_CONF}"
+    source "${STROMA_OOD_CONF}"
 else
-    echo "WARNING: StromaAI OOD config not found at ${AI_FLUX_OOD_CONF}" >&2
+    echo "WARNING: StromaAI OOD config not found at ${STROMA_OOD_CONF}" >&2
     echo "         Kilo Code will not be auto-configured for this session." >&2
 fi
 
 # Defaults (safe fallback if sourcing failed)
-AI_FLUX_HEAD_HOST="${AI_FLUX_HEAD_HOST:-ai-flux.your-cluster.example}"
-AI_FLUX_HTTPS_PORT="${AI_FLUX_HTTPS_PORT:-443}"
-AI_FLUX_API_KEY="${AI_FLUX_API_KEY:-}"
-AI_FLUX_MODEL_NAME="${AI_FLUX_MODEL_NAME:-ai-flux-coder}"
+STROMA_HEAD_HOST="${STROMA_HEAD_HOST:-ai-flux.your-cluster.example}"
+STROMA_HTTPS_PORT="${STROMA_HTTPS_PORT:-443}"
+STROMA_API_KEY="${STROMA_API_KEY:-}"
+STROMA_MODEL_NAME="${STROMA_MODEL_NAME:-ai-flux-coder}"
 
-BASE_URL="https://${AI_FLUX_HEAD_HOST}:${AI_FLUX_HTTPS_PORT}/v1"
+BASE_URL="https://${STROMA_HEAD_HOST}:${STROMA_HTTPS_PORT}/v1"
 
 # =============================================================================
 # Install Kilo Code extension (idempotent)
@@ -87,8 +87,8 @@ import sys
 
 settings_path = "${SETTINGS_FILE}"
 base_url      = "${BASE_URL}"
-api_key       = "${AI_FLUX_API_KEY}"
-model_name    = "${AI_FLUX_MODEL_NAME}"
+api_key       = "${STROMA_API_KEY}"
+model_name    = "${STROMA_MODEL_NAME}"
 
 # Load existing settings (tolerate missing file or empty JSON)
 try:

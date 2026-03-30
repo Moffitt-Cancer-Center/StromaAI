@@ -10,7 +10,7 @@ User=aiflux
 Group=aiflux
 WorkingDirectory=/opt/ai-flux
 
-# Sources all AI_FLUX_* environment variables from config.env.
+# Sources all STROMA_* environment variables from config.env.
 # Permissions: chmod 640, chown aiflux:aiflux
 EnvironmentFile=/opt/ai-flux/config.env
 
@@ -21,8 +21,8 @@ EnvironmentFile=/opt/ai-flux/config.env
 # Binaries are installed by install.sh into /opt/ai-flux/venv.
 ExecStart=/opt/ai-flux/venv/bin/ray start \
     --head \
-    --port=${AI_FLUX_RAY_PORT} \
-    --dashboard-port=${AI_FLUX_RAY_DASHBOARD_PORT} \
+    --port=${STROMA_RAY_PORT} \
+    --dashboard-port=${STROMA_RAY_DASHBOARD_PORT} \
     --dashboard-host=127.0.0.1 \
     --num-cpus=0 \
     --num-gpus=0 \

@@ -46,7 +46,7 @@ scrape_configs:
     tls_config:
       # For self-signed certs. Remove once using a CA-signed certificate.
       insecure_skip_verify: true
-    # If AI_FLUX_API_KEY is required for /metrics:
+    # If STROMA_API_KEY is required for /metrics:
     # authorization:
     #   type: Bearer
     #   credentials: "your-api-key"
@@ -98,7 +98,7 @@ scrape_configs:
 #           severity: info
 #         annotations:
 #           summary: "StromaAI CPU cache usage high ({{ $value | humanizePercentage }})"
-#           description: "Consider reducing AI_FLUX_CPU_OFFLOAD_GB or scaling burst workers."
+#           description: "Consider reducing STROMA_CPU_OFFLOAD_GB or scaling burst workers."
 #
 #       # WARNING: vLLM health endpoint down
 #       - alert: AIFluxVLLMDown

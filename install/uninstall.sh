@@ -37,7 +37,7 @@ detect_os
 
 for arg in "$@"; do
     case "${arg}" in
-        --yes)    AI_FLUX_YES=1 ;;
+        --yes)    STROMA_YES=1 ;;
         --help|-h)
             echo "Usage: sudo $0 [--yes]"
             echo "Removes StromaAI from a head node. Use --yes to skip confirmation prompts."
@@ -47,7 +47,7 @@ for arg in "$@"; do
     esac
 done
 
-export AI_FLUX_YES="${AI_FLUX_YES:-0}"
+export STROMA_YES="${STROMA_YES:-0}"
 
 echo ""
 echo -e "${BOLD}StromaAI Uninstaller${RESET}"

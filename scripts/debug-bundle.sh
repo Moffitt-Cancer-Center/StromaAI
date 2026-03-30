@@ -3,7 +3,7 @@
 # StromaAI — Debug Bundle Generator
 # =============================================================================
 # Collects diagnostic information into a timestamped tarball for support.
-# AI_FLUX_API_KEY is automatically redacted from all included files.
+# STROMA_API_KEY is automatically redacted from all included files.
 #
 # Usage:
 #   scripts/debug-bundle.sh [/path/to/output.tar.gz]
@@ -18,16 +18,16 @@ BUNDLE_NAME="ai-flux-debug-${TIMESTAMP}"
 BUNDLE_DIR="/tmp/${BUNDLE_NAME}"
 OUTPUT="${1:-/tmp/${BUNDLE_NAME}.tar.gz}"
 
-CONFIG_FILE="${AI_FLUX_CONFIG:-/opt/ai-flux/config.env}"
-STATE_FILE="${AI_FLUX_STATE_FILE:-/opt/ai-flux/watcher_state.json}"
-SLURM_PARTITION="${AI_FLUX_SLURM_PARTITION:-ai-flux-gpu}"
+CONFIG_FILE="${STROMA_CONFIG:-/opt/ai-flux/config.env}"
+STATE_FILE="${STROMA_STATE_FILE:-/opt/ai-flux/watcher_state.json}"
+SLURM_PARTITION="${STROMA_SLURM_PARTITION:-ai-flux-gpu}"
 
 # Load config if available (for PARTITION, HEAD_HOST, VLLM_PORT, etc.)
 # shellcheck source=/dev/null
 [[ -f "${CONFIG_FILE}" ]] && source "${CONFIG_FILE}" || true
-SLURM_PARTITION="${AI_FLUX_SLURM_PARTITION:-${SLURM_PARTITION}}"
-HEAD="${AI_FLUX_HEAD_HOST:-localhost}"
-PORT="${AI_FLUX_VLLM_PORT:-8000}"
+SLURM_PARTITION="${STROMA_SLURM_PARTITION:-${SLURM_PARTITION}}"
+HEAD="${STROMA_HEAD_HOST:-localhost}"
+PORT="${STROMA_VLLM_PORT:-8000}"
 
 echo "=== StromaAI Debug Bundle ==="
 echo "Collecting diagnostics..."
@@ -78,7 +78,7 @@ fi
 # Config with API key redacted
 # ---------------------------------------------------------------------------
 if [[ -f "${CONFIG_FILE}" ]]; then
-    sed 's/\(AI_FLUX_API_KEY=\).*/\1[REDACTED]/' "${CONFIG_FILE}" \
+    sed 's/\(STROMA_API_KEY=\).*/\1[REDACTED]/' "${CONFIG_FILE}" \
         > "${BUNDLE_DIR}/config.env.redacted"
 fi
 

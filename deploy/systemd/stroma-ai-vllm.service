@@ -11,13 +11,13 @@ User=aiflux
 Group=aiflux
 WorkingDirectory=/opt/ai-flux
 
-# Sources all AI_FLUX_* environment variables.
+# Sources all STROMA_* environment variables.
 EnvironmentFile=/opt/ai-flux/config.env
 
 # vLLM CPU KV cache threads — set before vllm process starts.
 # Matches the value baked into the container %environment but can be
 # overridden here without rebuilding the image.
-Environment=VLLM_CPU_KV_CACHE_THREADS=${AI_FLUX_VLLM_CPU_KV_THREADS}
+Environment=VLLM_CPU_KV_CACHE_THREADS=${STROMA_VLLM_CPU_KV_THREADS}
 
 # Air-gapped: prevent any HuggingFace Hub download attempts at runtime.
 Environment=HF_HUB_OFFLINE=1
@@ -46,21 +46,21 @@ Environment=TRANSFORMERS_OFFLINE=1
 # ---------------------------------------------------------------------------
 # Binaries are installed by install.sh into /opt/ai-flux/venv.
 ExecStart=/opt/ai-flux/venv/bin/vllm serve \
-    ${AI_FLUX_MODEL_PATH} \
-    --served-model-name ${AI_FLUX_MODEL_NAME} \
-    --quantization ${AI_FLUX_VLLM_QUANTIZATION} \
+    ${STROMA_MODEL_PATH} \
+    --served-model-name ${STROMA_MODEL_NAME} \
+    --quantization ${STROMA_VLLM_QUANTIZATION} \
     --tensor-parallel-size 1 \
     --worker-use-ray \
     --block-size 32 \
-    --cpu-offload-gb ${AI_FLUX_CPU_OFFLOAD_GB} \
-    --kv-cache-dtype ${AI_FLUX_KV_CACHE_DTYPE} \
-    --max-model-len ${AI_FLUX_MAX_MODEL_LEN} \
-    --max-num-seqs ${AI_FLUX_MAX_NUM_SEQS} \
-    --gpu-memory-utilization ${AI_FLUX_GPU_MEM_UTIL} \
+    --cpu-offload-gb ${STROMA_CPU_OFFLOAD_GB} \
+    --kv-cache-dtype ${STROMA_KV_CACHE_DTYPE} \
+    --max-model-len ${STROMA_MAX_MODEL_LEN} \
+    --max-num-seqs ${STROMA_MAX_NUM_SEQS} \
+    --gpu-memory-utilization ${STROMA_GPU_MEM_UTIL} \
     --enable-chunked-prefill \
     --host 0.0.0.0 \
-    --port ${AI_FLUX_VLLM_PORT} \
-    --api-key ${AI_FLUX_API_KEY} \
+    --port ${STROMA_VLLM_PORT} \
+    --api-key ${STROMA_API_KEY} \
     --trust-remote-code \
     -O2
 
