@@ -102,6 +102,45 @@ Researchers get a fully pre-configured AI coding assistant with zero manual setu
 - **Preflight checks** — `install/preflight.sh` validates SELinux, NVIDIA drivers, kernel modules, Slurm accounts, firewall rules, and directory permissions before install
 - **Operational scripts** — `scripts/` contains helpers for status, key rotation, drain-and-restart, config validation, and debug bundle generation
 
+### Bring any model — hardware-aware model selection
+StromaAI is not tied to any specific model. The `hfw` command (`hfmodel-check`, installed in the venv) discovers, evaluates, and downloads any Hugging Face model against your actual hardware before you commit to a download:
+
+```bash
+# Activate the StromaAI venv on any internet-connected machine:
+source /opt/stroma-ai/venv/bin/activate
+
+# See what GPU and VRAM are available:
+hfw hardware
+
+# Search the Hub — results are colour-coded by fit:
+#   green  = fits natively
+#   yellow = fits with quantization (recommended level shown)
+#   red    = too large even at Q2
+hfw search "llama 70B" --task text-generation
+hfw search "mistral instruct AWQ" --task text-generation
+hfw search "deepseek coder" --task text-generation
+
+# Download once you've picked a model — hardware check runs first:
+export STROMA_SHARED_ROOT=/share   # downloads go to $STROMA_SHARED_ROOT/models/<repo>
+hfw download meta-llama/Llama-3-8B-Instruct
+
+# Or specify an explicit destination:
+hfw download mistralai/Mistral-7B-Instruct-v0.3 \
+  --local-dir /share/models/Mistral-7B-Instruct-v0.3
+```
+
+If a model is slightly too large, `hfw download` lists compatible quantization variants and asks for confirmation before proceeding. Once downloaded, update two variables in `/opt/stroma-ai/config.env` and restart the vLLM service:
+
+```bash
+# Switch the served model (no reinstall, no container rebuild required):
+STROMA_MODEL_PATH=/share/models/<new-model-dir>
+STROMA_MODEL_NAME=<alias-for-api>
+
+systemctl restart stroma-ai-vllm
+```
+
+All vLLM-supported architectures work — dense, MoE, vision-language, and multimodal — subject to fitting in available VRAM across the burst worker nodes.
+
 ### Monitoring
 `monitoring/prometheus.yml` provides a complete Prometheus scrape configuration targeting vLLM's `/metrics` endpoint, with example alert rules for:
 - GPU KV cache saturation (> 85% VRAM)
@@ -124,7 +163,7 @@ Researchers get a fully pre-configured AI coding assistant with zero manual setu
 | Model | Qwen/Qwen2.5-Coder-32B-Instruct-AWQ (~18.5GB VRAM with AWQ) |
 | Network | TCP: 443 (API), 6380 (Ray GCS), 10001–19999 (Ray workers) |
 
-The Qwen2.5-Coder-32B-Instruct-AWQ model fits comfortably in 24GB with `--gpu-memory-utilization 0.85`, leaving headroom for KV cache. Any vLLM-supported model that fits in your GPU's VRAM will work — the model path, name, and quantization method are all configurable.
+The Qwen2.5-Coder-32B-Instruct-AWQ model fits comfortably in 24GB with `--gpu-memory-utilization 0.85`, leaving headroom for KV cache. Any vLLM-supported model that fits in your GPU's VRAM will work — use `hfw` (see [Bring any model](#bring-any-model--hardware-aware-model-selection) above) to find and validate a model before downloading.
 
 ---
 
