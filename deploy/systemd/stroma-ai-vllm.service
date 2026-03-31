@@ -23,14 +23,22 @@ Environment=VLLM_CPU_KV_CACHE_THREADS=${STROMA_VLLM_CPU_KV_THREADS}
 Environment=HF_HUB_OFFLINE=1
 Environment=TRANSFORMERS_OFFLINE=1
 
-# Force Gloo TCP transport to bind on the loopback (IPv4) interface.
-# PyTorch distributed initialises a Gloo process group as a CPU fallback even
-# with tensor_parallel_size=1. On RHEL/Rocky hosts where IPv6 is disabled
-# (net.ipv6.conf.all.disable_ipv6=1), Gloo's default interface scan creates
-# an IPv6 socket and immediately fails with:
-#   "Address family not supported by protocol"
-# Setting GLOO_SOCKET_IFNAME=lo pins Gloo to 127.0.0.1; no real TCP traffic
-# crosses this interface for single-GPU operation.
+# ---------------------------------------------------------------------------
+# IPv6-disabled host workaround (RHEL/Rocky with net.ipv6.conf.all.disable_ipv6=1)
+#
+# vLLM always initialises a PyTorch distributed world group (even with
+# tensor_parallel_size=1) using a TCP rendezvous URL built from get_ip().
+# On RHEL nodes where IPv6 is kernel-disabled, gloo's socket creation fails
+# with "Address family not supported by protocol" because:
+#   1. get_ip() returns "localhost" by default
+#   2. Linux resolves "localhost" to ::1 (IPv6) first via /etc/hosts
+#   3. gloo tries socket(AF_INET6, ...) → fails → engine crash
+#
+# VLLM_HOST_IP=127.0.0.1 forces get_ip() to return an explicit IPv4 address
+# so the rendezvous URL becomes tcp://127.0.0.1:<port>, bypassing IPv6 entirely.
+# GLOO/NCCL IFNAME vars are belt-and-suspenders for the data-plane transport.
+# ---------------------------------------------------------------------------
+Environment=VLLM_HOST_IP=127.0.0.1
 Environment=GLOO_SOCKET_IFNAME=lo
 Environment=NCCL_SOCKET_IFNAME=lo
 
