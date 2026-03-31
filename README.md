@@ -29,54 +29,115 @@ StromaAI resolves this by:
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  OOD Users (browser-based code-server sessions)                  │
-│    Kilo Code Extension ──HTTPS──► nginx TLS proxy                │
-└─────────────────────────────┬────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  Clients: Researchers, OOD code-server, external apps                │
+│    Kilo Code / OpenWebUI ──HTTPS──► nginx TLS proxy                  │
+└─────────────────────────────┬────────────────────────────────────────┘
                               │ :443
-             ┌────────────────▼────────────────┐
-             │  Head Node — Proxmox VM (Debian) │
-             │                                  │
-             │  ┌──────────────────────────┐    │
-             │  │  nginx (TLS termination) │    │
-             │  │  ├─ rate limiting        │    │
-             │  │  └─ WebSocket support    │    │
-             │  └──────────┬───────────────┘    │
-             │             │ :8000 (loopback)   │
-             │  ┌──────────▼───────────────┐    │
-             │  │  vLLM API Server         │    │
-             │  │  (OpenAI-compatible)     │◄───┼── EnvironmentFile config.env
-             │  └──────────┬───────────────┘    │
-             │             │ Ray GCS :6380      │
-             │  ┌──────────▼───────────────┐    │
-             │  │  Ray Head Node           │    │
-             │  │  --num-cpus=0            │    │
-             │  │  --num-gpus=0            │    │
-             │  └──────────┬───────────────┘    │
-             │             │                    │
-             │  ┌──────────▼───────────────┐    │
-             │  │  vllm_watcher.py         │    │
-             │  │  polls /metrics every Ns │    │
-             │  │  submits/cancels sbatch  │    │
-             │  └──────────┬───────────────┘    │
-             └─────────────┼────────────────────┘
+             ┌────────────────▼────────────────────┐
+             │  Head Node — Proxmox VM (Debian)     │
+             │                                      │
+             │  ┌──────────────────────────────┐    │
+             │  │  nginx (TLS termination)     │    │
+             │  └──────────┬───────────────────┘    │
+             │             │                        │
+             │  ┌──────────▼───────────────────┐    │
+             │  │  FastAPI OIDC Gateway         │    │
+             │  │  (src/gateway.py)             │    │
+             │  │  ├─ JWT validation (RS256)    │    │
+             │  │  ├─ realm role enforcement    │    │
+             │  │  └─ streaming proxy to vLLM  │    │
+             │  └──────────┬───────────────────┘    │
+             │             │ :8000 (loopback)       │
+             │  ┌──────────▼───────────────────┐    │
+             │  │  vLLM API Server              │    │
+             │  │  (OpenAI-compatible)          │◄───┼── config.env
+             │  └──────────┬───────────────────┘    │
+             │             │ Ray GCS :6380           │
+             │  ┌──────────▼───────────────────┐    │
+             │  │  Ray Head Node               │    │
+             │  └──────────┬───────────────────┘    │
+             │             │                        │
+             │  ┌──────────▼───────────────────┐    │
+             │  │  vllm_watcher.py             │    │
+             │  │  polls /metrics every Ns     │    │
+             │  │  delegates to ClusterManager  │    │
+             │  └──────────┬───────────────────┘    │
+             └─────────────┼──────────────────────--┘
                            │ sbatch (on demand)
-             ┌─────────────▼────────────────────┐
-             │  Slurm GPU Nodes (RHEL-family)   │
-             │                                  │
-             │  Worker 0: A30 GPU               │
-             │    apptainer exec --nv           │
-             │    ray start --address=HEAD:6380 │
-             │    vllm serve MODEL_PATH         │
-             │                                  │
-             │  Worker 1 … Worker N             │
-             │    (burst on demand, same setup) │
-             └──────────────────────────────────┘
+             ┌─────────────▼────────────────────────┐
+             │  Slurm GPU Nodes (RHEL-family)        │
+             │                                       │
+             │  Worker 0: A30 GPU                    │
+             │    apptainer exec --nv                │
+             │    ray start --address=HEAD:6380      │
+             │    vllm serve MODEL_PATH              │
+             │                                       │
+             │  Worker 1 … Worker N                  │
+             │    (burst on demand, same setup)      │
+             └───────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────┐
+│  Identity Layer (optional, deploy/keycloak/ or external IdP)         │
+│                                                                       │
+│  Keycloak 26.x ─── issues OIDC tokens ──► Gateway JWT validation     │
+│  OpenWebUI  ──────── OIDC login ─────────► serves chat UI on :3000   │
+│  stroma-cli ─────── platform management CLI (src/stroma_cli.py)      │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Core capabilities
+
+### Secure identity layer
+StromaAI ships with a full OIDC authentication stack that can be deployed in minutes.
+
+**FastAPI OIDC Gateway** (`src/gateway.py`):
+- Validates JWTs (RS256 or ES256) from any standards-compliant identity provider before forwarding requests to vLLM
+- Fetches and caches JWKS from the IdP discovery URL — no static key files to manage
+- Enforces a configurable realm role (`GATEWAY_ALLOWED_ROLE`, default: `stroma_researcher`) so only authorized users reach the model
+- Substitutes the user-facing token with the internal `STROMA_API_KEY` on the forwarded request — vLLM never sees external credentials
+- Streaming-compatible: single-request proxy preserves `text/event-stream` chunking end-to-end
+
+**Keycloak 26.x** (`deploy/keycloak/`):
+- Pre-configured `stroma-ai` realm with `stroma_researcher` and `stroma_admin` roles
+- Two OIDC clients: `stroma-gateway` (service account, client-credentials flow) and `openwebui` (PKCE, standard flow)
+- One-command setup: `deploy/keycloak/setup-keycloak.sh` — supports both *local* (Docker Compose) and *external* (any IdP with an OIDC discovery URL) modes
+- Uses PostgreSQL 16 for persistent storage; no H2 in production
+
+**OpenWebUI** (`deploy/openwebui/`):
+- Provides a polished chat UI served at `http://HEAD:3000` (or your configured port), wired to the StromaAI gateway
+- Authenticates researchers via the same Keycloak OIDC flow — no separate password database
+- Setup script detects existing OIDC config from `config.env` and injects the correct provider URLs automatically
+
+### ClusterManager abstraction
+`src/cluster_manager.py` encapsulates all Slurm and Apptainer operations behind a clean Python dataclass:
+- Auto-detects Apptainer or Singularity via `PATH` and module system
+- `from_env()` factory reads all `STROMA_*` variables at startup
+- `validate()` pre-flight method confirms partition, account, SIF image, and model path are accessible before the watcher enters its polling loop
+- Uniform `WorkerState` enum maps every Slurm state string (`PD`, `R`, `CG`, `F`, etc.) to a small, well-typed set
+
+### stroma-cli
+`src/stroma_cli.py` is a single-file management CLI for the full platform:
+
+```bash
+# Hardware + container discovery report:
+python3 src/stroma_cli.py hardware
+
+# Identity provider setup wizard:
+python3 src/stroma_cli.py idp --setup
+
+# Start / stop / status the OIDC gateway:
+python3 src/stroma_cli.py gateway --start
+python3 src/stroma_cli.py gateway --status
+python3 src/stroma_cli.py gateway --stop
+
+# Cluster management:
+python3 src/stroma_cli.py cluster --status
+```
+
+Outputs use Rich tables when `rich` is installed, with plain-text fallback for non-interactive shells.
 
 ### Dynamic burst scaling
 The watcher daemon (`src/vllm_watcher.py`) continuously polls vLLM's `/metrics` endpoint. When the number of waiting requests exceeds `STROMA_SCALE_UP_THRESHOLD`, it submits a new Slurm job. Each job runs the Apptainer container, has Ray join the existing head-node cluster, and begins serving inference. When all burst workers have been idle for `STROMA_SCALE_DOWN_IDLE_SECONDS`, they are cancelled via `scancel` and GPUs return to the pool.
@@ -186,7 +247,36 @@ sudo ./install/install.sh --mode=head
 
 The installer prompts for site-specific values (shared root, hostname, Slurm partition) and handles everything: system user creation, directory layout, Python venv, nginx config, TLS cert generation, systemd unit deployment, and service startup.
 
-### 2. Or follow manual steps
+### 2. Set up the identity layer (recommended for multi-user deployments)
+
+After the base install, run the identity and gateway setup wizards. Each wizard supports **local** (self-contained Docker Compose stack) and **external** (your institution's existing OIDC/SAML provider) modes.
+
+```bash
+# Step 2a — Keycloak or external IdP:
+# Requires Docker + Docker Compose if using local mode.
+bash deploy/keycloak/setup-keycloak.sh
+# Writes OIDC_DISCOVERY_URL, KC_GATEWAY_CLIENT_ID/SECRET to config.env
+
+# Step 2b — OIDC Gateway:
+pip install -r requirements-gateway.txt
+python3 src/stroma_cli.py gateway --start
+# Or use the full stroma-cli setup wizard:
+python3 src/stroma_cli.py idp --setup
+
+# Step 2c — OpenWebUI chat interface (optional):
+bash deploy/openwebui/setup-openwebui.sh
+# Starts chat UI at http://HEAD:3000 with OIDC login
+```
+
+### 3. Validate hardware and platform state
+
+```bash
+python3 src/stroma_cli.py hardware   # GPU, VRAM, RAM, disk, container runtime
+python3 src/stroma_cli.py gateway --status
+python3 src/stroma_cli.py cluster --status
+```
+
+### 4. Or follow manual steps
 
 #### Configure
 
@@ -267,10 +357,14 @@ journalctl -u stroma-ai-vllm -u stroma-ai-watcher -f
 ```
 stroma-ai/
 ├── config/
-│   └── config.example.env         # All configuration variables with documentation
+│   └── config.example.env         # All configuration variables (including OIDC/gateway/OpenWebUI)
 ├── deploy/
 │   ├── containers/
 │   │   └── stroma-ai-vllm.def     # Apptainer build definition (pinned versions)
+│   ├── keycloak/
+│   │   ├── docker-compose.yml     # Keycloak 26.x + PostgreSQL 16
+│   │   ├── realm-export.json      # Pre-configured stroma-ai realm (roles, clients, demo user)
+│   │   └── setup-keycloak.sh      # LOCAL vs EXTERNAL IdP setup wizard
 │   ├── logrotate/
 │   │   └── stroma-ai              # Log rotation config for Slurm output logs
 │   ├── nginx/
@@ -278,6 +372,9 @@ stroma-ai/
 │   ├── ood/
 │   │   ├── stroma-ai.conf         # OOD config (API key + endpoint)
 │   │   └── script.sh.erb          # code-server session auto-configuration
+│   ├── openwebui/
+│   │   ├── docker-compose.yml     # OpenWebUI v0.5.20 + OIDC env block
+│   │   └── setup-openwebui.sh     # LOCAL vs EXTERNAL setup wizard
 │   ├── slurm/
 │   │   └── stroma_ai_worker.slurm # Slurm burst worker sbatch script
 │   └── systemd/
@@ -302,10 +399,17 @@ stroma-ai/
 │   ├── rotate-api-key.sh          # Zero-downtime API key rotation
 │   └── status.sh                  # Live service and queue status
 ├── src/
+│   ├── cluster_manager.py         # ClusterManager — Slurm + Apptainer abstraction layer
+│   ├── gateway.py                 # FastAPI OIDC-authenticated proxy
+│   ├── stroma_cli.py              # Unified platform management CLI
 │   └── vllm_watcher.py            # Core burst orchestration daemon
 ├── tests/
 │   ├── integration/smoke_test.sh  # End-to-end API smoke test
-│   └── unit/test_watcher.py       # 48 unit tests for watcher logic
+│   └── unit/
+│       ├── test_cluster_manager.py # Unit tests for ClusterManager
+│       ├── test_gateway.py         # Unit tests for OIDC gateway (JWT/role/proxy)
+│       └── test_watcher.py         # Unit tests for watcher logic
+├── requirements-gateway.txt       # Python deps for the OIDC gateway
 ├── CONTRIBUTING.md
 ├── SECURITY.md
 └── LICENSE                        # Apache 2.0

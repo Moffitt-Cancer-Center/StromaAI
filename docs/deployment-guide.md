@@ -343,6 +343,144 @@ See [rhel-slurm-setup.md](rhel-slurm-setup.md) if this step fails with SELinux o
 
 ---
 
+## Phase 2.5: Identity Layer and OIDC Gateway
+
+This phase adds JWT-validated access control in front of vLLM. It is **optional for single-user or trusted-network deployments** but strongly recommended for any multi-user or internet-facing environment.
+
+### Overview
+
+StromaAI's identity layer consists of three optional components that can be deployed independently:
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| Keycloak / external IdP | `deploy/keycloak/` | Issues OIDC tokens; manages users and roles |
+| FastAPI OIDC Gateway | `src/gateway.py` | Validates JWTs before requests reach vLLM |
+| OpenWebUI | `deploy/openwebui/` | Browser chat UI with OIDC login |
+
+### 2.5.1 Install gateway dependencies
+
+```bash
+pip install -r requirements-gateway.txt
+# Installs: fastapi, uvicorn, httpx, PyJWT[crypto], cryptography
+```
+
+### 2.5.2 Set up identity provider
+
+Run the setup wizard. Choose **mode 1 (LOCAL)** to deploy a self-contained Keycloak + PostgreSQL stack via Docker Compose, or **mode 2 (EXTERNAL)** to point to your institution's existing OIDC/SAML provider.
+
+```bash
+bash deploy/keycloak/setup-keycloak.sh
+```
+
+**Local mode prerequisites:** Docker and Docker Compose installed on the head node.
+
+**What the wizard does (local mode):**
+1. Generates random `KC_ADMIN_PASSWORD` and `KC_DB_PASSWORD`
+2. Starts Keycloak 26.x and PostgreSQL 16 via Docker Compose
+3. Imports the pre-configured `stroma-ai` realm (roles: `stroma_researcher`, `stroma_admin`; clients: `stroma-gateway`, `openwebui`)
+4. Writes `OIDC_DISCOVERY_URL`, `KC_GATEWAY_CLIENT_ID`, and `KC_GATEWAY_CLIENT_SECRET` to `config.env`
+
+**What the wizard does (external mode):**
+1. Prompts for your institution's OIDC discovery URL (e.g., `https://sso.example.org/realms/research/.well-known/openid-configuration`)
+2. Validates reachability and reads the issuer from the discovery document
+3. Prompts for the client ID and secret you provisioned in your IdP
+4. Writes the same `OIDC_*` and `KC_GATEWAY_*` variables to `config.env`
+
+**New configuration variables written to `config.env`:**
+
+| Variable | Description |
+|----------|-------------|
+| `OIDC_DISCOVERY_URL` | IdP well-known configuration URL |
+| `OIDC_ISSUER` | Expected JWT issuer claim (validated on every request) |
+| `OIDC_AUDIENCE` | Expected JWT audience claim (`stroma-gateway` by default) |
+| `GATEWAY_ALLOWED_ROLE` | Realm role required to reach vLLM (`stroma_researcher`) |
+| `KC_GATEWAY_CLIENT_ID` | Client ID for the gateway service account |
+| `KC_GATEWAY_CLIENT_SECRET` | Client secret for the gateway service account |
+| `KC_OPENWEBUI_CLIENT_ID` | Client ID for OpenWebUI PKCE flow |
+| `KC_OPENWEBUI_CLIENT_SECRET` | Client secret for OpenWebUI |
+| `JWKS_REFRESH_SECS` | How often the gateway re-fetches JWKS (default: 300) |
+| `GATEWAY_PORT` | Port the gateway listens on (default: 9000) |
+
+### 2.5.3 Start the OIDC gateway
+
+```bash
+# Using stroma-cli (manages a PID file for you):
+python3 src/stroma_cli.py gateway --start
+
+# Or start directly:
+source /opt/stroma-ai/venv/bin/activate
+CONFIG_ENV=/opt/stroma-ai/config.env uvicorn src.gateway:app \
+  --host 0.0.0.0 \
+  --port "${GATEWAY_PORT:-9000}" \
+  --log-level info &
+
+# Verify:
+curl http://localhost:9000/health   # → {"status":"ok"}
+```
+
+Point nginx (or your load balancer) at the gateway port instead of directly at vLLM's `:8000`. The gateway forwards authenticated requests and substitutes the external token with the internal `STROMA_API_KEY`.
+
+### 2.5.4 Update nginx to route through the gateway
+
+In `deploy/nginx/stroma-ai.conf`, change the `proxy_pass` directive to target the gateway:
+
+```nginx
+# Before (direct to vLLM):
+proxy_pass http://127.0.0.1:8000;
+
+# After (through OIDC gateway):
+proxy_pass http://127.0.0.1:9000;
+```
+
+Reload nginx after the change:
+
+```bash
+nginx -t && systemctl reload nginx
+```
+
+### 2.5.5 Deploy OpenWebUI (optional)
+
+OpenWebUI provides a polished browser-based chat interface that authenticates via the same OIDC flow.
+
+```bash
+bash deploy/openwebui/setup-openwebui.sh
+```
+
+The wizard reads `OIDC_DISCOVERY_URL`, `KC_OPENWEBUI_CLIENT_ID`, and `KC_OPENWEBUI_CLIENT_SECRET` from `config.env` and starts OpenWebUI at `http://HEAD:${OPENWEBUI_PORT:-3000}`.
+
+Verify:
+```bash
+curl http://localhost:${OPENWEBUI_PORT:-3000}/health
+```
+
+Researchers access the chat UI by browsing to `https://stroma-ai.your-cluster.example:3000` (or the port you configured), logging in with their institutional credentials, and chatting with the model directly.
+
+### 2.5.6 Verify end-to-end authentication
+
+```bash
+# Get a token from Keycloak (local mode, researcher-demo user):
+TOKEN=$(curl -s -X POST \
+  "http://localhost:8080/realms/stroma-ai/protocol/openid-connect/token" \
+  -d "grant_type=password" \
+  -d "client_id=openwebui" \
+  -d "username=researcher-demo" \
+  -d "password=CHANGE_ME_FIRST_LOGIN" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# Call the gateway with the token:
+curl -k https://stroma-ai.your-cluster.example/v1/models \
+  -H "Authorization: Bearer ${TOKEN}"
+# Expected: 200 with model list
+
+# Call without a token:
+curl -k https://stroma-ai.your-cluster.example/v1/models
+# Expected: 401 Unauthorized
+```
+
+> **Note:** The demo user `researcher-demo` has a temporary password. Change it on first login or via the Keycloak admin console before exposing the instance to researchers.
+
+---
+
 ## Phase 3: Proxmox VM — Ray Head and vLLM Services
 
 ### 3.1 Create system user
@@ -393,6 +531,8 @@ chown stromaai:stromaai /opt/stroma-ai/config.env
 | `STROMA_SCALE_DOWN_IDLE_SECONDS` | `300` | Idle seconds before a burst worker is cancelled |
 | `STROMA_LOG_DIR` | `${STROMA_INSTALL_DIR}/logs` | Slurm job output log directory |
 
+> **Identity layer variables** (written automatically by `setup-keycloak.sh` if you completed Phase 2.5): `OIDC_DISCOVERY_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `GATEWAY_ALLOWED_ROLE`, `KC_GATEWAY_CLIENT_ID`, `KC_GATEWAY_CLIENT_SECRET`, `JWKS_REFRESH_SECS`, `GATEWAY_PORT`, `OPENWEBUI_URL`, `OPENWEBUI_PORT`, `WEBUI_SECRET_KEY`. See `config/config.example.env` for full documentation of each.
+
 Use `scripts/check-config.sh` to validate config before starting services (see [Operational Scripts](#operational-scripts)).
 
 ### 3.3 Install Ray on the Proxmox VM
@@ -430,10 +570,12 @@ cp deploy/systemd/ray-head.service        /etc/systemd/system/
 cp deploy/systemd/stroma-ai-vllm.service    /etc/systemd/system/
 cp deploy/systemd/stroma-ai-watcher.service /etc/systemd/system/
 
-# Copy watcher script:
-cp src/vllm_watcher.py /opt/stroma-ai/
-chmod +x /opt/stroma-ai/vllm_watcher.py
-chown stromaai:stromaai /opt/stroma-ai/vllm_watcher.py
+# Copy watcher and supporting source files:
+cp src/vllm_watcher.py    /opt/stroma-ai/src/
+cp src/cluster_manager.py /opt/stroma-ai/src/
+chmod +x /opt/stroma-ai/src/vllm_watcher.py
+chown stromaai:stromaai /opt/stroma-ai/src/vllm_watcher.py \
+                        /opt/stroma-ai/src/cluster_manager.py
 
 # Enable services (start in order):
 systemctl daemon-reload
@@ -613,12 +755,39 @@ http://prometheus.your-cluster.example:9090/targets
 
 ## Phase 8: End-to-End Verification
 
+### Platform status check
+```bash
+# Hardware and container runtime report:
+python3 src/stroma_cli.py hardware
+
+# Gateway and cluster status:
+python3 src/stroma_cli.py gateway --status
+python3 src/stroma_cli.py cluster --status
+```
+
 ### API test
 ```bash
+# Without identity layer (direct API key):
 API_KEY=$(grep STROMA_API_KEY /opt/stroma-ai/config.env | cut -d= -f2)
 
 curl -k -X POST https://stroma-ai.your-cluster.example/v1/chat/completions \
   -H "Authorization: Bearer ${API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "stroma-ai-coder",
+    "messages": [{"role": "user", "content": "Write hello world in Python"}],
+    "max_tokens": 100
+  }'
+
+# With OIDC gateway (JWT token from Keycloak):
+TOKEN=$(curl -s -X POST \
+  "http://localhost:8080/realms/stroma-ai/protocol/openid-connect/token" \
+  -d "grant_type=password" -d "client_id=openwebui" \
+  -d "username=researcher-demo" -d "password=YOUR_PASSWORD" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+curl -k -X POST https://stroma-ai.your-cluster.example/v1/chat/completions \
+  -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "stroma-ai-coder",
