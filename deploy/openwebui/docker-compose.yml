@@ -1,0 +1,97 @@
+# =============================================================================
+# StromaAI — OpenWebUI Frontend
+# =============================================================================
+# Provides the browser-based chat interface for researchers. Authenticates
+# users via OIDC (Keycloak or external IdP) and routes inference requests
+# through the StromaAI Secure Gateway (src/gateway.py).
+#
+# Usage:
+#   # Copy and edit the environment file first:
+#   cp ../../config/config.example.env .env
+#   # Run setup script to configure OIDC + gateway connectivity:
+#   ./setup-openwebui.sh
+#   # Then start:
+#   docker compose up -d
+#
+# Access: http://<host>:<OPENWEBUI_PORT>
+# =============================================================================
+
+services:
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:v0.5.20
+    # Pin to a specific release tag. Check https://github.com/open-webui/open-webui/releases
+    # for the latest stable release and update this tag accordingly.
+    container_name: stroma-openwebui
+    ports:
+      - "${OPENWEBUI_PORT:-3000}:8080"
+    environment:
+      # -----------------------------------------------------------------------
+      # Backend — StromaAI Secure Gateway (OpenAI-compatible endpoint)
+      # -----------------------------------------------------------------------
+      # The gateway URL must be reachable FROM inside this container.
+      # Use host.docker.internal for same-host Docker deployments.
+      # For HPC/external gateways, set to the HTTPS FQDN.
+      OPENAI_API_BASE_URL: "${STROMA_GATEWAY_URL:-http://host.docker.internal:9000}/v1"
+      OPENAI_API_KEY: "${STROMA_GATEWAY_API_KEY:-not-used-gateway-validates-oidc}"
+
+      # -----------------------------------------------------------------------
+      # OIDC / OAuth 2.0 — Keycloak or external IdP
+      # -----------------------------------------------------------------------
+      # OAuth provider display name shown on the login page
+      OAUTH_PROVIDER_NAME: "${OAUTH_PROVIDER_NAME:-StromaAI Identity}"
+
+      # OIDC discovery URL (set by setup-keycloak.sh or provided externally)
+      OPENID_PROVIDER_URL: "${OIDC_DISCOVERY_URL:?OIDC_DISCOVERY_URL must be set — run setup-keycloak.sh first}"
+
+      # Client credentials registered in the stroma-ai Keycloak realm
+      OAUTH_CLIENT_ID: "${KC_OPENWEBUI_CLIENT_ID:?KC_OPENWEBUI_CLIENT_ID must be set}"
+      OAUTH_CLIENT_SECRET: "${KC_OPENWEBUI_CLIENT_SECRET:?KC_OPENWEBUI_CLIENT_SECRET must be set}"
+
+      # Scopes to request (openid + profile + email are sufficient)
+      OAUTH_SCOPES: "openid profile email"
+
+      # Allow new users to register via SSO. Set to "false" to restrict to
+      # pre-existing accounts only.
+      ENABLE_OAUTH_SIGNUP: "${ENABLE_OAUTH_SIGNUP:-true}"
+
+      # Require authentication for all pages
+      WEBUI_AUTH: "true"
+
+      # Default role for new SSO users (user / admin)
+      DEFAULT_USER_ROLE: "user"
+
+      # -----------------------------------------------------------------------
+      # Application settings
+      # -----------------------------------------------------------------------
+      WEBUI_NAME: "${WEBUI_NAME:-StromaAI Research Chat}"
+
+      # Disable telemetry
+      SCARF_NO_ANALYTICS: "true"
+      DO_NOT_TRACK: "true"
+      ANONYMIZED_TELEMETRY: "false"
+
+      # Secret key for session signing — MUST be set to a stable random value
+      WEBUI_SECRET_KEY: "${WEBUI_SECRET_KEY:?WEBUI_SECRET_KEY must be set — generate with: openssl rand -hex 32}"
+
+    volumes:
+      # Persist user data, model configs, and chat history
+      - openwebui_data:/app/backend/data
+
+    extra_hosts:
+      # Allows the container to reach services running on the Docker host
+      # (e.g., the gateway running as a systemd service or bare Python process)
+      - "host.docker.internal:host-gateway"
+
+    # Health check — OpenWebUI exposes /health on the same port
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+    restart: unless-stopped
+
+volumes:
+  openwebui_data:
+    driver: local

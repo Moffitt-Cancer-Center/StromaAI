@@ -1,0 +1,85 @@
+# =============================================================================
+# StromaAI — Keycloak 26.x Identity Provider
+# =============================================================================
+# Provides OIDC/OAuth 2.0 authentication for the StromaAI platform.
+# Uses PostgreSQL as the backing store for production durability.
+#
+# Usage:
+#   cp ../../config/config.example.env .env  # then fill in secrets
+#   docker compose up -d
+#
+# The stroma-ai realm is imported automatically on first start from:
+#   ./realm-export.json
+#
+# Admin console: http://<KC_HOSTNAME>:<KC_PORT>/admin
+# OIDC discovery: http://<KC_HOSTNAME>:<KC_PORT>/realms/stroma-ai/.well-known/openid-configuration
+# =============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?KC_DB_PASSWORD must be set in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    # No host-facing ports — only reachable by keycloak service on this network
+    networks:
+      - keycloak-internal
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: >
+      start-dev
+      --import-realm
+      --features=token-exchange,admin-fine-grained-authz
+    environment:
+      # Database
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?KC_DB_PASSWORD must be set in .env}
+
+      # Admin bootstrap (only used on first start)
+      KEYCLOAK_ADMIN: ${KC_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:?KC_ADMIN_PASSWORD must be set in .env}
+
+      # Hostname / TLS
+      # In production, set KC_HOSTNAME to your FQDN and place a TLS-terminating
+      # reverse proxy (nginx/traefik) in front. Use start (not start-dev) for prod.
+      KC_HOSTNAME: ${KC_HOSTNAME:-localhost}
+      KC_HTTP_PORT: "8080"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+
+      # Logging
+      KC_LOG_LEVEL: INFO
+    volumes:
+      - ./realm-export.json:/opt/keycloak/data/import/stroma-ai-realm.json:ro
+    ports:
+      - "${KC_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - keycloak-internal
+      - keycloak-external
+
+volumes:
+  postgres_data:
+
+networks:
+  # Internal network: keycloak ↔ postgres (no host exposure)
+  keycloak-internal:
+    internal: true
+  # External network: keycloak → host (port binding above)
+  keycloak-external:
