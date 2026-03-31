@@ -29,8 +29,6 @@ Environment=TRANSFORMERS_OFFLINE=1
 # Key flags and their rationale:
 #   --quantization awq          — model is AWQ-quantized; reduces VRAM footprint
 #   --tensor-parallel-size 1    — one GPU per node; scaling is data-parallel
-#   --worker-use-ray            — deploy as a Ray Serve application so Ray
-#                                 workers on Slurm nodes contribute capacity
 #   --cpu-offload-gb            — overflow KV cache to CPU RAM; critical for
 #                                 high concurrency with long contexts on HPC nodes
 #   --kv-cache-dtype auto       — vLLM detects optimal dtype for the GPU;
@@ -55,7 +53,6 @@ ExecStart=/opt/stroma-ai/venv/bin/vllm serve \
     --served-model-name ${STROMA_MODEL_NAME} \
     --quantization ${STROMA_VLLM_QUANTIZATION} \
     --tensor-parallel-size 1 \
-    --worker-use-ray \
     --cpu-offload-gb ${STROMA_CPU_OFFLOAD_GB} \
     --kv-cache-dtype ${STROMA_KV_CACHE_DTYPE} \
     --max-model-len ${STROMA_MAX_MODEL_LEN} \
@@ -88,7 +85,7 @@ ReadWritePaths=/opt/stroma-ai /tmp /share
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
-ProtectHostname=true
+# ProtectHostname requires systemd >= 243 (RHEL 8 ships 239 — omitted)
 RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
