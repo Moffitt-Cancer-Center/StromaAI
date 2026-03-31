@@ -58,6 +58,7 @@ ExecStart=/opt/stroma-ai/venv/bin/vllm serve \
     --tensor-parallel-size 1 \
     --device cuda \
     --distributed-executor-backend ray \
+    --disable-async-output-proc \
     --cpu-offload-gb ${STROMA_CPU_OFFLOAD_GB} \
     --kv-cache-dtype ${STROMA_KV_CACHE_DTYPE} \
     --max-model-len ${STROMA_MAX_MODEL_LEN} \
