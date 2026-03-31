@@ -219,7 +219,8 @@ install_worker_build_deps() {
     log_step "Installing worker node build dependencies"
     case "${OS_FAMILY}" in
         rhel)
-            pkg_install curl wget git fuse2fs fuse-overlayfs squashfuse
+            # fuse2fs is provided by e2fsprogs on RHEL/Rocky/AlmaLinux (not a separate package)
+            pkg_install curl wget git e2fsprogs fuse-overlayfs squashfuse
             ;;
         debian)
             pkg_install curl wget git fuse2fs fuse-overlayfs squashfuse
