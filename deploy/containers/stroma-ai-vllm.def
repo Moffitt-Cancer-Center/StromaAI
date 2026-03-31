@@ -112,6 +112,11 @@ From: nvcr.io/nvidia/pytorch:24.10-py3
     #   Pin transformers<4.50.0 until the NGC base moves to Python 3.11.
     #   vLLM 0.7.x requires transformers>=4.45.0, so 4.49.0 satisfies both.
     # -------------------------------------------------------------------------
+    # The NGC base ships a broken system cv2 where cv2.dnn.DictValue was removed.
+    # transformers 4.49.0 imports cv2 at module load time via image_utils.py.
+    # Reinstall opencv-python-headless (no libGL deps) to replace the broken one.
+    python3 -m pip install --no-cache-dir --force-reinstall "opencv-python-headless>=4.9.0"
+
     python3 -m pip install --no-cache-dir \
         "vllm==0.7.2" \
         "transformers==4.49.0" \
