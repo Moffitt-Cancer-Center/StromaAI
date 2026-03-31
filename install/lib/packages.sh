@@ -190,9 +190,13 @@ install_head_python_deps() {
         "ray[default]==2.40.0"
 
     # Install vLLM — may take 5–15 minutes depending on bandwidth
-    log_info "Installing vLLM 0.7.3 (this may take several minutes) ..."
+    # Pin transformers<4.50.0: transformers 4.50.0 added __init_subclass__ dataclass
+    # wrapping to PretrainedConfig; DeepseekVLV2Config's field ordering causes a
+    # TypeError on both Python 3.10 and 3.11. vLLM 0.7.x requires >=4.45.0.
+    log_info "Installing vLLM 0.7.2 + pinned transformers (this may take several minutes) ..."
     run_cmd "${STROMA_PIP}" install \
-        "vllm==0.7.3"
+        "vllm==0.7.2" \
+        "transformers==4.49.0"
 
     # Additional runtime dependencies
     run_cmd "${STROMA_PIP}" install \
