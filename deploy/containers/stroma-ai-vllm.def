@@ -64,8 +64,20 @@ From: nvcr.io/nvidia/pytorch:24.10-py3
     # Silence tokenizer parallelism warning inside Ray workers
     export TOKENIZERS_PARALLELISM=false
 
+%files
+    # Copy the site CA certificate into the container so that apt and pip
+    # can reach internal mirrors and external registries during the build.
+    # The source path must exist on the build host at build time.
+    /etc/pki/ca-trust/source/anchors/2036_fullchain.pem /usr/local/share/ca-certificates/2036_fullchain.crt
+
 %post
     set -eu
+
+    # -------------------------------------------------------------------------
+    # Register the site CA certificate before any network operations.
+    # The %files section copied it to /usr/local/share/ca-certificates/.
+    # -------------------------------------------------------------------------
+    update-ca-certificates
 
     # -------------------------------------------------------------------------
     # System dependencies needed for NCCL / vLLM build artifacts
