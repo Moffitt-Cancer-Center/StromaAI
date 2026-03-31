@@ -90,12 +90,15 @@ From: nvcr.io/nvidia/pytorch:24.10-py3
     # Core packages — ALL pinned to exact versions
     # Test compatibility before bumping ANY version:
     #   vLLM and Ray must be upgraded together (they share Pydantic + gRPC deps)
-    # NOTE: vLLM 0.7.3 introduced DeepseekVLV2Config which uses a Python 3.11+
-    #   dataclass pattern — it crashes on Python 3.10 (NGC 24.10-py3 base).
-    #   Stay on 0.7.2 until the base image is upgraded to a Python 3.11 build.
+    # NOTE: transformers 4.50.0 added __init_subclass__ dataclass wrapping to
+    #   PretrainedConfig. DeepseekVLV2Config has a field ordering that Python
+    #   3.10's dataclasses rejects (non-default field after default field).
+    #   Pin transformers<4.50.0 until the NGC base moves to Python 3.11.
+    #   vLLM 0.7.x requires transformers>=4.45.0, so 4.49.0 satisfies both.
     # -------------------------------------------------------------------------
     python3 -m pip install --no-cache-dir \
         "vllm==0.7.2" \
+        "transformers==4.49.0" \
         "ray[serve]==2.40.0" \
         "requests==2.32.3" \
         "pyyaml==6.0.2" \
