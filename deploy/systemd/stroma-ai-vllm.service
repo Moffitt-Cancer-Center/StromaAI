@@ -29,6 +29,9 @@ Environment=TRANSFORMERS_OFFLINE=1
 # Key flags and their rationale:
 #   --quantization awq          — model is AWQ-quantized; reduces VRAM footprint
 #   --tensor-parallel-size 1    — one GPU per node; scaling is data-parallel
+#   --distributed-executor-backend ray — dispatch GPU workers as Ray actors so
+#                                 the head node (no GPU) acts as coordinator;
+#                                 replaces the removed --worker-use-ray flag
 #   --cpu-offload-gb            — overflow KV cache to CPU RAM; critical for
 #                                 high concurrency with long contexts on HPC nodes
 #   --kv-cache-dtype auto       — vLLM detects optimal dtype for the GPU;
@@ -53,6 +56,7 @@ ExecStart=/opt/stroma-ai/venv/bin/vllm serve \
     --served-model-name ${STROMA_MODEL_NAME} \
     --quantization ${STROMA_VLLM_QUANTIZATION} \
     --tensor-parallel-size 1 \
+    --distributed-executor-backend ray \
     --cpu-offload-gb ${STROMA_CPU_OFFLOAD_GB} \
     --kv-cache-dtype ${STROMA_KV_CACHE_DTYPE} \
     --max-model-len ${STROMA_MAX_MODEL_LEN} \
