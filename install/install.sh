@@ -134,6 +134,10 @@ load_or_prompt_config() {
     STROMA_SLURM_ACCOUNT="${STROMA_SLURM_ACCOUNT:-stroma-ai-service}"
     STROMA_WARM_RESERVATION="${STROMA_WARM_RESERVATION:-stroma-ai-warm}"
     STROMA_SLURM_SCRIPT="${STROMA_SLURM_SCRIPT:-${STROMA_SHARED_ROOT}/slurm/stroma_ai_worker.slurm}"
+    # Migrate from old default (${STROMA_SHARED_ROOT}/logs/stroma-ai -> ${STROMA_INSTALL_DIR}/logs)
+    if [[ "${STROMA_LOG_DIR:-}" == "${STROMA_SHARED_ROOT}/logs/stroma-ai" ]]; then
+        unset STROMA_LOG_DIR
+    fi
     STROMA_LOG_DIR="${STROMA_LOG_DIR:-${STROMA_INSTALL_DIR}/logs}"
     STROMA_SLURM_WALLTIME="${STROMA_SLURM_WALLTIME:-7-00:00:00}"
     STROMA_MAX_BURST_WORKERS="${STROMA_MAX_BURST_WORKERS:-5}"
