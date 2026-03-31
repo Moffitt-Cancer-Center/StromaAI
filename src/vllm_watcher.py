@@ -32,6 +32,10 @@ Requires
 --------
   pip install requests ray
   (ray must match the version used in stroma-ai-vllm.sif)
+
+See also
+--------
+  src/cluster_manager.py — ClusterManager abstraction for Slurm + Apptainer
 """
 
 from __future__ import annotations
@@ -41,7 +45,6 @@ import logging
 import os
 import re
 import signal
-import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -50,6 +53,7 @@ from pathlib import Path
 from typing import Optional
 
 import requests
+from cluster_manager import ClusterManager, WorkerState
 
 # ---------------------------------------------------------------------------
 # Configuration — all sourced from environment variables, never hardcoded
@@ -64,17 +68,11 @@ UP_THRESHOLD  = int(os.environ.get("STROMA_SCALE_UP_THRESHOLD", "2"))
 DOWN_IDLE_S   = int(os.environ.get("STROMA_SCALE_DOWN_IDLE_SECONDS", "300"))
 UP_COOLDOWN   = int(os.environ.get("STROMA_SCALE_UP_COOLDOWN", "300"))
 POLL_S        = int(os.environ.get("STROMA_WATCHER_POLL_INTERVAL", "30"))
-SLURM_PART    = os.environ.get("STROMA_SLURM_PARTITION", "stroma-ai-gpu")
-SLURM_ACCT    = os.environ.get("STROMA_SLURM_ACCOUNT", "stroma-ai-service")
-SLURM_SCRIPT  = os.environ.get("STROMA_SLURM_SCRIPT", "/share/slurm/stroma_ai_worker.slurm")
-SLURM_TIME    = os.environ.get("STROMA_SLURM_WALLTIME", "7-00:00:00")
-SLURM_CPUS    = os.environ.get("STROMA_SLURM_CPUS", "64")
-SLURM_MEM     = os.environ.get("STROMA_SLURM_MEM", "900G")
-SHARED_ROOT   = os.environ.get("STROMA_SHARED_ROOT", "/share")
 INSTALL_DIR   = os.environ.get("STROMA_INSTALL_DIR", "/opt/stroma-ai")
-SLURM_LOG_DIR = os.environ.get("STROMA_LOG_DIR", f"{INSTALL_DIR}/logs")
-VLLM_KV_THREADS = int(os.environ.get("STROMA_VLLM_CPU_KV_THREADS", "32"))
 STATE_FILE    = os.environ.get("STROMA_STATE_FILE", "/opt/stroma-ai/watcher_state.json")
+
+# ClusterManager is constructed once in main() after config validation
+# and passed into functions that need Slurm/Apptainer operations.
 
 VLLM_BASE     = f"http://{HEAD_HOST}:{VLLM_PORT}"
 RAY_ADDR      = f"{HEAD_HOST}:{RAY_PORT}"
@@ -230,94 +228,41 @@ def fetch_metrics() -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# Slurm helpers
+# Slurm helpers — thin wrappers that delegate to ClusterManager
 # ---------------------------------------------------------------------------
+# The functions below preserve the watcher's existing call-sites while all
+# actual Slurm interactions live in ClusterManager (src/cluster_manager.py).
+# ``_mgr`` is set by main() after the ClusterManager is constructed.
+
+_mgr: Optional[ClusterManager] = None
+
+
+def _get_mgr() -> ClusterManager:
+    if _mgr is None:
+        raise RuntimeError("ClusterManager not initialised — call main() first")
+    return _mgr
+
 
 def slurm_submit() -> Optional[str]:
-    """
-    Submit a burst worker via sbatch.
-    Passes HEAD_HOST and RAY_PORT via --export so the worker script can
-    connect to the correct Ray cluster without hardcoding.
-    Returns the Slurm job ID string, or None on failure.
-    """
-    cmd = [
-        "sbatch",
-        f"--partition={SLURM_PART}",
-        f"--account={SLURM_ACCT}",
-        f"--time={SLURM_TIME}",
-        f"--cpus-per-task={SLURM_CPUS}",
-        f"--mem={SLURM_MEM}",
-        f"--output={SLURM_LOG_DIR}/slurm-%j.out",
-        f"--error={SLURM_LOG_DIR}/slurm-%j.err",
-        # Pass connection params, shared root, and per-worker tuning via env vars
-        f"--export=ALL,STROMA_HEAD_HOST={HEAD_HOST},STROMA_RAY_PORT={RAY_PORT}"
-        f",STROMA_SHARED_ROOT={SHARED_ROOT}"
-        f",VLLM_CPU_KV_CACHE_THREADS={VLLM_KV_THREADS}",
-        SLURM_SCRIPT,
-    ]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
-    except (subprocess.SubprocessError, FileNotFoundError) as exc:
-        log.error("sbatch execution failed: %s", exc)
-        return None
-
-    if r.returncode != 0:
-        log.error("sbatch returned rc=%d: %s", r.returncode, r.stderr.strip())
-        return None
-
-    m = re.search(r"Submitted batch job (\d+)", r.stdout)
-    if not m:
-        log.error("Unexpected sbatch output: %r", r.stdout.strip())
-        return None
-
-    job_id = m.group(1)
-    log.info("Submitted burst worker job %s", job_id)
-    return job_id
+    """Submit a burst worker. Returns job ID string or None on failure."""
+    result = _get_mgr().submit_worker()
+    return result.job_id if result.success else None
 
 
 def slurm_job_state(job_id: str) -> Optional[str]:
-    """
-    Return the Slurm job state string (PENDING, RUNNING, COMPLETING, etc.)
-    or None if the job is no longer in the queue.
-    """
-    try:
-        r = subprocess.run(
-            ["squeue", "-j", job_id, "-h", "-o", "%T"],
-            capture_output=True, text=True, timeout=15, check=False,
-        )
-        state = r.stdout.strip()
-        return state if state else None
-    except (subprocess.SubprocessError, FileNotFoundError):
-        return None
+    """Return raw Slurm state string or None if job is gone."""
+    state = _get_mgr().get_worker_state(job_id)
+    return state.value.upper() if state is not None else None
 
 
 def slurm_active_ids(job_ids: list[str]) -> set[str]:
-    """Return the subset of job_ids that are still present in Slurm (any state)."""
-    if not job_ids:
-        return set()
-    try:
-        r = subprocess.run(
-            ["squeue", "-j", ",".join(job_ids), "-h", "-o", "%i"],
-            capture_output=True, text=True, timeout=15, check=False,
-        )
-        return {line.strip() for line in r.stdout.splitlines() if line.strip()}
-    except (subprocess.SubprocessError, FileNotFoundError):
-        return set()
+    """Return subset of job_ids still present in Slurm."""
+    return _get_mgr().get_active_worker_ids(job_ids)
 
 
 def slurm_cancel(job_id: str) -> None:
     """Cancel a Slurm job. Logs but does not raise on failure."""
-    try:
-        r = subprocess.run(
-            ["scancel", job_id],
-            capture_output=True, text=True, timeout=15, check=False,
-        )
-        if r.returncode == 0:
-            log.info("Cancelled Slurm job %s", job_id)
-        else:
-            log.warning("scancel %s rc=%d: %s", job_id, r.returncode, r.stderr.strip())
-    except (subprocess.SubprocessError, FileNotFoundError) as exc:
-        log.error("scancel %s failed: %s", job_id, exc)
+    _get_mgr().cancel_worker(job_id)
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +486,18 @@ def tick(state: WatcherState, known_ray_nodes: set[str]) -> set[str]:
 
 def main() -> None:
     _validate_config()
+
+    # Build ClusterManager from the same env vars the watcher already reads,
+    # then assign to the module-level variable so the thin wrappers above work.
+    global _mgr  # noqa: PLW0603
+    _mgr = ClusterManager.from_env()
+    cluster_errors = _mgr.validate()
+    if cluster_errors:
+        for msg in cluster_errors:
+            log.error("ClusterManager validation error: %s", msg)
+        sys.exit(1)
+    log.info("ClusterManager initialised (container: %s)", _mgr.container_path)
+
     log.info(
         "StromaAI Watcher starting — HEAD=%s RAY_PORT=%d VLLM_PORT=%d MAX_BURST=%d",
         HEAD_HOST, RAY_PORT, VLLM_PORT, MAX_BURST,
