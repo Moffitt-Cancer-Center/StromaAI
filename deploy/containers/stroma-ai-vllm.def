@@ -73,6 +73,10 @@ From: nvcr.io/nvidia/pytorch:24.10-py3
 %post
     set -eu
 
+    # Rootless Apptainer builds can leave /tmp with wrong permissions, causing
+    # apt-key to fail creating temp files. Fix before any apt/pip operations.
+    chmod 1777 /tmp
+
     # -------------------------------------------------------------------------
     # Register the site CA certificate before any network operations.
     # The %files section copied it to /usr/local/share/ca-certificates/.
