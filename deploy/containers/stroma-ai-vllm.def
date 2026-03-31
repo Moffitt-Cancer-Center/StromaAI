@@ -113,9 +113,14 @@ From: nvcr.io/nvidia/pytorch:24.10-py3
     #   vLLM 0.7.x requires transformers>=4.45.0, so 4.49.0 satisfies both.
     # -------------------------------------------------------------------------
     # The NGC base ships a broken system cv2 where cv2.dnn.DictValue was removed.
-    # transformers 4.49.0 imports cv2 at module load time via image_utils.py.
-    # Reinstall opencv-python-headless (no libGL deps) to replace the broken one.
-    python3 -m pip install --no-cache-dir --force-reinstall "opencv-python-headless>=4.9.0"
+    # transformers guards `import cv2` with try/except ImportError — a missing cv2
+    # is handled gracefully, but a broken cv2 (AttributeError) is not caught.
+    # Remove cv2 entirely so transformers falls back to _cv2_available=False.
+    # We do not need cv2: StromaAI serves text-only LLMs, not vision models.
+    python3 -m pip uninstall -y opencv-python opencv-python-headless \
+        opencv-contrib-python opencv-contrib-python-headless 2>/dev/null || true
+    find /usr/local/lib/python3.10/dist-packages -maxdepth 1 -name "cv2*" \
+        -exec rm -rf {} + 2>/dev/null || true
 
     python3 -m pip install --no-cache-dir \
         "vllm==0.7.2" \
