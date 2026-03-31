@@ -190,7 +190,8 @@ This installer needs a few site-specific values to configure StromaAI.
 Press Enter to accept the default shown in [brackets].
 
 EOF
-    local default_host="stroma-ai.$(hostname -d 2>/dev/null || echo 'cluster.local')"
+    local default_host
+    default_host="stroma-ai.$(hostname -d 2>/dev/null || echo 'cluster.local')"
 
     echo -en "Install directory [/opt/stroma-ai]: "
     read -r input; STROMA_INSTALL_DIR="${input:-/opt/stroma-ai}"

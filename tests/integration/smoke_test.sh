@@ -19,6 +19,7 @@
 # =============================================================================
 
 set -euo pipefail
+# shellcheck disable=SC2034  # reserved for future relative-path use
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------------------

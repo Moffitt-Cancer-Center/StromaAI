@@ -37,9 +37,10 @@ jobs:
           NOTES=$(python3 - <<EOF
           import re, sys
 
+          version = "${VERSION}"
           text = open("CHANGELOG.md").read()
           # Match ## [VERSION] header followed by content until the next ## header
-          pattern = rf"## \[{re.escape("${VERSION}")}\].*?\n(.*?)(?=\n## \[|\Z)"
+          pattern = r"## \[" + re.escape(version) + r"\].*?\n(.*?)(?=\n## \[|\Z)"
           m = re.search(pattern, text, re.DOTALL)
           if m:
               print(m.group(1).strip())

@@ -131,14 +131,19 @@ installed_version() {
 STROMA_INSTALL_DIR="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
 # STROMA_LOG_DIR must NOT be readonly — it is overridden by STROMA_SHARED_ROOT
 # or STROMA_LOG_DIR from config.env. The value here is the fallback only.
-STROMA_LOG_DIR="${STROMA_LOG_DIR:-${STROMA_SHARED_ROOT:-/share}/logs/stroma-ai}"
+STROMA_LOG_DIR="${STROMA_LOG_DIR:-${STROMA_INSTALL_DIR}/logs}"
+# shellcheck disable=SC2034  # used by install.sh (sourced at runtime)
 readonly STROMA_STATE_DIR="${STROMA_INSTALL_DIR}/state"
+# shellcheck disable=SC2034  # used by install.sh (sourced at runtime)
 readonly STROMA_SYSTEMD_DIR="/etc/systemd/system"
 
 # ---------------------------------------------------------------------------
 # stroma_ai_venv — path to the Python virtual environment
 # (computed after STROMA_INSTALL_DIR is finalised)
 # ---------------------------------------------------------------------------
+# shellcheck disable=SC2034  # used by packages.sh (sourced at runtime)
 readonly STROMA_VENV="${STROMA_INSTALL_DIR}/venv"
+# shellcheck disable=SC2034  # unused directly; kept for external sourcing
 readonly STROMA_PYTHON="${STROMA_VENV}/bin/python3"
+# shellcheck disable=SC2034  # used by packages.sh (sourced at runtime)
 readonly STROMA_PIP="${STROMA_VENV}/bin/pip"
