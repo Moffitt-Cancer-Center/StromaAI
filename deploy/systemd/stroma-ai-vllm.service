@@ -56,6 +56,7 @@ ExecStart=/opt/stroma-ai/venv/bin/vllm serve \
     --served-model-name ${STROMA_MODEL_NAME} \
     --quantization ${STROMA_VLLM_QUANTIZATION} \
     --tensor-parallel-size 1 \
+    --device cuda \
     --distributed-executor-backend ray \
     --cpu-offload-gb ${STROMA_CPU_OFFLOAD_GB} \
     --kv-cache-dtype ${STROMA_KV_CACHE_DTYPE} \
