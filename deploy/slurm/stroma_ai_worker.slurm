@@ -35,10 +35,10 @@
 #SBATCH --exclusive
 # NOTE: --output and --error paths are passed by the Watcher via sbatch CLI
 # flags using STROMA_LOG_DIR from config.env. The paths below are fallbacks
-# for manual sbatch runs only. Run 'mkdir -p /share/logs/stroma-ai' on shared
-# storage before first use, matching your STROMA_LOG_DIR setting.
-#SBATCH --output=/share/logs/stroma-ai/slurm-%j.out
-#SBATCH --error=/share/logs/stroma-ai/slurm-%j.err
+# for manual sbatch runs only. Run 'mkdir -p ${STROMA_INSTALL_DIR}/logs' on
+# the head node before first use, matching your STROMA_LOG_DIR setting.
+#SBATCH --output=/opt/stroma-ai/logs/slurm-%j.out
+#SBATCH --error=/opt/stroma-ai/logs/slurm-%j.err
 # NOTE: --partition, --account, --time, --cpus-per-task, and --mem are all
 # passed by the Watcher at submit time via sbatch CLI flags. Do NOT set them
 # here to avoid conflicts. Tune STROMA_SLURM_CPUS and STROMA_SLURM_MEM

@@ -20,7 +20,7 @@
 # What is NOT removed (intentionally):
 #   - /share/containers/stroma-ai-vllm.sif  (your data, not ours)
 #   - /share/models/                       (your data, not ours)
-#   - /share/logs/stroma-ai/                 (audit trail)
+#   - ${STROMA_INSTALL_DIR}/logs/            (audit trail)
 #   - nginx, Python 3.11, NVIDIA toolkit    (shared system packages)
 # =============================================================================
 
@@ -179,7 +179,7 @@ echo ""
 echo "Remaining (not removed — your data):"
 echo "  /share/containers/  — container images"
 echo "  /share/models/      — model weights"
-echo "  /share/logs/stroma-ai — audit logs"
+echo "  ${STROMA_INSTALL_DIR:-/opt/stroma-ai}/logs — audit logs"
 echo ""
 echo "System packages NOT removed: nginx, python3.11, nvidia-container-toolkit"
 echo "Remove manually if no longer needed."

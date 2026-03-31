@@ -9,12 +9,13 @@
 # Test (dry-run):
 #   logrotate --debug /etc/logrotate.d/stroma-ai
 #
-# Note: STROMA_LOG_DIR from config.env defaults to /share/logs/stroma-ai.
-# Update the paths below if your site uses a different log directory.
+# Note: STROMA_LOG_DIR from config.env defaults to ${STROMA_INSTALL_DIR}/logs
+# (typically /opt/stroma-ai/logs). Update the paths below if your site uses
+# a different log directory.
 # =============================================================================
 
-/share/logs/stroma-ai/*.out
-/share/logs/stroma-ai/*.err {
+/opt/stroma-ai/logs/*.out
+/opt/stroma-ai/logs/*.err {
     # Rotate daily; keep 30 days of history
     daily
     rotate 30

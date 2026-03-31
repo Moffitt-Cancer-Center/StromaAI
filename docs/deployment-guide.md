@@ -150,13 +150,14 @@ scontrol show reservation stroma-ai-warm
 ### 1.6 Log directory
 
 ```bash
-# Replace /share/hpc_shared with your STROMA_SHARED_ROOT if different:
-mkdir -p /share/hpc_shared/logs/stroma-ai
-chmod 775 /share/hpc_shared/logs/stroma-ai
-chown stromaai:stromaai /share/hpc_shared/logs/stroma-ai  # or appropriate service user
+# The installer creates this automatically. For manual setup, run as root
+# on the head node (replace /opt/stroma-ai with your STROMA_INSTALL_DIR):
+mkdir -p /opt/stroma-ai/logs
+chmod 775 /opt/stroma-ai/logs
+chown stromaai:stromaai /opt/stroma-ai/logs  # or appropriate service user
 ```
 
-The installer creates this directory automatically using the `STROMA_LOG_DIR` variable (which defaults to `${STROMA_SHARED_ROOT}/logs/stroma-ai`).
+The installer creates this directory automatically using the `STROMA_LOG_DIR` variable (which defaults to `${STROMA_INSTALL_DIR}/logs`).
 
 ---
 
@@ -390,7 +391,7 @@ chown stromaai:stromaai /opt/stroma-ai/config.env
 | `STROMA_CPU_OFFLOAD_GB` | `200` | CPU memory to use for KV cache offload (GB) |
 | `STROMA_SCALE_UP_THRESHOLD` | `5` | Queued requests before a burst worker is submitted |
 | `STROMA_SCALE_DOWN_IDLE_SECONDS` | `300` | Idle seconds before a burst worker is cancelled |
-| `STROMA_LOG_DIR` | `${SHARED_ROOT}/logs/stroma-ai` | Slurm job output log directory |
+| `STROMA_LOG_DIR` | `${STROMA_INSTALL_DIR}/logs` | Slurm job output log directory |
 
 Use `scripts/check-config.sh` to validate config before starting services (see [Operational Scripts](#operational-scripts)).
 
@@ -715,7 +716,7 @@ journalctl -u ray-head -u stroma-ai-vllm -u stroma-ai-watcher -f
 journalctl -u stroma-ai-watcher -n 50 --no-pager
 
 # Slurm worker stdout for job NNNNN:
-cat /share/logs/stroma-ai/slurm-NNNNN.out   # replace /share with STROMA_SHARED_ROOT
+cat ${STROMA_LOG_DIR:-/opt/stroma-ai/logs}/slurm-NNNNN.out
 
 # Watcher state (current tracked burst jobs):
 cat /opt/stroma-ai/watcher_state.json | python3 -m json.tool

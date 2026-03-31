@@ -231,7 +231,7 @@ nginx -t && systemctl reload nginx
 ```bash
 scontrol create partition Name=stroma-ai-gpu Nodes=node[001-070] MaxNodes=10 State=UP
 sacctmgr add account stroma-ai-service Description="StromaAI burst workers"
-mkdir -p /share/logs/stroma-ai /share/slurm
+mkdir -p ${STROMA_LOG_DIR:-/opt/stroma-ai/logs} /share/slurm
 cp deploy/slurm/stroma_ai_worker.slurm /share/slurm/
 
 # Always-warm reservation — 1 node pre-allocated for fast first response:
