@@ -23,6 +23,17 @@ Environment=VLLM_CPU_KV_CACHE_THREADS=${STROMA_VLLM_CPU_KV_THREADS}
 Environment=HF_HUB_OFFLINE=1
 Environment=TRANSFORMERS_OFFLINE=1
 
+# Force Gloo TCP transport to bind on the loopback (IPv4) interface.
+# PyTorch distributed initialises a Gloo process group as a CPU fallback even
+# with tensor_parallel_size=1. On RHEL/Rocky hosts where IPv6 is disabled
+# (net.ipv6.conf.all.disable_ipv6=1), Gloo's default interface scan creates
+# an IPv6 socket and immediately fails with:
+#   "Address family not supported by protocol"
+# Setting GLOO_SOCKET_IFNAME=lo pins Gloo to 127.0.0.1; no real TCP traffic
+# crosses this interface for single-GPU operation.
+Environment=GLOO_SOCKET_IFNAME=lo
+Environment=NCCL_SOCKET_IFNAME=lo
+
 # ---------------------------------------------------------------------------
 # vLLM serve command
 #
