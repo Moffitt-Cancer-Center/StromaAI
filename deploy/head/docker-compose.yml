@@ -1,0 +1,304 @@
+# =============================================================================
+# StromaAI — Head Node Inference Stack (Containerised)
+# =============================================================================
+# Runs all head-node services in containers:
+#
+#   nginx      — TLS termination; routes API traffic through gateway
+#   gateway    — FastAPI OIDC proxy (validates Keycloak JWTs, forwards to vLLM)
+#   ray-head   — Ray GCS coordinator (no GPU; workers join via Slurm)
+#   vllm       — vLLM API server (--distributed-executor-backend ray)
+#   watcher    — Dynamic Slurm burst scaler (submits/cancels GPU worker jobs)
+#
+# Prerequisites
+# -------------
+#   1. Run setup-head.sh to generate your .env file and TLS certificates.
+#   2. Ensure TLS certs exist at ${TLS_CERT_PATH:-/etc/ssl/stroma-ai}/
+#   3. For the watcher: Slurm binaries must be available on this host at the
+#      paths set by SLURM_* variables (or the defaults below).
+#   4. Model weights must be present at STROMA_MODEL_PATH on shared storage.
+#
+# Usage
+# -----
+#   # First-time setup:
+#   ./setup-head.sh
+#   # Start all services:
+#   podman compose up -d
+#   # Follow logs:
+#   podman compose logs -f
+#   # Stop:
+#   podman compose down
+#
+# Container startup order:
+#   ray-head → vllm → gateway → nginx
+#             ray-head → watcher
+#
+# Environment variables
+# ---------------------
+# Sourced from .env (copy from ../../config/config.example.env and fill in).
+# Compose-specific additions documented in-line below with COMPOSE_ prefix
+# to distinguish them from core platform variables.
+# =============================================================================
+
+services:
+
+  # ===========================================================================
+  # nginx — TLS termination and rate-limiting reverse proxy
+  # ===========================================================================
+  # In the container stack nginx proxies /v1/* and / through the OIDC gateway
+  # so every public request is JWT-validated.  /health and /metrics bypass the
+  # gateway and hit vLLM directly (unauthenticated) for monitoring tooling.
+  # ===========================================================================
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: stroma-nginx
+    ports:
+      - "80:80"
+      - "${STROMA_HTTPS_PORT:-443}:443"
+    volumes:
+      # Container-specific nginx conf (upstream names are Compose service names)
+      - ./nginx.conf:/etc/nginx/conf.d/stroma-ai.conf:ro
+      # TLS certificate and key — generate via: ./setup-head.sh --gen-certs
+      # Or supply your own CA-signed pair at this path.
+      - ${TLS_CERT_PATH:-/etc/ssl/stroma-ai}:/etc/ssl/stroma-ai:ro
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - stroma-head
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ===========================================================================
+  # gateway — FastAPI OIDC security proxy
+  # ===========================================================================
+  # Validates Keycloak-issued JWTs on every inbound request, then forwards
+  # with the internal STROMA_API_KEY to vLLM.  Only requests carrying a token
+  # with the stroma_researcher realm role are allowed through.
+  #
+  # Build context: repo root (so COPY src/gateway.py works in the Dockerfile)
+  # ===========================================================================
+  gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/head/Dockerfile.gateway
+    image: stroma-ai-gateway:latest
+    container_name: stroma-gateway
+    environment:
+      # Required: OIDC discovery URL — set by setup-keycloak.sh or externally
+      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:?OIDC_DISCOVERY_URL must be set — run setup-keycloak.sh first}
+      OIDC_AUDIENCE:      ${OIDC_AUDIENCE:-stroma-gateway}
+      # vLLM backend — use the Compose service name, NOT localhost
+      VLLM_BACKEND_URL:   http://vllm:${STROMA_VLLM_PORT:-8000}
+      STROMA_API_KEY:     ${STROMA_API_KEY:?STROMA_API_KEY must be set in .env}
+      GATEWAY_PORT:       ${GATEWAY_PORT:-9000}
+      GATEWAY_LOG_LEVEL:  ${GATEWAY_LOG_LEVEL:-info}
+      GATEWAY_ALLOWED_ROLE: ${GATEWAY_ALLOWED_ROLE:-stroma_researcher}
+      JWKS_REFRESH_SECS:  ${JWKS_REFRESH_SECS:-3600}
+    depends_on:
+      vllm:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - stroma-head
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:${GATEWAY_PORT:-9000}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ===========================================================================
+  # ray-head — Ray GCS head node (CPU-only coordinator; no GPU on head VM)
+  # ===========================================================================
+  # Starts with --num-cpus=0 --num-gpus=0 so no work is accidentally
+  # scheduled here.  Slurm burst workers join via:
+  #   ray start --address=<head-hostname>:${STROMA_RAY_PORT}
+  # and are reachable because the host network is shared (see network_mode).
+  #
+  # network_mode: host — Ray uses many dynamic ephemeral ports for actor/task
+  # communication between the head and workers.  Mapping these individually is
+  # impractical; host networking gives workers a routable address for free.
+  # ===========================================================================
+  ray-head:
+    image: rayproject/ray:2.40.0-py311
+    container_name: stroma-ray-head
+    # Must match the Ray version in deploy/containers/stroma-ai-vllm.def
+    command: >
+      ray start
+        --head
+        --port=${STROMA_RAY_PORT:-6380}
+        --dashboard-port=${STROMA_RAY_DASHBOARD_PORT:-8265}
+        --dashboard-host=0.0.0.0
+        --num-cpus=0
+        --num-gpus=0
+        --block
+    # Host networking: Slurm workers need a routable address to connect back.
+    # This is equivalent to the bare-metal setup where ray runs on the host.
+    network_mode: host
+    volumes:
+      - ray_tmp:/tmp/ray
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "ray status 2>/dev/null || exit 1"]
+      interval: 20s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+
+  # ===========================================================================
+  # vllm — vLLM inference API server
+  # ===========================================================================
+  # Runs vllm serve in Ray distributed mode: the head node coordinates
+  # scheduling but GPU inference is performed on Slurm worker nodes running
+  # the Apptainer SIF.  This container needs no GPU on the head VM.
+  #
+  # Model weights are bind-mounted read-only from shared storage.  The path
+  # inside the container is identical to the host path so that Ray worker
+  # nodes (which share the same NFS mount) see consistent file paths.
+  #
+  # network_mode: host — required so Ray distributed process group on vLLM
+  # can communicate with the ray-head container (also on host network) and
+  # with GPU workers on the Slurm cluster.
+  # ===========================================================================
+  vllm:
+    image: vllm/vllm-openai:v0.7.2
+    container_name: stroma-vllm
+    command: >
+      vllm serve ${STROMA_MODEL_PATH:?STROMA_MODEL_PATH must be set in .env}
+        --served-model-name ${STROMA_MODEL_NAME:-stroma-ai-coder}
+        --quantization ${STROMA_VLLM_QUANTIZATION:-awq}
+        --tensor-parallel-size 1
+        --distributed-executor-backend ray
+        --disable-async-output-proc
+        --cpu-offload-gb ${STROMA_CPU_OFFLOAD_GB:-0}
+        --kv-cache-dtype ${STROMA_KV_CACHE_DTYPE:-auto}
+        --max-model-len ${STROMA_MAX_MODEL_LEN:-8192}
+        --max-num-seqs ${STROMA_MAX_NUM_SEQS:-64}
+        --gpu-memory-utilization ${STROMA_GPU_MEM_UTIL:-0.90}
+        --enable-chunked-prefill
+        --host 0.0.0.0
+        --port ${STROMA_VLLM_PORT:-8000}
+        --api-key ${STROMA_API_KEY:?STROMA_API_KEY must be set in .env}
+        --trust-remote-code
+        -O2
+    environment:
+      # Point vLLM's Ray client at the ray-head container on host network
+      RAY_ADDRESS:            "localhost:${STROMA_RAY_PORT:-6380}"
+      # Prevent vLLM from trying to download model weights at runtime
+      HF_HUB_OFFLINE:         "1"
+      TRANSFORMERS_OFFLINE:   "1"
+      # IPv4-only workaround (matches bare-metal stroma-ai-vllm.service)
+      VLLM_HOST_IP:           "127.0.0.1"
+      GLOO_SOCKET_IFNAME:     lo
+      NCCL_SOCKET_IFNAME:     lo
+      VLLM_CPU_KV_CACHE_THREADS: ${STROMA_VLLM_CPU_KV_THREADS:-4}
+    volumes:
+      # Model weights — bind-mounted at the same path as on the host so that
+      # Ray worker nodes (which read from NFS) see the same absolute path.
+      - ${STROMA_MODEL_PATH:?}:${STROMA_MODEL_PATH:?}:ro
+      # Shared root: vLLM may need to write temporary KV cache spill files
+      - ${STROMA_SHARED_ROOT:-/share}:${STROMA_SHARED_ROOT:-/share}
+    network_mode: host
+    depends_on:
+      ray-head:
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:${STROMA_VLLM_PORT:-8000}/health || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 300s
+
+  # ===========================================================================
+  # watcher — Dynamic Slurm burst scaler
+  # ===========================================================================
+  # Polls vLLM queue depth and submits/cancels Slurm GPU worker jobs.
+  # Requires access to Slurm CLI binaries and MUNGE authentication socket
+  # from the host.  Paths are site-specific; override SLURM_* in .env.
+  #
+  # Slurm bind-mount defaults assume a standard RHEL Slurm install.
+  # For non-standard installations, set SLURM_BIN_DIR in .env.
+  # MUNGE socket is required for Slurm client authentication.
+  # ===========================================================================
+  watcher:
+    build:
+      context: ../..
+      dockerfile: deploy/head/Dockerfile.watcher
+    image: stroma-ai-watcher:latest
+    container_name: stroma-watcher
+    environment:
+      # In compose, vLLM and Ray run on the host network so use localhost
+      STROMA_HEAD_HOST:              localhost
+      STROMA_RAY_HOST:               localhost
+      STROMA_RAY_PORT:               ${STROMA_RAY_PORT:-6380}
+      STROMA_VLLM_PORT:              ${STROMA_VLLM_PORT:-8000}
+      STROMA_API_KEY:                ${STROMA_API_KEY:?STROMA_API_KEY must be set in .env}
+      STROMA_MAX_BURST_WORKERS:      ${STROMA_MAX_BURST_WORKERS:-5}
+      STROMA_SCALE_UP_THRESHOLD:     ${STROMA_SCALE_UP_THRESHOLD:-2}
+      STROMA_SCALE_DOWN_IDLE_SECONDS: ${STROMA_SCALE_DOWN_IDLE_SECONDS:-300}
+      STROMA_SCALE_UP_COOLDOWN:      ${STROMA_SCALE_UP_COOLDOWN:-300}
+      STROMA_WATCHER_POLL_INTERVAL:  ${STROMA_WATCHER_POLL_INTERVAL:-30}
+      STROMA_SLURM_PARTITION:        ${STROMA_SLURM_PARTITION:?STROMA_SLURM_PARTITION must be set in .env}
+      STROMA_SLURM_ACCOUNT:          ${STROMA_SLURM_ACCOUNT:-stroma-ai-service}
+      STROMA_SLURM_SCRIPT:           ${STROMA_SLURM_SCRIPT:-${STROMA_SHARED_ROOT:-/share}/slurm/stroma_ai_worker.slurm}
+      STROMA_SLURM_WALLTIME:         ${STROMA_SLURM_WALLTIME:-7-00:00:00}
+      STROMA_SLURM_CPUS:             ${STROMA_SLURM_CPUS:-64}
+      STROMA_SLURM_MEM:              ${STROMA_SLURM_MEM:-900G}
+      STROMA_SHARED_ROOT:            ${STROMA_SHARED_ROOT:-/share}
+      STROMA_CONTAINER:              ${STROMA_CONTAINER:-${STROMA_SHARED_ROOT:-/share}/containers/stroma-ai-vllm.sif}
+      STROMA_STATE_FILE:             /var/lib/stroma-ai/watcher_state.json
+      STROMA_LOG_DIR:                ${STROMA_LOG_DIR:-${STROMA_SHARED_ROOT:-/share}/logs}
+      STROMA_WARM_RESERVATION:       ${STROMA_WARM_RESERVATION:-stroma-ai-warm}
+    volumes:
+      # Persistent state across container restarts
+      - watcher_state:/var/lib/stroma-ai
+      # Slurm client binaries — bind-mount from host (read-only)
+      # Override paths via SLURM_*_BIN variables in .env if non-standard
+      - ${SLURM_SBATCH_BIN:-/usr/bin/sbatch}:/usr/bin/sbatch:ro
+      - ${SLURM_SQUEUE_BIN:-/usr/bin/squeue}:/usr/bin/squeue:ro
+      - ${SLURM_SCANCEL_BIN:-/usr/bin/scancel}:/usr/bin/scancel:ro
+      - ${SLURM_SINFO_BIN:-/usr/bin/sinfo}:/usr/bin/sinfo:ro
+      # Slurm configuration (slurm.conf, munge.conf, etc.)
+      - ${SLURM_CONF_PATH:-/etc/slurm}:/etc/slurm:ro
+      # MUNGE authentication socket — required for Slurm client auth
+      - ${SLURM_MUNGE_SOCKET_DIR:-/var/run/munge}:/var/run/munge:ro
+      # Shared storage (Slurm worker script, SIF, logs)
+      - ${STROMA_SHARED_ROOT:-/share}:${STROMA_SHARED_ROOT:-/share}
+    # Host network so watcher can reach vLLM + Ray on localhost (same as
+    # their network_mode: host settings above)
+    network_mode: host
+    depends_on:
+      vllm:
+        condition: service_healthy
+    restart: always
+
+# =============================================================================
+# Named volumes
+# =============================================================================
+volumes:
+  # Ray temporary files (plasma store, GCS data, etc.)
+  ray_tmp:
+    driver: local
+
+  # Watcher burst-state JSON (survives container restarts and upgrades)
+  watcher_state:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+# nginx and gateway use the stroma-head bridge network for service-to-service
+# resolution.  ray-head, vllm, and watcher use host networking so they share
+# the host's IP space with Slurm GPU workers and the existing platform stack.
+networks:
+  stroma-head:
+    driver: bridge
+    # Named so Keycloak and OpenWebUI stacks can optionally attach to it.
+    # Equivalent compose stacks use --network=stroma-head_stroma-head to join.
+    name: stroma-head

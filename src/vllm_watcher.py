@@ -60,6 +60,11 @@ from cluster_manager import ClusterManager, WorkerState
 # ---------------------------------------------------------------------------
 
 HEAD_HOST     = os.environ.get("STROMA_HEAD_HOST", "localhost")
+# STROMA_RAY_HOST allows containerised deployments to point the Ray address at
+# a different service (e.g. "ray-head" in a Compose stack) while vLLM HTTP
+# queries continue to use STROMA_HEAD_HOST.  Defaults to STROMA_HEAD_HOST so
+# bare-metal and VM deployments need no changes.
+RAY_HOST      = os.environ.get("STROMA_RAY_HOST", HEAD_HOST)
 RAY_PORT      = int(os.environ.get("STROMA_RAY_PORT", "6380"))
 VLLM_PORT     = int(os.environ.get("STROMA_VLLM_PORT", "8000"))
 API_KEY       = os.environ.get("STROMA_API_KEY", "")
@@ -75,7 +80,7 @@ STATE_FILE    = os.environ.get("STROMA_STATE_FILE", "/opt/stroma-ai/watcher_stat
 # and passed into functions that need Slurm/Apptainer operations.
 
 VLLM_BASE     = f"http://{HEAD_HOST}:{VLLM_PORT}"
-RAY_ADDR      = f"{HEAD_HOST}:{RAY_PORT}"
+RAY_ADDR      = f"{RAY_HOST}:{RAY_PORT}"
 
 # Job state constants
 ST_PENDING  = "pending"   # sbatch submitted; job not RUNNING yet

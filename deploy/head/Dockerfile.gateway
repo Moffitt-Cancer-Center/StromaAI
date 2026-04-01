@@ -1,0 +1,74 @@
+# =============================================================================
+# StromaAI — FastAPI OIDC Gateway
+# =============================================================================
+# Lightweight container for the src/gateway.py security proxy.
+# Validates Keycloak JWT tokens and forwards authenticated requests to vLLM.
+#
+# Build (from repo root):
+#   podman build -f deploy/head/Dockerfile.gateway -t stroma-ai-gateway:latest .
+#
+# Run standalone (override via environment):
+#   podman run --rm -p 9000:9000 \
+#     -e OIDC_DISCOVERY_URL=http://keycloak:8080/realms/stroma-ai/.well-known/openid-configuration \
+#     -e VLLM_BACKEND_URL=http://vllm:8000 \
+#     -e STROMA_API_KEY=<your-key> \
+#     stroma-ai-gateway:latest
+# =============================================================================
+
+FROM python:3.11-slim
+
+LABEL org.opencontainers.image.title="StromaAI OIDC Gateway" \
+      org.opencontainers.image.description="Secure FastAPI proxy with OIDC JWT validation" \
+      org.opencontainers.image.source="https://github.com/Moffitt-Cancer-Center/StromaAI"
+
+# ---------------------------------------------------------------------------
+# System dependencies
+# ---------------------------------------------------------------------------
+# curl is needed by the compose healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# Non-root user
+# ---------------------------------------------------------------------------
+RUN groupadd -r stromaai && useradd -r -m -g stromaai stromaai
+
+# ---------------------------------------------------------------------------
+# Python dependencies
+# ---------------------------------------------------------------------------
+WORKDIR /app
+
+# Pin versions to match the bare-metal venv; update when upgrading platform.
+COPY requirements-gateway.txt* ./
+RUN pip install --no-cache-dir \
+        fastapi==0.115.0 \
+        "uvicorn[standard]==0.30.6" \
+        httpx==0.27.2 \
+        PyJWT==2.9.0 \
+        cryptography==42.0.8
+
+# ---------------------------------------------------------------------------
+# Application source
+# ---------------------------------------------------------------------------
+COPY src/gateway.py .
+
+# ---------------------------------------------------------------------------
+# Runtime configuration
+# ---------------------------------------------------------------------------
+ENV PYTHONUNBUFFERED=1
+ENV GATEWAY_PORT=9000
+ENV GATEWAY_LOG_LEVEL=info
+
+USER stromaai
+
+EXPOSE ${GATEWAY_PORT}
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -fs http://localhost:${GATEWAY_PORT}/health || exit 1
+
+CMD ["sh", "-c", \
+     "exec uvicorn gateway:app \
+         --host 0.0.0.0 \
+         --port ${GATEWAY_PORT} \
+         --log-level ${GATEWAY_LOG_LEVEL}"]

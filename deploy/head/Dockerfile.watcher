@@ -1,0 +1,84 @@
+# =============================================================================
+# StromaAI — vLLM Watcher (Dynamic Slurm Burst Scaler)
+# =============================================================================
+# Container for src/vllm_watcher.py — monitors vLLM queue depth and submits
+# or cancels Slurm burst worker jobs accordingly.
+#
+# SLURM ACCESS: This container requires bind-mounts of the Slurm client
+# binaries and MUNGE authentication socket from the host.  See the
+# docker-compose.yml volumes section for the expected mount points.
+# The compose file exposes SLURM_* env vars to override binary paths for
+# non-default installations. All mounts are read-only except watcher_state.
+#
+# Build (from repo root):
+#   podman build -f deploy/head/Dockerfile.watcher -t stroma-ai-watcher:latest .
+#
+# Run (see docker-compose.yml — standalone run requires Slurm bind mounts):
+#   podman run --rm \
+#     -v /usr/bin/sbatch:/usr/bin/sbatch:ro \
+#     -v /usr/bin/squeue:/usr/bin/squeue:ro \
+#     -v /usr/bin/scancel:/usr/bin/scancel:ro \
+#     -v /usr/bin/sinfo:/usr/bin/sinfo:ro \
+#     -v /etc/slurm:/etc/slurm:ro \
+#     -v /var/run/munge:/var/run/munge:ro \
+#     -v /share:/share:ro \
+#     -e STROMA_HEAD_HOST=vllm \
+#     -e STROMA_RAY_HOST=ray-head \
+#     -e STROMA_API_KEY=<key> \
+#     stroma-ai-watcher:latest
+# =============================================================================
+
+FROM python:3.11-slim
+
+LABEL org.opencontainers.image.title="StromaAI vLLM Watcher" \
+      org.opencontainers.image.description="Dynamic Slurm burst scaler for vLLM/Ray" \
+      org.opencontainers.image.source="https://github.com/Moffitt-Cancer-Center/StromaAI"
+
+# ---------------------------------------------------------------------------
+# System dependencies
+# ---------------------------------------------------------------------------
+# libgomp1 is required by Ray's C extensions.
+# Slurm client binaries (sbatch etc.) are bind-mounted from the host at
+# runtime — nothing Slurm-specific is installed in this image.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# Non-root user
+# Watcher only writes to the state volume; everything else is read-only.
+# ---------------------------------------------------------------------------
+RUN groupadd -r stromaai && useradd -r -m -g stromaai stromaai
+
+# ---------------------------------------------------------------------------
+# Python dependencies
+# Versions must match the Apptainer SIF (stroma-ai-vllm.def) — Ray especially.
+# ---------------------------------------------------------------------------
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+        requests==2.32.3 \
+        "ray[default]==2.40.0"
+
+# ---------------------------------------------------------------------------
+# Application source
+# cluster_manager.py is imported by vllm_watcher.py
+# ---------------------------------------------------------------------------
+COPY src/vllm_watcher.py .
+COPY src/cluster_manager.py .
+
+# ---------------------------------------------------------------------------
+# Runtime configuration
+# ---------------------------------------------------------------------------
+# State file is stored on the watcher_state named volume so it survives
+# container restarts. STROMA_STATE_FILE is overridden in docker-compose.yml.
+ENV PYTHONUNBUFFERED=1
+ENV STROMA_STATE_FILE=/var/lib/stroma-ai/watcher_state.json
+
+# The state directory must be writable; the named volume is owned by root
+# after creation, so create the dir and chown before switching user.
+RUN mkdir -p /var/lib/stroma-ai && chown stromaai:stromaai /var/lib/stroma-ai
+
+USER stromaai
+
+CMD ["python3", "vllm_watcher.py"]
