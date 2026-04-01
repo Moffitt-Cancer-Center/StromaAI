@@ -194,7 +194,34 @@ set -a
 source "${CONFIG_FILE}" 2>/dev/null || true
 set +a
 
-# Validate mandatory variables are set and not placeholders
+# Auto-generate STROMA_API_KEY if missing or still placeholder
+if [[ -z "${STROMA_API_KEY:-}" || "${STROMA_API_KEY}" == *"CHANGEME"* ]]; then
+    if [[ "${STROMA_YES:-0}" == "1" ]]; then
+        STROMA_API_KEY=$(openssl rand -hex 32)
+        log_info "Generated API key: ${STROMA_API_KEY}"
+    else
+        echo -en "${BOLD}Enter STROMA_API_KEY (or press Enter to generate one): ${RESET}"
+        read -r input_key
+        if [[ -z "${input_key}" ]]; then
+            STROMA_API_KEY=$(openssl rand -hex 32)
+            log_info "Generated API key: ${STROMA_API_KEY}"
+        else
+            STROMA_API_KEY="${input_key}"
+        fi
+        unset input_key
+    fi
+    # Write back into config file
+    backup_file "${CONFIG_FILE}"
+    if grep -qE "^STROMA_API_KEY=" "${CONFIG_FILE}" 2>/dev/null; then
+        sed -i "s|^STROMA_API_KEY=.*|STROMA_API_KEY=${STROMA_API_KEY}|" "${CONFIG_FILE}"
+    else
+        echo "STROMA_API_KEY=${STROMA_API_KEY}" >> "${CONFIG_FILE}"
+    fi
+    log_ok "STROMA_API_KEY written to ${CONFIG_FILE}"
+fi
+export STROMA_API_KEY
+
+# Validate remaining mandatory variables are set and not placeholders
 _check_var() {
     local var="$1" val="${!1:-}"
     if [[ -z "${val}" ]]; then
@@ -202,14 +229,14 @@ _check_var() {
         return 1
     fi
     if [[ "${val}" == *"CHANGEME"* ]]; then
-        log_error "${var} still contains the placeholder value in ${CONFIG_FILE}"
+        log_error "${var} still contains placeholder value in ${CONFIG_FILE}"
         return 1
     fi
     return 0
 }
 
 VALIDATION_FAILED=0
-for _var in STROMA_API_KEY STROMA_MODEL_PATH STROMA_HEAD_HOST STROMA_SLURM_PARTITION; do
+for _var in STROMA_MODEL_PATH STROMA_HEAD_HOST STROMA_SLURM_PARTITION; do
     _check_var "${_var}" || VALIDATION_FAILED=1
 done
 unset _var
