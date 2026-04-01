@@ -32,12 +32,12 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
-    # Expose postgres on loopback only so keycloak can reach it via
-    # host.containers.internal (podman 4.x auto-injects this into /etc/hosts).
-    # This bypasses CNI dnsname entirely, which requires the podman-plugins
-    # package and does not work for rootless containers on RHEL 8 without root.
+    # Rootless podman uses slirp4netns: host.containers.internal maps to the
+    # slirp4netns gateway, NOT 127.0.0.1.  Binding to 127.0.0.1 makes postgres
+    # unreachable from the keycloak container.  Bind on all interfaces so the
+    # gateway IP can reach it.  Access is still auth-gated by pg_hba.conf.
     ports:
-      - "127.0.0.1:5432:5432"
+      - "5432:5432"
     networks:
       - keycloak-net
 
