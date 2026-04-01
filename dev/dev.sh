@@ -108,6 +108,7 @@ usage() {
 SUBCMD=""
 PROFILE_INFERENCE=0
 PROFILE_WATCHER=0
+_DEV_FRESH_DB_PASS=0   # set to 1 if KC_DB_PASSWORD was freshly generated (not read from .env)
 MODEL_PATH_OVERRIDE=""
 HTTPS_PORT_OVERRIDE=""
 DRY_RUN=0
@@ -619,7 +620,7 @@ ensure_dot_env() {
     local owu_client_secret; owu_client_secret=$(read_env_var KC_OPENWEBUI_CLIENT_SECRET "${DEV_ENV}")
     local demo_pass; demo_pass=$(read_env_var KC_DEMO_USER_PASSWORD "${DEV_ENV}")
 
-    [[ -z "${db_pass}" ]]          && db_pass=$(gen_secret 16)
+    [[ -z "${db_pass}" ]]          && { db_pass=$(gen_secret 16); _DEV_FRESH_DB_PASS=1; }
     [[ -z "${admin_pass}" ]]       && admin_pass=$(gen_secret 12)
     [[ -z "${api_key}" ]]          && api_key=$(gen_secret 32)
     [[ -z "${webui_secret}" ]]     && webui_secret=$(gen_secret 32)
@@ -845,17 +846,48 @@ case "${SUBCMD}" in
         [[ "${PROFILE_INFERENCE}" -eq 0 && "${PROFILE_WATCHER}" -eq 0 ]] && \
             log_info "Starting auth + UI stack (use --inference to add vLLM)"
 
+        # Detect stale postgres volume: when .env was absent and a new
+        # KC_DB_PASSWORD was generated, but the postgres_data volume already
+        # exists from a prior run — Keycloak will fail with "password auth
+        # failed".  Catch this before starting rather than after 120s of wait.
+        if [[ "${_DEV_FRESH_DB_PASS}" -eq 1 && "${DRY_RUN}" -eq 0 ]]; then
+            local stale_vol
+            stale_vol=$(podman volume ls --format '{{.Name}}' 2>/dev/null \
+                        | grep 'postgres_data$' | head -1 || true)
+            if [[ -n "${stale_vol}" ]]; then
+                echo
+                log_warn "dev/.env was missing — new secrets were generated."
+                log_warn "But postgres volume '${stale_vol}' already exists with a different password."
+                log_warn "Keycloak would fail with 'password authentication failed'."
+                echo
+                die "Stale database detected. Run:  ./dev.sh clean && ./dev.sh up"
+            fi
+        fi
+
+        # Stop existing containers first — ensures changed compose config
+        # (volume mounts, env vars) takes effect without leftover containers.
+        # Named volumes are preserved; only containers are removed.
+        compose down --remove-orphans 2>/dev/null || true
+
         compose up -d --remove-orphans
 
-        # Brief wait for keycloak to start accepting connections
+        # Wait for Keycloak to accept connections (TCP check on published port).
+        # Timeout after 120s with a hint to check logs — avoids infinite hang
+        # when KC is in a restart loop (e.g. password mismatch, bad realm JSON).
         if [[ "${DRY_RUN}" -eq 0 ]]; then
             local kc_port; kc_port=$(read_env_var KC_PORT "${DEV_ENV}"); kc_port="${kc_port:-8080}"
-            log_info "Waiting for Keycloak (can take up to 90s on first run)..."
+            log_info "Waiting for Keycloak on :${kc_port} (up to 120s)..."
             local waited=0
             until bash -c "</dev/tcp/127.0.0.1/${kc_port}" 2>/dev/null; do
                 sleep 5; waited=$((waited + 5))
                 printf '.'
-                (( waited >= 120 )) && { echo; log_warn "Keycloak hasn't responded in 120s — check: ./dev.sh logs keycloak"; break; }
+                if (( waited >= 120 )); then
+                    echo
+                    log_warn "Keycloak didn't respond in 120s — it may be stuck."
+                    log_warn "Check logs:  ./dev.sh logs keycloak"
+                    log_warn "If you see 'password auth failed': run  ./dev.sh clean && ./dev.sh up"
+                    break
+                fi
             done
             echo
             (( waited < 120 )) && log_ok "Keycloak is accepting connections"
