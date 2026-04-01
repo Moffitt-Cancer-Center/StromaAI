@@ -199,6 +199,69 @@ read_env_var() {
 gen_secret() { openssl rand -hex "${1:-32}"; }
 
 # ---------------------------------------------------------------------------
+# port_in_use PORT — return 0 if something is already bound to PORT on any
+# interface, 1 if the port is free.
+# Uses ss (iproute2, preferred) then nc as fallback.
+# ---------------------------------------------------------------------------
+port_in_use() {
+    local port="$1"
+    # ss is reliable and fast; -tnlp would need root but -tnl is sufficient.
+    if command -v ss &>/dev/null; then
+        ss -tnl 2>/dev/null | awk '{print $4}' | grep -qE ":${port}$"
+        return $?
+    fi
+    # nc fallback: attempt a TCP connection with a 1s timeout
+    if command -v nc &>/dev/null; then
+        nc -z -w1 127.0.0.1 "${port}" &>/dev/null
+        return $?
+    fi
+    # Last resort: /dev/tcp (requires bash and something listening)
+    (bash -c "</dev/tcp/127.0.0.1/${port}" 2>/dev/null) && return 0 || return 1
+}
+
+# ---------------------------------------------------------------------------
+# find_free_port DEFAULT [MAX_TRIES] — return DEFAULT if free, otherwise
+# increment by 1 until a free port is found (up to MAX_TRIES steps).
+# Prints the chosen port.
+# ---------------------------------------------------------------------------
+find_free_port() {
+    local port="$1"
+    local max_tries="${2:-100}"
+    local tried=0
+    while port_in_use "${port}"; do
+        tried=$(( tried + 1 ))
+        if (( tried >= max_tries )); then
+            die "Could not find a free port starting from $1 after ${max_tries} attempts."
+        fi
+        port=$(( port + 1 ))
+    done
+    if (( tried > 0 )); then
+        log_warn "Port $1 is in use — using ${port} instead"
+    fi
+    echo "${port}"
+}
+
+# ---------------------------------------------------------------------------
+# resolve_port VAR_NAME DEFAULT — use the saved .env value if present,
+# otherwise find_free_port from DEFAULT. Prints the resolved port.
+# ---------------------------------------------------------------------------
+resolve_port() {
+    local var="$1" default="$2"
+    local saved; saved=$(read_env_var "${var}" "${DEV_ENV}")
+    if [[ -n "${saved}" ]]; then
+        # Verify the saved port is still free (could have been taken since last run)
+        if port_in_use "${saved}"; then
+            log_warn "Saved ${var}=${saved} is now in use — finding a new port"
+            find_free_port "${default}"
+        else
+            echo "${saved}"
+        fi
+    else
+        find_free_port "${default}"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # ensure_directory — create directory with a .gitkeep if needed
 # ---------------------------------------------------------------------------
 ensure_directory() {
@@ -304,18 +367,51 @@ ensure_dot_env() {
     write_env_var KC_GATEWAY_CLIENT_SECRET  "${gw_client_secret}" "${DEV_ENV}"
     write_env_var KC_OPENWEBUI_CLIENT_SECRET "${owu_client_secret}" "${DEV_ENV}"
 
-    # Paths and ports
+    # -------------------------------------------------------------------------
+    # Ports — auto-discover free ports on first run; reuse on subsequent runs.
+    # Host-published ports are checked for conflicts; internal-only ports
+    # (GATEWAY_PORT is on the bridge network, not published) are also checked
+    # in case they collide via host-network services (ray/vllm/watcher).
+    # -------------------------------------------------------------------------
     local model_path; model_path=$(read_env_var DEV_MODEL_PATH "${DEV_ENV}")
     [[ -z "${model_path}" ]] && model_path="${MODELS_DIR}"
     write_env_var DEV_MODEL_PATH     "${model_path}"      "${DEV_ENV}"
     write_env_var DEV_SHARED_ROOT    "${SHARED_DIR}"      "${DEV_ENV}"
-    write_env_var KC_PORT            "8080"               "${DEV_ENV}"
-    write_env_var OPENWEBUI_PORT     "3000"               "${DEV_ENV}"
-    write_env_var GATEWAY_PORT       "9000"               "${DEV_ENV}"
-    write_env_var STROMA_VLLM_PORT   "8000"               "${DEV_ENV}"
-    write_env_var STROMA_RAY_PORT    "6380"               "${DEV_ENV}"
-    write_env_var STROMA_HTTPS_PORT  "${HTTPS_PORT_OVERRIDE:-443}" "${DEV_ENV}"
-    write_env_var WEBUI_NAME         "StromaAI Dev"       "${DEV_ENV}"
+
+    # HTTPS port (nginx TLS) — CLI override takes absolute precedence
+    local https_port
+    if [[ -n "${HTTPS_PORT_OVERRIDE}" ]]; then
+        https_port="${HTTPS_PORT_OVERRIDE}"
+        port_in_use "${https_port}" && log_warn "--port=${https_port} is already in use on this host"
+    else
+        https_port=$(resolve_port STROMA_HTTPS_PORT 443)
+    fi
+
+    # HTTP port (nginx plain, always HTTPS_PORT-1 twin but fixed at 80 by nginx config)
+    # nginx listens on 80 inside the container; only the container runtime matters
+    # for host binding — we don't publish 80 independently, it's always the nginx
+    # container's port 80. We do need to verify 80 is free (nginx publishes 80:80).
+    if port_in_use 80 && [[ "${https_port}" != "80" ]]; then
+        log_warn "Port 80 is in use — HTTP-to-HTTPS redirect will not work (HTTPS still works on :${https_port})"
+        log_warn "To fix: free port 80 on the host or update nginx-dev.conf to listen on an alternate port."
+    fi
+
+    local kc_port owu_port gw_port vllm_port ray_port ray_dash_port
+    kc_port=$(resolve_port   KC_PORT                 8080)
+    owu_port=$(resolve_port  OPENWEBUI_PORT          3000)
+    gw_port=$(resolve_port   GATEWAY_PORT            9000)
+    vllm_port=$(resolve_port STROMA_VLLM_PORT        8000)
+    ray_port=$(resolve_port  STROMA_RAY_PORT         6380)
+    ray_dash_port=$(resolve_port STROMA_RAY_DASHBOARD_PORT 8265)
+
+    write_env_var STROMA_HTTPS_PORT           "${https_port}"   "${DEV_ENV}"
+    write_env_var KC_PORT                     "${kc_port}"      "${DEV_ENV}"
+    write_env_var OPENWEBUI_PORT              "${owu_port}"     "${DEV_ENV}"
+    write_env_var GATEWAY_PORT                "${gw_port}"      "${DEV_ENV}"
+    write_env_var STROMA_VLLM_PORT            "${vllm_port}"    "${DEV_ENV}"
+    write_env_var STROMA_RAY_PORT             "${ray_port}"     "${DEV_ENV}"
+    write_env_var STROMA_RAY_DASHBOARD_PORT   "${ray_dash_port}" "${DEV_ENV}"
+    write_env_var WEBUI_NAME                  "StromaAI Dev"    "${DEV_ENV}"
 
     chmod 600 "${DEV_ENV}"
     log_ok ".env written → ${DEV_ENV}"
