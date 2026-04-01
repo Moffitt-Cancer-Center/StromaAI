@@ -262,7 +262,7 @@ EOF
     # Start services
     # -------------------------------------------------------------------------
     log_step "Starting OpenWebUI via Podman Compose"
-    run_cmd ${COMPOSE_CMD} --project-directory "${SCRIPT_DIR}" up -d
+    run_cmd ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" up -d
 
     # -------------------------------------------------------------------------
     # Wait for health

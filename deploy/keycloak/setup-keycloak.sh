@@ -285,7 +285,7 @@ PYEOF
     # Start services
     # -------------------------------------------------------------------------
     log_step "Starting Keycloak + PostgreSQL via Podman Compose"
-    run_cmd ${COMPOSE_CMD} --project-directory "${SCRIPT_DIR}" up -d
+    run_cmd ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" up -d
 
     KEYCLOAK_URL="http://${KC_HOSTNAME}:${KC_PORT}/realms/stroma-ai"
 
