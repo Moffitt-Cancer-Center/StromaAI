@@ -219,14 +219,26 @@ open_firewall_port() {
         zone_arg="--zone=${zone}"
     fi
 
-    if firewall-cmd --permanent ${zone_arg} --query-port="${port_proto}" &>/dev/null; then
+    # Determine how to run firewall-cmd: root runs directly; non-root tries sudo.
+    local fw_cmd="firewall-cmd"
+    if [[ "$(id -u)" -ne 0 ]]; then
+        if command -v sudo &>/dev/null && sudo -n firewall-cmd --version &>/dev/null 2>&1; then
+            fw_cmd="sudo firewall-cmd"
+        else
+            log_warn "Firewall: cannot open ${port_proto} (not root and sudo not available/passwordless)"
+            log_warn "Run manually: sudo firewall-cmd --permanent ${zone_arg} --add-port=${port_proto} && sudo firewall-cmd --reload"
+            return 0
+        fi
+    fi
+
+    if ${fw_cmd} --permanent ${zone_arg} --query-port="${port_proto}" &>/dev/null; then
         log_info "Firewall: port ${port_proto} already open${zone:+ in zone ${zone}}"
         return 0
     fi
 
     log_info "Firewall: opening ${port_proto}${zone:+ in zone ${zone}} ..."
-    firewall-cmd --permanent ${zone_arg} --add-port="${port_proto}"
-    firewall-cmd --reload
+    ${fw_cmd} --permanent ${zone_arg} --add-port="${port_proto}"
+    ${fw_cmd} --reload
     log_ok "Firewall: ${port_proto} is open"
 }
 
