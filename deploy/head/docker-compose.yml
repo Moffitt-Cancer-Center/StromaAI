@@ -90,7 +90,7 @@ services:
     container_name: stroma-gateway
     environment:
       # Required: OIDC discovery URL — set by setup-keycloak.sh or externally
-      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:?OIDC_DISCOVERY_URL must be set — run setup-keycloak.sh first}
+      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-}
       OIDC_AUDIENCE:      ${OIDC_AUDIENCE:-stroma-gateway}
       # vLLM backend — use the Compose service name, NOT localhost
       VLLM_BACKEND_URL:   http://vllm:${STROMA_VLLM_PORT:-8000}
@@ -169,7 +169,7 @@ services:
     image: vllm/vllm-openai:v0.7.2
     container_name: stroma-vllm
     command: >
-      vllm serve ${STROMA_MODEL_PATH:?STROMA_MODEL_PATH must be set in .env}
+      vllm serve ${STROMA_MODEL_PATH:-}
         --served-model-name ${STROMA_MODEL_NAME:-stroma-ai-coder}
         --quantization ${STROMA_VLLM_QUANTIZATION:-awq}
         --tensor-parallel-size 1
@@ -183,7 +183,7 @@ services:
         --enable-chunked-prefill
         --host 0.0.0.0
         --port ${STROMA_VLLM_PORT:-8000}
-        --api-key ${STROMA_API_KEY:?STROMA_API_KEY must be set in .env}
+        --api-key ${STROMA_API_KEY:-}
         --trust-remote-code
         -O2
     environment:
@@ -200,7 +200,7 @@ services:
     volumes:
       # Model weights — bind-mounted at the same path as on the host so that
       # Ray worker nodes (which read from NFS) see the same absolute path.
-      - ${STROMA_MODEL_PATH:?}:${STROMA_MODEL_PATH:?}:ro
+      - ${STROMA_MODEL_PATH:-/tmp/model}:${STROMA_MODEL_PATH:-/tmp/model}:ro
       # Shared root: vLLM may need to write temporary KV cache spill files
       - ${STROMA_SHARED_ROOT:-/share}:${STROMA_SHARED_ROOT:-/share}
     network_mode: host
@@ -238,13 +238,13 @@ services:
       STROMA_RAY_HOST:               localhost
       STROMA_RAY_PORT:               ${STROMA_RAY_PORT:-6380}
       STROMA_VLLM_PORT:              ${STROMA_VLLM_PORT:-8000}
-      STROMA_API_KEY:                ${STROMA_API_KEY:?STROMA_API_KEY must be set in .env}
+      STROMA_API_KEY:                ${STROMA_API_KEY:-}
       STROMA_MAX_BURST_WORKERS:      ${STROMA_MAX_BURST_WORKERS:-5}
       STROMA_SCALE_UP_THRESHOLD:     ${STROMA_SCALE_UP_THRESHOLD:-2}
       STROMA_SCALE_DOWN_IDLE_SECONDS: ${STROMA_SCALE_DOWN_IDLE_SECONDS:-300}
       STROMA_SCALE_UP_COOLDOWN:      ${STROMA_SCALE_UP_COOLDOWN:-300}
       STROMA_WATCHER_POLL_INTERVAL:  ${STROMA_WATCHER_POLL_INTERVAL:-30}
-      STROMA_SLURM_PARTITION:        ${STROMA_SLURM_PARTITION:?STROMA_SLURM_PARTITION must be set in .env}
+      STROMA_SLURM_PARTITION:        ${STROMA_SLURM_PARTITION:-}
       STROMA_SLURM_ACCOUNT:          ${STROMA_SLURM_ACCOUNT:-stroma-ai-service}
       STROMA_SLURM_SCRIPT:           ${STROMA_SLURM_SCRIPT:-${STROMA_SHARED_ROOT:-/share}/slurm/stroma_ai_worker.slurm}
       STROMA_SLURM_WALLTIME:         ${STROMA_SLURM_WALLTIME:-7-00:00:00}
