@@ -142,7 +142,10 @@ write_or_update_config() {
 wait_for_keycloak() {
     local url="$1" max_wait=120 waited=0
     log_info "Waiting for Keycloak at ${url} ..."
-    while ! curl -sf --max-time 3 "${url}/health/ready" &>/dev/null; do
+    # Probe the OIDC discovery document on the main port (8080).
+    # The /health/ready endpoint is on the management port (9000) which is
+    # not published to the host — so we use the realm endpoint instead.
+    while ! curl -sf --max-time 3 "${url}/.well-known/openid-configuration" &>/dev/null; do
         sleep 5
         waited=$((waited + 5))
         if (( waited >= max_wait )); then
@@ -300,9 +303,9 @@ PYEOF
     KEYCLOAK_URL="http://${KC_HOSTNAME}:${KC_PORT}/realms/stroma-ai"
 
     if [[ "${STROMA_DRY_RUN:-0}" != "1" ]]; then
-        wait_for_keycloak "http://${KC_HOSTNAME}:${KC_PORT}"
+        wait_for_keycloak "${KEYCLOAK_URL}"
     else
-        log_dry "Would wait for Keycloak health at http://${KC_HOSTNAME}:${KC_PORT}/health/ready"
+        log_dry "Would wait for Keycloak at ${KEYCLOAK_URL}/.well-known/openid-configuration"
     fi
 
     OIDC_DISCOVERY_URL="${KEYCLOAK_URL}/.well-known/openid-configuration"

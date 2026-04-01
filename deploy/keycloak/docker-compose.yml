@@ -73,8 +73,9 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      # Keycloak 26 exposes /health/ready when the server is fully started.
-      test: ["CMD-SHELL", "curl -fs http://localhost:8080/health/ready || exit 1"]
+      # Keycloak 26: --health-enabled=true exposes /health/ready on the
+      # management interface (port 9000), not the main HTTP port (8080).
+      test: ["CMD-SHELL", "curl -fs http://localhost:9000/health/ready || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
