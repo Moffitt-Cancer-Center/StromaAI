@@ -201,7 +201,21 @@ if [[ "${MODE}" == "local" ]]; then
     detect_compose
 
     log_step "Generating cryptographic secrets"
-    KC_DB_PASSWORD="$(gen_secret)"
+    # Reuse an existing KC_DB_PASSWORD if the compose .env already exists.
+    # PostgreSQL ignores POSTGRES_PASSWORD after the data directory is
+    # initialised, so regenerating the password on re-runs causes auth
+    # failures against an existing postgres_data volume.
+    KC_DB_PASSWORD=""
+    if [[ -f "${COMPOSE_ENV}" ]]; then
+        KC_DB_PASSWORD="$(grep '^KC_DB_PASSWORD=' "${COMPOSE_ENV}" \
+            | head -1 | cut -d= -f2- | tr -d '[:space:]')" || true
+    fi
+    if [[ -z "${KC_DB_PASSWORD}" ]]; then
+        KC_DB_PASSWORD="$(gen_secret)"
+        log_info "Generated new KC_DB_PASSWORD (first run or .env absent)"
+    else
+        log_info "Reusing existing KC_DB_PASSWORD from ${COMPOSE_ENV}"
+    fi
     KC_ADMIN_PASSWORD="$(gen_secret)"
     GW_CLIENT_SECRET="$(gen_secret)"
     OWU_CLIENT_SECRET="$(gen_secret)"
