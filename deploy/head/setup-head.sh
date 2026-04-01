@@ -221,28 +221,36 @@ if [[ -z "${STROMA_API_KEY:-}" || "${STROMA_API_KEY}" == *"CHANGEME"* ]]; then
 fi
 export STROMA_API_KEY
 
-# Validate remaining mandatory variables are set and not placeholders
-_check_var() {
-    local var="$1" val="${!1:-}"
-    if [[ -z "${val}" ]]; then
-        log_error "Required variable ${var} is not set in ${CONFIG_FILE}"
-        return 1
+# Prompt for a required variable if it is missing or still a placeholder,
+# then write the value back into the config file.
+_backed_up_config=0
+_prompt_var() {
+    local var="$1" prompt="$2" val="${!1:-}"
+    if [[ -z "${val}" || "${val}" == *"CHANGEME"* ]]; then
+        if [[ "${STROMA_YES:-0}" == "1" ]]; then
+            die "${var} is required but not set in ${CONFIG_FILE}. Re-run without --yes and enter the value interactively."
+        fi
+        if [[ "${_backed_up_config}" -eq 0 ]]; then
+            backup_file "${CONFIG_FILE}"
+            _backed_up_config=1
+        fi
+        echo -en "${BOLD}${prompt}: ${RESET}"
+        read -r val
+        [[ -z "${val}" ]] && die "${var} cannot be empty."
+        if grep -qE "^${var}=" "${CONFIG_FILE}" 2>/dev/null; then
+            sed -i "s|^${var}=.*|${var}=${val}|" "${CONFIG_FILE}"
+        else
+            echo "${var}=${val}" >> "${CONFIG_FILE}"
+        fi
+        log_ok "${var} written to ${CONFIG_FILE}"
+        export "${var}=${val}"
     fi
-    if [[ "${val}" == *"CHANGEME"* ]]; then
-        log_error "${var} still contains placeholder value in ${CONFIG_FILE}"
-        return 1
-    fi
-    return 0
 }
 
-VALIDATION_FAILED=0
-for _var in STROMA_MODEL_PATH STROMA_HEAD_HOST STROMA_SLURM_PARTITION OIDC_DISCOVERY_URL; do
-    _check_var "${_var}" || VALIDATION_FAILED=1
-done
-unset _var
-
-[[ "${VALIDATION_FAILED}" -eq 0 ]] || \
-    die "Fix the above variables in ${CONFIG_FILE} then re-run this script."
+_prompt_var STROMA_HEAD_HOST      "Head node hostname or IP (e.g. hpctpa3pl0003.foobar.org)"
+_prompt_var STROMA_SLURM_PARTITION "Slurm partition name for GPU workers (e.g. gpu)"
+_prompt_var STROMA_MODEL_PATH     "Absolute path to model weights on shared storage (e.g. /share/models/Qwen2.5-Coder-32B-Instruct-AWQ)"
+_prompt_var OIDC_DISCOVERY_URL    "OIDC discovery URL from Keycloak (e.g. http://localhost:8080/realms/stroma-ai/.well-known/openid-configuration)"
 
 log_ok "Config validation passed"
 
