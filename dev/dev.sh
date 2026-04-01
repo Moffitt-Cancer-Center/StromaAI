@@ -55,6 +55,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DEV_ENV="${SCRIPT_DIR}/.env"
 DEV_DATA="${SCRIPT_DIR}/dev-data"
 CERT_DIR="${DEV_DATA}/certs"
+REALM_DIR="${DEV_DATA}/realm"
 MODELS_DIR="${DEV_DATA}/models"
 SHARED_DIR="${DEV_DATA}/shared"
 
@@ -321,6 +322,71 @@ generate_tls_cert() {
 }
 
 # ---------------------------------------------------------------------------
+# generate_realm_json — stamp realm-export.json template with real secrets
+# and mount-friendly path so Keycloak never sees placeholder strings.
+# Called after ensure_dot_env (needs secrets from .env).
+# ---------------------------------------------------------------------------
+generate_realm_json() {
+    local out="${REALM_DIR}/stroma-ai-realm.json"
+    local template="${REPO_ROOT}/deploy/keycloak/realm-export.json"
+
+    [[ ! -f "${template}" ]] && die "Realm template not found: ${template}"
+
+    if [[ "${DRY_RUN}" -eq 1 ]]; then
+        log_dry "generate_realm_json → ${out}"
+        return
+    fi
+
+    mkdir -p "${REALM_DIR}"
+
+    local gw_secret owu_secret demo_pass host_ip https_port owu_port
+    gw_secret=$(read_env_var KC_GATEWAY_CLIENT_SECRET "${DEV_ENV}")
+    owu_secret=$(read_env_var KC_OPENWEBUI_CLIENT_SECRET "${DEV_ENV}")
+    demo_pass=$(read_env_var KC_DEMO_USER_PASSWORD "${DEV_ENV}")
+    host_ip=$(read_env_var DEV_HOST_IP "${DEV_ENV}")
+    https_port=$(read_env_var STROMA_HTTPS_PORT "${DEV_ENV}"); https_port="${https_port:-443}"
+    owu_port=$(read_env_var OPENWEBUI_PORT "${DEV_ENV}"); owu_port="${owu_port:-3000}"
+
+    python3 - "${template}" "${out}" \
+        "${gw_secret}" "${owu_secret}" "${demo_pass}" \
+        "${host_ip}" "${https_port}" "${owu_port}" <<'PYEOF'
+import sys, json
+template, out = sys.argv[1], sys.argv[2]
+gw_secret, owu_secret, demo_pass = sys.argv[3], sys.argv[4], sys.argv[5]
+host_ip, https_port, owu_port = sys.argv[6], sys.argv[7], sys.argv[8]
+
+with open(template) as f:
+    content = f.read()
+
+content = content.replace("REPLACE_WITH_GATEWAY_CLIENT_SECRET", gw_secret)
+content = content.replace("REPLACE_WITH_OPENWEBUI_CLIENT_SECRET", owu_secret)
+content = content.replace("REPLACE_WITH_DEMO_USER_PASSWORD", demo_pass)
+content = content.replace("${KC_HOSTNAME}", host_ip)
+
+data = json.loads(content)
+
+# Ensure all dev access URIs are present for the openwebui client
+extra_uris = [
+    f"https://{host_ip}:{https_port}/*",
+    f"http://{host_ip}:{owu_port}/*",
+    "http://localhost:3000/*",
+    "http://localhost/*",
+]
+for client in data.get("clients", []):
+    if client.get("clientId") == "openwebui":
+        uris = set(client.get("redirectUris", []))
+        uris.update(extra_uris)
+        client["redirectUris"] = sorted(uris)
+
+with open(out, "w") as f:
+    json.dump(data, f, indent=2)
+PYEOF
+
+    chmod 600 "${out}"
+    log_ok "Realm JSON → ${out}"
+}
+
+# ---------------------------------------------------------------------------
 # ensure_dot_env — write/update dev/.env with all required vars
 # ---------------------------------------------------------------------------
 ensure_dot_env() {
@@ -351,6 +417,7 @@ ensure_dot_env() {
     local webui_secret; webui_secret=$(read_env_var WEBUI_SECRET_KEY "${DEV_ENV}")
     local gw_client_secret; gw_client_secret=$(read_env_var KC_GATEWAY_CLIENT_SECRET "${DEV_ENV}")
     local owu_client_secret; owu_client_secret=$(read_env_var KC_OPENWEBUI_CLIENT_SECRET "${DEV_ENV}")
+    local demo_pass; demo_pass=$(read_env_var KC_DEMO_USER_PASSWORD "${DEV_ENV}")
 
     [[ -z "${db_pass}" ]]          && db_pass=$(gen_secret 16)
     [[ -z "${admin_pass}" ]]       && admin_pass=$(gen_secret 12)
@@ -358,6 +425,7 @@ ensure_dot_env() {
     [[ -z "${webui_secret}" ]]     && webui_secret=$(gen_secret 32)
     [[ -z "${gw_client_secret}" ]] && gw_client_secret=$(gen_secret 16)
     [[ -z "${owu_client_secret}" ]] && owu_client_secret=$(gen_secret 16)
+    [[ -z "${demo_pass}" ]]        && demo_pass=$(gen_secret 12)
 
     write_env_var KC_DB_PASSWORD            "${db_pass}"         "${DEV_ENV}"
     write_env_var KC_ADMIN_USER             "admin"              "${DEV_ENV}"
@@ -366,6 +434,7 @@ ensure_dot_env() {
     write_env_var WEBUI_SECRET_KEY          "${webui_secret}"    "${DEV_ENV}"
     write_env_var KC_GATEWAY_CLIENT_SECRET  "${gw_client_secret}" "${DEV_ENV}"
     write_env_var KC_OPENWEBUI_CLIENT_SECRET "${owu_client_secret}" "${DEV_ENV}"
+    write_env_var KC_DEMO_USER_PASSWORD     "${demo_pass}"       "${DEV_ENV}"
 
     # -------------------------------------------------------------------------
     # Ports — auto-discover free ports on first run; reuse on subsequent runs.
@@ -547,9 +616,11 @@ case "${SUBCMD}" in
         ensure_directory "${SHARED_DIR}/logs"
         ensure_directory "${SHARED_DIR}/slurm"
         ensure_directory "${CERT_DIR}"
+        ensure_directory "${REALM_DIR}"
 
         ensure_dot_env
         generate_tls_cert
+        generate_realm_json
 
         if [[ "${PROFILE_WATCHER}" -eq 1 ]]; then
             log_step "Checking Slurm binaries (watcher profile)"

@@ -93,7 +93,7 @@ services:
       KC_HTTP_ENABLED:             "true"
       KC_LOG_LEVEL:                INFO
     volumes:
-      - ../deploy/keycloak/realm-export.json:/opt/keycloak/data/import/stroma-ai-realm.json:ro
+      - ./dev-data/realm/stroma-ai-realm.json:/opt/keycloak/data/import/stroma-ai-realm.json:ro
     ports:
       - "${KC_PORT:-8080}:8080"
     depends_on:

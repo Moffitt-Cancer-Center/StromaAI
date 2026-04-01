@@ -24,6 +24,7 @@ config/config.env
 # Dev environment secrets and generated files (dev/dev.sh writes these)
 dev/.env
 dev/dev-data/certs/
+dev/dev-data/realm/
 
 # dev-data directories: keep the tree but not the contents
 # (model weights are large; logs/state are ephemeral)
