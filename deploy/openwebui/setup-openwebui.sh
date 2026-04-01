@@ -39,6 +39,54 @@ die()     { err "$*"; exit 1; }
 
 require_cmd() { command -v "$1" &>/dev/null || die "Required command not found: $1"; }
 
+# Detect available Podman Compose implementation.
+# Sets COMPOSE_CMD to the working invocation string.
+detect_compose() {
+  require_cmd podman
+  if podman compose version &>/dev/null 2>&1; then
+    COMPOSE_CMD="podman compose"
+  elif command -v podman-compose &>/dev/null; then
+    COMPOSE_CMD="podman-compose"
+  else
+    die "No Podman Compose found. Install with one of:
+  dnf install podman-compose        # RHEL/Rocky (requires EPEL)
+  pip3 install podman-compose       # pip fallback
+Podman 4.x+ also supports 'podman compose' if docker-compose is installed."
+  fi
+  info "Using compose command: ${COMPOSE_CMD}"
+}
+
+usage() {
+  cat <<EOF
+Usage: $(basename "${BASH_SOURCE[0]}") [OPTIONS]
+
+Options:
+  --mode=local      Deploy OpenWebUI container on this host non-interactively
+  --mode=external   Register an existing OpenWebUI instance non-interactively
+  --config=FILE     Path to platform config.env
+                    (default: /opt/stroma-ai/config.env)
+  -h, --help        Show this help message
+
+Prerequisite: setup-keycloak.sh must be run first (sets OIDC_DISCOVERY_URL).
+EOF
+  exit 0
+}
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+MODE=""
+for _arg in "$@"; do
+  case "${_arg}" in
+    --mode=local)    MODE="local" ;;
+    --mode=external) MODE="external" ;;
+    --config=*)      CONFIG_ENV="${_arg#--config=}" ;;
+    -h|--help)       usage ;;
+    *) die "Unknown argument: ${_arg}. Use --help for usage." ;;
+  esac
+done
+unset _arg
+
 gen_secret() {
   python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null \
     || openssl rand -hex 32
@@ -92,25 +140,26 @@ fi
 # ---------------------------------------------------------------------------
 # Mode selection
 # ---------------------------------------------------------------------------
-echo "Select OpenWebUI deployment mode:"
-echo "  1) LOCAL    — Deploy OpenWebUI container on this host"
-echo "  2) EXTERNAL — Register an existing OpenWebUI instance"
-echo
-read -rp "Enter choice [1/2]: " MODE_CHOICE
+if [[ -z "${MODE}" ]]; then
+  echo "Select OpenWebUI deployment mode:"
+  echo "  1) LOCAL    — Deploy OpenWebUI container on this host"
+  echo "  2) EXTERNAL — Register an existing OpenWebUI instance"
+  echo
+  read -rp "Enter choice [1/2]: " MODE_CHOICE
 
-case "${MODE_CHOICE}" in
-  1) MODE="local" ;;
-  2) MODE="external" ;;
-  *) die "Invalid choice: ${MODE_CHOICE}" ;;
-esac
+  case "${MODE_CHOICE}" in
+    1) MODE="local" ;;
+    2) MODE="external" ;;
+    *) die "Invalid choice: ${MODE_CHOICE}" ;;
+  esac
+fi
 
 # ===========================================================================
 # MODE: LOCAL
 # ===========================================================================
 if [[ "${MODE}" == "local" ]]; then
 
-  require_cmd podman
-  podman compose version &>/dev/null || die "podman-compose not found. Install: dnf install podman-compose  or  pip install podman-compose"
+  detect_compose
 
   # Gather settings
   read -rp "OpenWebUI host port [default: 3000]: " OWU_PORT
@@ -150,14 +199,14 @@ EOF
 
   # Start
   info "Starting OpenWebUI via Podman Compose..."
-  podman compose --project-directory "${SCRIPT_DIR}" up -d
+  ${COMPOSE_CMD} --project-directory "${SCRIPT_DIR}" up -d
 
   # Wait for health
   MAX_WAIT=90 ; WAITED=0
   info "Waiting for OpenWebUI to become healthy..."
   while ! curl -sf --max-time 3 "http://localhost:${OWU_PORT}/health" &>/dev/null; do
     sleep 5 ; WAITED=$((WAITED + 5))
-    (( WAITED >= MAX_WAIT )) && die "OpenWebUI did not become healthy within ${MAX_WAIT}s. Check: podman compose logs openwebui"
+    (( WAITED >= MAX_WAIT )) && die "OpenWebUI did not become healthy within ${MAX_WAIT}s. Check: ${COMPOSE_CMD} logs openwebui"
     printf '.'
   done
   echo

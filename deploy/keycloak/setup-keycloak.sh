@@ -15,7 +15,8 @@
 #   /opt/stroma-ai/config.env  — updated with OIDC_* variables (merged, not
 #                                overwritten) so other components auto-pick-up.
 #
-# Requirements (LOCAL mode): podman, podman-compose
+# Requirements (LOCAL mode): podman + either 'podman compose' (Podman 4.x plugin)
+#                             or standalone podman-compose
 # Requirements (EXTERNAL mode): none
 # =============================================================================
 
@@ -41,6 +42,59 @@ die()     { err "$*"; exit 1; }
 require_cmd() {
   command -v "$1" &>/dev/null || die "Required command not found: $1"
 }
+
+# Detect available Podman Compose implementation.
+# Sets COMPOSE_CMD to the working invocation string.
+detect_compose() {
+  require_cmd podman
+  if podman compose version &>/dev/null 2>&1; then
+    COMPOSE_CMD="podman compose"
+  elif command -v podman-compose &>/dev/null; then
+    COMPOSE_CMD="podman-compose"
+  else
+    die "No Podman Compose found. Install with one of:
+  dnf install podman-compose        # RHEL/Rocky (requires EPEL)
+  pip3 install podman-compose       # pip fallback
+Podman 4.x+ also supports 'podman compose' if docker-compose is installed."
+  fi
+  info "Using compose command: ${COMPOSE_CMD}"
+}
+
+usage() {
+  cat <<EOF
+Usage: $(basename "${BASH_SOURCE[0]}") [OPTIONS]
+
+Options:
+  --mode=local      Deploy Keycloak 26.x container non-interactively
+  --mode=external   Configure an existing institutional IdP non-interactively
+  --config=FILE     Path to platform config.env
+                    (default: /opt/stroma-ai/config.env)
+  -h, --help        Show this help message
+
+Examples:
+  # Interactive wizard:
+  ./setup-keycloak.sh
+
+  # Non-interactive with a pre-filled config:
+  STROMA_CONFIG_ENV=/opt/stroma-ai/config.env ./setup-keycloak.sh --mode=local
+EOF
+  exit 0
+}
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+MODE=""
+for _arg in "$@"; do
+  case "${_arg}" in
+    --mode=local)    MODE="local" ;;
+    --mode=external) MODE="external" ;;
+    --config=*)      CONFIG_ENV="${_arg#--config=}" ;;
+    -h|--help)       usage ;;
+    *) die "Unknown argument: ${_arg}. Use --help for usage." ;;
+  esac
+done
+unset _arg
 
 gen_secret() {
   # 32 random bytes → hex (64 chars), no openssl dependency branch
@@ -71,7 +125,7 @@ wait_for_keycloak() {
     sleep 5
     waited=$((waited + 5))
     if (( waited >= max_wait )); then
-      die "Keycloak did not become healthy within ${max_wait}s. Check: podman compose logs keycloak"
+      die "Keycloak did not become healthy within ${max_wait}s. Check: ${COMPOSE_CMD} logs keycloak"
     fi
     printf '.'
   done
@@ -92,25 +146,26 @@ echo
 # ---------------------------------------------------------------------------
 # Mode selection
 # ---------------------------------------------------------------------------
-echo "Select identity provider mode:"
-echo "  1) LOCAL    — Deploy Keycloak 26.x container (recommended for standalone)"
-echo "  2) EXTERNAL — Use an existing institutional IdP (Okta, Azure AD, etc.)"
-echo
-read -rp "Enter choice [1/2]: " MODE_CHOICE
+if [[ -z "${MODE}" ]]; then
+  echo "Select identity provider mode:"
+  echo "  1) LOCAL    — Deploy Keycloak 26.x container (recommended for standalone)"
+  echo "  2) EXTERNAL — Use an existing institutional IdP (Okta, Azure AD, etc.)"
+  echo
+  read -rp "Enter choice [1/2]: " MODE_CHOICE
 
-case "${MODE_CHOICE}" in
-  1) MODE="local" ;;
-  2) MODE="external" ;;
-  *) die "Invalid choice: ${MODE_CHOICE}. Run the script again and enter 1 or 2." ;;
-esac
+  case "${MODE_CHOICE}" in
+    1) MODE="local" ;;
+    2) MODE="external" ;;
+    *) die "Invalid choice: ${MODE_CHOICE}. Run the script again and enter 1 or 2." ;;
+  esac
+fi
 
 # ===========================================================================
 # MODE: LOCAL
 # ===========================================================================
 if [[ "${MODE}" == "local" ]]; then
 
-  require_cmd podman
-  podman compose version &>/dev/null || die "podman-compose not found. Install: dnf install podman-compose  or  pip install podman-compose"
+  detect_compose
 
   info "Generating cryptographic secrets..."
   KC_DB_PASSWORD="$(gen_secret)"
@@ -180,7 +235,7 @@ PYEOF
   # Start services
   # ---------------------------------------------------------------------------
   info "Starting Keycloak + PostgreSQL via Podman Compose..."
-  podman compose --project-directory "${SCRIPT_DIR}" up -d
+  ${COMPOSE_CMD} --project-directory "${SCRIPT_DIR}" up -d
 
   KEYCLOAK_URL="http://${KC_HOSTNAME}:${KC_PORT}/realms/stroma-ai"
   wait_for_keycloak "http://${KC_HOSTNAME}:${KC_PORT}"
