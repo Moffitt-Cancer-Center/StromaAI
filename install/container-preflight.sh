@@ -60,25 +60,8 @@ source "${SCRIPT_DIR}/lib/nvidia.sh"
 source "${SCRIPT_DIR}/lib/selinux.sh"
 
 # ---------------------------------------------------------------------------
-# Argument parsing
+# Usage
 # ---------------------------------------------------------------------------
-TARGET=""
-DO_INSTALL=0
-
-for _arg in "$@"; do
-    case "${_arg}" in
-        --target=*)  TARGET="${_arg#--target=}" ;;
-        --install)   DO_INSTALL=1 ;;
-        --dry-run)   export STROMA_DRY_RUN=1 ;;
-        --yes)       export STROMA_YES=1 ;;
-        -h|--help)   _show_usage; exit 0 ;;
-        *) die "Unknown argument: ${_arg}. Use --help for usage." ;;
-    esac
-done
-unset _arg
-
-[[ -n "${TARGET}" ]] || { _show_usage; die "Missing required flag: --target"; }
-
 _show_usage() {
     cat <<EOF
 Usage: $0 --target=TARGET [OPTIONS]
@@ -102,6 +85,26 @@ Examples:
        ./install/container-preflight.sh --target=build-host --install
 EOF
 }
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+TARGET=""
+DO_INSTALL=0
+
+for _arg in "$@"; do
+    case "${_arg}" in
+        --target=*)  TARGET="${_arg#--target=}" ;;
+        --install)   DO_INSTALL=1 ;;
+        --dry-run)   export STROMA_DRY_RUN=1 ;;
+        --yes)       export STROMA_YES=1 ;;
+        -h|--help)   _show_usage; exit 0 ;;
+        *) die "Unknown argument: ${_arg}. Use --help for usage." ;;
+    esac
+done
+unset _arg
+
+[[ -n "${TARGET}" ]] || { _show_usage; die "Missing required flag: --target"; }
 
 # ---------------------------------------------------------------------------
 # Check-tracking counters
