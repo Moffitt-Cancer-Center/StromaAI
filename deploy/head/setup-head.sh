@@ -68,6 +68,22 @@ run_cmd() {
     "$@"
 }
 
+backup_file() {
+    local f="$1"
+    [[ -f "${f}" ]] || return 0
+    local bak="${f}.bak.$(date +%Y%m%d%H%M%S)"
+    cp "${f}" "${bak}"
+    log_info "Backed up ${f} → ${bak}"
+}
+
+require_cmd() {
+    command -v "$1" &>/dev/null || die "Required command not found: $1"
+}
+
+# Source detect.sh for detect_os() — log_warn/die must be defined first (above)
+# shellcheck source=install/lib/detect.sh
+source "${REPO_ROOT}/install/lib/detect.sh"
+
 # ---------------------------------------------------------------------------
 # Usage
 # ---------------------------------------------------------------------------
