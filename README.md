@@ -32,58 +32,58 @@ StromaAI resolves this by:
 ┌────────────────────────────────────────────────────────┐
 │  Clients: Researchers, OOD code-server, external apps  │
 │    Kilo Code / OpenWebUI ──HTTPS──► nginx TLS proxy    │
-└─────────────────────────────┬──────────────────────────┘
+└─────────────────────────┬──────────────────────────────┘
                           │ :443
-         ┌────────────────▼────────────────────┐
-         │  Head Node — Proxmox VM (Debian)    │
-         │                                     │
-         │  ┌──────────────────────────────┐   │
-         │  │  nginx (TLS termination)     │   │
-         │  └──────────┬───────────────────┘   │
-         │             │                       │
-         │  ┌──────────▼───────────────────┐   │
-         │  │  FastAPI OIDC Gateway        │   │
-         │  │  (src/gateway.py)            │   │
-         │  │  ├─ JWT validation (RS256)   │   │
-         │  │  ├─ realm role enforcement   │   │
-         │  │  └─ streaming proxy to vLLM  │   │
-         │  └──────────┬───────────────────┘   │
-         │             │ :8000 (loopback)      │
-         │  ┌──────────▼───────────────────┐   │
-         │  │  vLLM API Server             │   │
-         │  │  (OpenAI-compatible)         │◄──┼── config.env
-         │  └──────────┬───────────────────┘   │
-         │             │ Ray GCS :6380         │
-         │  ┌──────────▼───────────────────┐   │
-         │  │  Ray Head Node               │   │
-         │  └──────────┬───────────────────┘   │
-         │             │                       │
-         │  ┌──────────▼───────────────────┐   │
-         │  │  vllm_watcher.py             │   │
-         │  │  polls /metrics every Ns     │   │
-         │  │  delegates to ClusterManager │   │
-         │  └──────────┬───────────────────┘   │
-         └─────────────────────────────────────┘
+         ┌────────────────▼───────────────────┐
+         │  Head Node — Proxmox VM (Debian)   │
+         │                                    │
+         │  ┌──────────────────────────────┐  │
+         │  │  nginx (TLS termination)     │  │
+         │  └──────────┬───────────────────┘  │
+         │             │                      │
+         │  ┌──────────▼───────────────────┐  │
+         │  │  FastAPI OIDC Gateway        │  │
+         │  │  (src/gateway.py)            │  │
+         │  │  ├─ JWT validation (RS256)   │  │
+         │  │  ├─ realm role enforcement   │  │
+         │  │  └─ streaming proxy to vLLM  │  │
+         │  └──────────┬───────────────────┘  │
+         │             │ :8000 (loopback)     │
+         │  ┌──────────▼───────────────────┐  │
+         │  │  vLLM API Server             │  │
+         │  │  (OpenAI-compatible)         │◄─┼── config.env
+         │  └──────────┬───────────────────┘  │
+         │             │ Ray GCS :6380        │
+         │  ┌──────────▼───────────────────┐  │
+         │  │  Ray Head Node               │  │
+         │  └──────────┬───────────────────┘  │
+         │             │                      │
+         │  ┌──────────▼───────────────────┐  │
+         │  │  vllm_watcher.py             │  │
+         │  │  polls /metrics every Ns     │  │
+         │  │  delegates to ClusterManager │  │
+         │  └──────────┬───────────────────┘  │
+         └────────────────────────────────────┘
                        │ sbatch (on demand)
-         ┌─────────────▼───────────────────────┐
-         │  Slurm GPU Nodes (RHEL-family)      │
-         │                                     │
-         │  Worker 0: A30 GPU                  │
-         │    apptainer exec --nv              │
-         │    ray start --address=HEAD:6380    │
-         │    vllm serve MODEL_PATH            │
-         │                                     │
-         │  Worker 1 … Worker N                │
-         │    (burst on demand, same setup)    │
-         └─────────────────────────────────────┘
+         ┌─────────────▼──────────────────────┐
+         │  Slurm GPU Nodes (RHEL-family)     │
+         │                                    │
+         │  Worker 0: A30 GPU                 │
+         │    apptainer exec --nv             │
+         │    ray start --address=HEAD:6380   │
+         │    vllm serve MODEL_PATH           │
+         │                                    │
+         │  Worker 1 … Worker N               │
+         │    (burst on demand, same setup)   │
+         └────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────────────┐
-│  Identity Layer (optional, deploy/keycloak/ or external IdP)        │
-│                                                                     │
-│  Keycloak 26.x ─── issues OIDC tokens ──► Gateway JWT validation    │
-│  OpenWebUI  ──────── OIDC login ─────────► serves chat UI on :3000  │
-│  stroma-cli ─────── platform management CLI (src/stroma_cli.py)     │
-└─────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│  Identity Layer (optional, deploy/keycloak/ or external IdP)      │
+│                                                                   │
+│  Keycloak 26.x ─── issues OIDC tokens ──► Gateway JWT validation  │
+│  OpenWebUI  ──────── OIDC login ───────► serves chat UI on :3000  │
+│  stroma-cli ─────── platform management CLI (src/stroma_cli.py)   │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ---
