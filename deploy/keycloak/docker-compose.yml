@@ -32,13 +32,14 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
-    # No host-facing ports — only reachable by keycloak service on this network
+    # Expose postgres on loopback only so keycloak can reach it via
+    # host.containers.internal (podman 4.x auto-injects this into /etc/hosts).
+    # This bypasses CNI dnsname entirely, which requires the podman-plugins
+    # package and does not work for rootless containers on RHEL 8 without root.
+    ports:
+      - "127.0.0.1:5432:5432"
     networks:
-      keycloak-net:
-        # Explicit alias ensures the dnsname CNI plugin registers 'postgres'
-        # as a resolvable name even if podman-compose's auto-registration lags.
-        aliases:
-          - postgres
+      - keycloak-net
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
@@ -49,8 +50,11 @@ services:
       --health-enabled=true
     environment:
       # Database
+      # host.containers.internal is auto-injected into every container's
+      # /etc/hosts by podman 4.x — routes to the host loopback where postgres
+      # publishes 127.0.0.1:5432:5432.  This avoids CNI dnsname dependency.
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_URL: jdbc:postgresql://host.containers.internal:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KC_DB_PASSWORD:-}
 

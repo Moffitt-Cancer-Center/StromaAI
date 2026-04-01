@@ -208,19 +208,15 @@ if [[ "${MODE}" == "local" ]]; then
     # Netavark).  Without it, containers on user-defined networks cannot resolve
     # each other by hostname → "UnknownHostException: postgres".
     # -------------------------------------------------------------------------
-    log_step "Verifying CNI DNS plugin (podman-plugins)"
+    # CNI dnsname (podman-plugins) is no longer required: Keycloak connects to
+    # postgres via host.containers.internal:5432 (loopback-published port).
+    # Log a note if the plugin is absent but do not attempt an install that
+    # would fail for non-root users.
+    log_step "Checking CNI DNS plugin (informational)"
     if rpm -q podman-plugins &>/dev/null 2>&1; then
-        log_ok "podman-plugins present (CNI dnsname enabled)"
+        log_ok "podman-plugins present"
     else
-        log_warn "podman-plugins not found — installing (required for inter-container DNS on RHEL 8)"
-        run_cmd dnf install -y podman-plugins
-        log_ok "podman-plugins installed"
-        # Any network created before the plugin was present lacks DNS support.
-        # Take the stack down so compose recreates the network cleanly on up -d.
-        if ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" ps -q 2>/dev/null | grep -q .; then
-            log_info "Cycling stack to recreate CNI network with DNS support..."
-            run_cmd ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" down
-        fi
+        log_info "podman-plugins not installed — not required (using host.containers.internal)"
     fi
 
     log_step "Generating cryptographic secrets"
