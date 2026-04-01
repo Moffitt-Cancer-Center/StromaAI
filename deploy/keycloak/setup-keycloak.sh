@@ -203,6 +203,26 @@ if [[ "${MODE}" == "local" ]]; then
 
     detect_compose
 
+    # -------------------------------------------------------------------------
+    # Ensure the CNI dnsname plugin is installed (RHEL 8 Podman uses CNI, not
+    # Netavark).  Without it, containers on user-defined networks cannot resolve
+    # each other by hostname → "UnknownHostException: postgres".
+    # -------------------------------------------------------------------------
+    log_step "Verifying CNI DNS plugin (podman-plugins)"
+    if rpm -q podman-plugins &>/dev/null 2>&1; then
+        log_ok "podman-plugins present (CNI dnsname enabled)"
+    else
+        log_warn "podman-plugins not found — installing (required for inter-container DNS on RHEL 8)"
+        run_cmd dnf install -y podman-plugins
+        log_ok "podman-plugins installed"
+        # Any network created before the plugin was present lacks DNS support.
+        # Take the stack down so compose recreates the network cleanly on up -d.
+        if ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" ps -q 2>/dev/null | grep -q .; then
+            log_info "Cycling stack to recreate CNI network with DNS support..."
+            run_cmd ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" down
+        fi
+    fi
+
     log_step "Generating cryptographic secrets"
     # Reuse an existing KC_DB_PASSWORD if the compose .env already exists.
     # PostgreSQL ignores POSTGRES_PASSWORD after the data directory is

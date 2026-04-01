@@ -34,7 +34,11 @@ services:
     restart: unless-stopped
     # No host-facing ports — only reachable by keycloak service on this network
     networks:
-      - keycloak-net
+      keycloak-net:
+        # Explicit alias ensures the dnsname CNI plugin registers 'postgres'
+        # as a resolvable name even if podman-compose's auto-registration lags.
+        aliases:
+          - postgres
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
