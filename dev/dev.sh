@@ -189,7 +189,7 @@ PYEOF
 read_env_var() {
     local key="$1" file="$2"
     if [[ -f "${file}" ]]; then
-        grep -E "^${key}=" "${file}" | head -1 | cut -d= -f2-
+        grep -E "^${key}=" "${file}" | head -1 | cut -d= -f2- || true
     fi
 }
 
