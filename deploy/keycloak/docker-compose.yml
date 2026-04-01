@@ -42,6 +42,7 @@ services:
       start-dev
       --import-realm
       --features=token-exchange,admin-fine-grained-authz
+      --health-enabled=true
     environment:
       # Database
       KC_DB: postgres
@@ -49,9 +50,9 @@ services:
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KC_DB_PASSWORD:-}
 
-      # Admin bootstrap (only used on first start)
-      KEYCLOAK_ADMIN: ${KC_ADMIN_USER:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-}
+      # Admin bootstrap (only used on first start — Keycloak 26+)
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-}
 
       # Hostname / TLS
       # In production, set KC_HOSTNAME to your FQDN and place a TLS-terminating
