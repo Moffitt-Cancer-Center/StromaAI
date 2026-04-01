@@ -38,8 +38,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # ---------------------------------------------------------------------------
 # Colour helpers (inline — no lib dependency for a standalone setup script)
 # ---------------------------------------------------------------------------
-_tty() { [[ -t 1 ]]; }
-if _tty; then
+if [[ -t 1 ]]; then
     RED='\033[0;31m' YELLOW='\033[1;33m' GREEN='\033[0;32m'
     CYAN='\033[0;36m' BOLD='\033[1m' RESET='\033[0m'
 else
@@ -78,6 +77,39 @@ backup_file() {
 
 require_cmd() {
     command -v "$1" &>/dev/null || die "Required command not found: $1"
+}
+
+# ---------------------------------------------------------------------------
+# write_env_var — safely write KEY=VALUE to a .env file
+# ---------------------------------------------------------------------------
+# Uses Python to avoid sed breakage with special chars in values
+# (|, &, \, newlines). Python 3 is a hard prerequisite for StromaAI.
+# ---------------------------------------------------------------------------
+write_env_var() {
+    local key="$1" value="$2" file="$3"
+    python3 - "${key}" "${value}" "${file}" <<'PYEOF'
+import sys, re, os
+
+key, value, path = sys.argv[1], sys.argv[2], sys.argv[3]
+entry = key + "=" + value + "\n"
+
+if os.path.exists(path):
+    with open(path, "r") as fh:
+        lines = fh.readlines()
+    updated = False
+    for i, line in enumerate(lines):
+        if re.match(r"^" + re.escape(key) + r"=", line):
+            lines[i] = entry
+            updated = True
+            break
+    if not updated:
+        lines.append(entry)
+    with open(path, "w") as fh:
+        fh.writelines(lines)
+else:
+    with open(path, "w") as fh:
+        fh.write(entry)
+PYEOF
 }
 
 # Source detect.sh for detect_os() — log_warn/die must be defined first (above)
@@ -212,11 +244,7 @@ if [[ -z "${STROMA_API_KEY:-}" || "${STROMA_API_KEY}" == *"CHANGEME"* ]]; then
     fi
     # Write back into config file
     backup_file "${CONFIG_FILE}"
-    if grep -qE "^STROMA_API_KEY=" "${CONFIG_FILE}" 2>/dev/null; then
-        sed -i "s|^STROMA_API_KEY=.*|STROMA_API_KEY=${STROMA_API_KEY}|" "${CONFIG_FILE}"
-    else
-        echo "STROMA_API_KEY=${STROMA_API_KEY}" >> "${CONFIG_FILE}"
-    fi
+    write_env_var "STROMA_API_KEY" "${STROMA_API_KEY}" "${CONFIG_FILE}"
     log_ok "STROMA_API_KEY written to ${CONFIG_FILE}"
 fi
 export STROMA_API_KEY
@@ -237,11 +265,7 @@ _prompt_var() {
         echo -en "${BOLD}${prompt}: ${RESET}"
         read -r val
         [[ -z "${val}" ]] && die "${var} cannot be empty."
-        if grep -qE "^${var}=" "${CONFIG_FILE}" 2>/dev/null; then
-            sed -i "s|^${var}=.*|${var}=${val}|" "${CONFIG_FILE}"
-        else
-            echo "${var}=${val}" >> "${CONFIG_FILE}"
-        fi
+        write_env_var "${var}" "${val}" "${CONFIG_FILE}"
         log_ok "${var} written to ${CONFIG_FILE}"
         export "${var}=${val}"
     fi

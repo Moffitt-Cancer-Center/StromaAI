@@ -22,6 +22,7 @@
 # Options:
 #   --drain-timeout <sec>   Max seconds to wait for requests to drain (default: 300)
 #   --start-timeout <sec>   Max seconds to wait for vLLM startup (default: 300)
+#   --dry-run               Print each step without stopping or starting services
 # =============================================================================
 
 set -euo pipefail
@@ -29,13 +30,15 @@ set -euo pipefail
 CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
 DRAIN_TIMEOUT=300
 START_TIMEOUT=300
+DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --drain-timeout) DRAIN_TIMEOUT="$2"; shift 2 ;;
         --start-timeout) START_TIMEOUT="$2"; shift 2 ;;
+        --dry-run)       DRY_RUN=true; shift ;;
         -h|--help)
-            echo "Usage: $0 [--drain-timeout <sec>] [--start-timeout <sec>]"
+            echo "Usage: $0 [--drain-timeout <sec>] [--start-timeout <sec>] [--dry-run]"
             exit 0
             ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
@@ -50,6 +53,15 @@ VLLM_PORT="${STROMA_VLLM_PORT:-8000}"
 API_KEY="${STROMA_API_KEY:-}"
 AUTH_HDR=()
 [[ -n "${API_KEY}" ]] && AUTH_HDR=(-H "Authorization: Bearer ${API_KEY}")
+
+# In dry-run mode: print service commands instead of executing them.
+_svc() {
+    if [[ "${DRY_RUN}" == "true" && "$1" != "is-active" ]]; then
+        echo "  [DRY-RUN] systemctl $*"
+        return 0
+    fi
+    systemctl "$@"
+}
 
 _running_requests() {
     curl -sf -m 5 "${AUTH_HDR[@]}" "http://${HEAD}:${VLLM_PORT}/metrics" 2>/dev/null \
@@ -66,7 +78,7 @@ echo
 # Step 1: Stop watcher
 # ---------------------------------------------------------------------------
 echo "[1/7] Stopping stroma-ai-watcher ..."
-systemctl stop stroma-ai-watcher 2>/dev/null || true
+_svc stop stroma-ai-watcher 2>/dev/null || true
 echo "      Done — no new Slurm submissions will be made."
 
 # ---------------------------------------------------------------------------
@@ -93,16 +105,16 @@ fi
 # Step 3: Stop vLLM and Ray
 # ---------------------------------------------------------------------------
 echo "[3/7] Stopping stroma-ai-vllm and ray-head ..."
-systemctl stop stroma-ai-vllm 2>/dev/null || true
+_svc stop stroma-ai-vllm 2>/dev/null || true
 sleep 5
-systemctl stop ray-head 2>/dev/null || true
+_svc stop ray-head 2>/dev/null || true
 echo "      Done."
 
 # ---------------------------------------------------------------------------
 # Step 4: Start Ray head
 # ---------------------------------------------------------------------------
 echo "[4/7] Starting ray-head ..."
-systemctl start ray-head
+_svc start ray-head
 sleep 5
 if systemctl is-active --quiet ray-head; then
     echo "      ray-head is active."
@@ -116,7 +128,7 @@ fi
 # Step 5: Start vLLM and wait for /health
 # ---------------------------------------------------------------------------
 echo "[5/7] Starting stroma-ai-vllm (waiting up to ${START_TIMEOUT}s) ..."
-systemctl start stroma-ai-vllm
+_svc start stroma-ai-vllm
 HTTP_CODE="000"
 ELAPSED=0
 INTERVAL=10
@@ -141,7 +153,7 @@ fi
 # Step 6: Start watcher
 # ---------------------------------------------------------------------------
 echo "[6/7] Starting stroma-ai-watcher ..."
-systemctl start stroma-ai-watcher
+_svc start stroma-ai-watcher
 sleep 3
 if systemctl is-active --quiet stroma-ai-watcher; then
     echo "      stroma-ai-watcher is active."

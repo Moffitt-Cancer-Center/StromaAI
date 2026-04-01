@@ -75,6 +75,7 @@ UP_COOLDOWN   = int(os.environ.get("STROMA_SCALE_UP_COOLDOWN", "300"))
 POLL_S        = int(os.environ.get("STROMA_WATCHER_POLL_INTERVAL", "30"))
 INSTALL_DIR   = os.environ.get("STROMA_INSTALL_DIR", "/opt/stroma-ai")
 STATE_FILE    = os.environ.get("STROMA_STATE_FILE", "/opt/stroma-ai/watcher_state.json")
+SLURM_SCRIPT  = os.environ.get("STROMA_SLURM_SCRIPT", "/share/slurm/stroma_ai_worker.slurm")
 
 # ClusterManager is constructed once in main() after config validation
 # and passed into functions that need Slurm/Apptainer operations.
@@ -531,6 +532,12 @@ def main() -> None:
             known_ray_nodes = tick(state, known_ray_nodes)
         except Exception:  # noqa: BLE001
             log.exception("Unhandled error in tick — continuing")
+        # Touch heartbeat file so the container healthcheck can verify
+        # the loop is alive (written even when no state changes occur).
+        try:
+            Path(STATE_FILE).parent.joinpath("watcher_heartbeat").touch()
+        except OSError:
+            pass
         time.sleep(POLL_S)
 
     log.info(

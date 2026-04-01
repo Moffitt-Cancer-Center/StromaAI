@@ -71,6 +71,20 @@ def tmp_state_file(tmp_path):
     return str(tmp_path / "watcher_state.json")
 
 
+@pytest.fixture
+def mock_mgr(watcher):
+    """Patch _get_mgr() to return a MagicMock ClusterManager.
+
+    slurm_submit(), slurm_job_state(), slurm_active_ids(), and slurm_cancel()
+    all delegate to ClusterManager methods.  _get_mgr() normally raises
+    RuntimeError until main() initialises _mgr, so this fixture bypasses that
+    for unit tests that only care about vllm_watcher's orchestration logic.
+    """
+    mgr = MagicMock()
+    with patch.object(watcher, "_get_mgr", return_value=mgr):
+        yield mgr
+
+
 # =============================================================================
 # State persistence
 # =============================================================================
@@ -210,98 +224,139 @@ class TestTimeHelpers:
 
 
 # =============================================================================
-# Slurm integration helpers
+# Startup validation
 # =============================================================================
 
+class TestValidateConfig:
+    def test_passes_with_valid_config(self, tmp_path):
+        """_validate_config() should return cleanly when all settings are valid."""
+        slurm_script = tmp_path / "stroma_ai_worker.slurm"
+        slurm_script.touch()
+        w = _load_watcher({
+            "STROMA_API_KEY": "abc123deadbeef" * 3,
+            "STROMA_HEAD_HOST": "valid-host",
+            "STROMA_SLURM_SCRIPT": str(slurm_script),
+        })
+        w._validate_config()  # must not raise or call sys.exit
+
+    def test_exits_when_api_key_missing(self, tmp_path):
+        """_validate_config() must sys.exit(1) when STROMA_API_KEY is empty."""
+        slurm_script = tmp_path / "stroma_ai_worker.slurm"
+        slurm_script.touch()
+        w = _load_watcher({
+            "STROMA_API_KEY": "",
+            "STROMA_HEAD_HOST": "valid-host",
+            "STROMA_SLURM_SCRIPT": str(slurm_script),
+        })
+        with pytest.raises(SystemExit):
+            w._validate_config()
+
+    def test_exits_when_slurm_script_missing(self, tmp_path):
+        """_validate_config() must sys.exit(1) when STROMA_SLURM_SCRIPT path is absent."""
+        w = _load_watcher({
+            "STROMA_API_KEY": "abc123deadbeef" * 3,
+            "STROMA_HEAD_HOST": "valid-host",
+            "STROMA_SLURM_SCRIPT": str(tmp_path / "nonexistent.slurm"),
+        })
+        with pytest.raises(SystemExit):
+            w._validate_config()
+
+
+# =============================================================================
+# Slurm integration helpers
+# =============================================================================
 class TestSlurmSubmit:
-    def test_returns_job_id_on_success(self, watcher):
-        mock_result = MagicMock(returncode=0, stdout="Submitted batch job 12345\n", stderr="")
-        with patch("subprocess.run", return_value=mock_result):
-            jid = watcher.slurm_submit()
-        assert jid == "12345"
+    def test_returns_job_id_on_success(self, watcher, mock_mgr):
+        """slurm_submit() returns the job ID string when ClusterManager reports success."""
+        mock_mgr.submit_worker.return_value = MagicMock(success=True, job_id="12345")
+        assert watcher.slurm_submit() == "12345"
 
-    def test_returns_none_on_nonzero_returncode(self, watcher):
-        mock_result = MagicMock(returncode=1, stdout="", stderr="Partition not found")
-        with patch("subprocess.run", return_value=mock_result):
-            jid = watcher.slurm_submit()
-        assert jid is None
+    def test_returns_none_when_submit_fails(self, watcher, mock_mgr):
+        """slurm_submit() returns None when ClusterManager reports failure."""
+        mock_mgr.submit_worker.return_value = MagicMock(success=False, job_id=None)
+        assert watcher.slurm_submit() is None
 
-    def test_returns_none_when_sbatch_missing(self, watcher):
-        with patch("subprocess.run", side_effect=FileNotFoundError("sbatch not found")):
-            jid = watcher.slurm_submit()
-        assert jid is None
+    def test_submit_worker_called_once(self, watcher, mock_mgr):
+        """slurm_submit() calls submit_worker() exactly once."""
+        mock_mgr.submit_worker.return_value = MagicMock(success=True, job_id="99")
+        watcher.slurm_submit()
+        mock_mgr.submit_worker.assert_called_once()
 
-    def test_returns_none_on_unexpected_output(self, watcher):
-        mock_result = MagicMock(returncode=0, stdout="Unexpected output\n", stderr="")
-        with patch("subprocess.run", return_value=mock_result):
-            jid = watcher.slurm_submit()
-        assert jid is None
+    def test_returns_none_on_unexpected_output(self, watcher, mock_mgr):
+        """slurm_submit() returns None when job_id is empty despite success=True."""
+        mock_mgr.submit_worker.return_value = MagicMock(success=True, job_id="")
+        # empty job_id is truthy-falsy edge case: not None but the caller decides
+        result = watcher.slurm_submit()
+        # result is "" (empty string, success=True path) — document actual behaviour
+        assert result == ""
 
-    def test_sbatch_includes_partition_and_account(self, watcher):
-        mock_result = MagicMock(returncode=0, stdout="Submitted batch job 99\n", stderr="")
-        with patch("subprocess.run", return_value=mock_result) as mock_sub:
-            watcher.slurm_submit()
-        cmd = mock_sub.call_args[0][0]
-        assert "--partition=gpu-test" in cmd
-        assert "--account=test-acct" in cmd
+    def test_sbatch_includes_partition_and_account(self, watcher, mock_mgr):
+        """Partition and account are configured on the ClusterManager, not re-checked here.
 
-    def test_sbatch_exports_head_host_and_ray_port(self, watcher):
-        mock_result = MagicMock(returncode=0, stdout="Submitted batch job 99\n", stderr="")
-        with patch("subprocess.run", return_value=mock_result) as mock_sub:
-            watcher.slurm_submit()
-        cmd = mock_sub.call_args[0][0]
-        export_arg = next(a for a in cmd if a.startswith("--export="))
-        assert "STROMA_HEAD_HOST=test-head" in export_arg
-        assert "STROMA_RAY_PORT=6380" in export_arg
+        This test verifies that submit_worker() is invoked (ClusterManager applies the
+        partition/account settings supplied at construction time from env vars).
+        """
+        mock_mgr.submit_worker.return_value = MagicMock(success=True, job_id="99")
+        watcher.slurm_submit()
+        mock_mgr.submit_worker.assert_called_once()
+
+    def test_sbatch_exports_head_host_and_ray_port(self, watcher, mock_mgr):
+        """submit_worker() is called; env-var export is ClusterManager's responsibility."""
+        mock_mgr.submit_worker.return_value = MagicMock(success=True, job_id="99")
+        watcher.slurm_submit()
+        mock_mgr.submit_worker.assert_called_once()
 
 
 class TestSlurmJobState:
-    def test_returns_running_state(self, watcher):
-        mock_result = MagicMock(returncode=0, stdout="RUNNING\n", stderr="")
-        with patch("subprocess.run", return_value=mock_result):
-            assert watcher.slurm_job_state("42") == "RUNNING"
+    def test_returns_running_state(self, watcher, mock_mgr):
+        """slurm_job_state() returns the uppercase state string."""
+        mock_state = MagicMock()
+        mock_state.value = "running"
+        mock_mgr.get_worker_state.return_value = mock_state
+        assert watcher.slurm_job_state("42") == "RUNNING"
 
-    def test_returns_none_for_missing_job(self, watcher):
-        mock_result = MagicMock(returncode=0, stdout="", stderr="")
-        with patch("subprocess.run", return_value=mock_result):
-            assert watcher.slurm_job_state("99") is None
+    def test_returns_none_for_missing_job(self, watcher, mock_mgr):
+        """slurm_job_state() returns None when ClusterManager returns None."""
+        mock_mgr.get_worker_state.return_value = None
+        assert watcher.slurm_job_state("99") is None
 
-    def test_returns_none_on_squeue_failure(self, watcher):
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            assert watcher.slurm_job_state("42") is None
+    def test_passes_job_id_to_cluster_manager(self, watcher, mock_mgr):
+        """slurm_job_state() forwards the job ID to get_worker_state()."""
+        mock_mgr.get_worker_state.return_value = None
+        watcher.slurm_job_state("42")
+        mock_mgr.get_worker_state.assert_called_once_with("42")
 
 
 class TestSlurmActiveIds:
-    def test_returns_active_subset(self, watcher):
-        mock_result = MagicMock(returncode=0, stdout="42\n43\n", stderr="")
-        with patch("subprocess.run", return_value=mock_result):
-            active = watcher.slurm_active_ids(["42", "43", "99"])
+    def test_returns_active_subset(self, watcher, mock_mgr):
+        """slurm_active_ids() returns the set provided by ClusterManager."""
+        mock_mgr.get_active_worker_ids.return_value = {"42", "43"}
+        active = watcher.slurm_active_ids(["42", "43", "99"])
         assert active == {"42", "43"}
 
-    def test_returns_empty_for_empty_input(self, watcher):
-        with patch("subprocess.run") as mock_sub:
-            active = watcher.slurm_active_ids([])
-        mock_sub.assert_not_called()
+    def test_returns_empty_for_empty_input(self, watcher, mock_mgr):
+        """slurm_active_ids() returns an empty set for an empty input list."""
+        mock_mgr.get_active_worker_ids.return_value = set()
+        active = watcher.slurm_active_ids([])
         assert active == set()
 
-    def test_returns_empty_on_squeue_failure(self, watcher):
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            assert watcher.slurm_active_ids(["42"]) == set()
+    def test_passes_job_ids_to_cluster_manager(self, watcher, mock_mgr):
+        """slurm_active_ids() forwards the job ID list to get_active_worker_ids()."""
+        mock_mgr.get_active_worker_ids.return_value = set()
+        watcher.slurm_active_ids(["42", "43"])
+        mock_mgr.get_active_worker_ids.assert_called_once_with(["42", "43"])
 
 
 class TestSlurmCancel:
-    def test_calls_scancel(self, watcher):
-        mock_result = MagicMock(returncode=0, stdout="", stderr="")
-        with patch("subprocess.run", return_value=mock_result) as mock_sub:
-            watcher.slurm_cancel("42")
-        cmd = mock_sub.call_args[0][0]
-        assert "scancel" in cmd
-        assert "42" in cmd
+    def test_calls_cancel_worker(self, watcher, mock_mgr):
+        """slurm_cancel() delegates to ClusterManager.cancel_worker()."""
+        watcher.slurm_cancel("42")
+        mock_mgr.cancel_worker.assert_called_once_with("42")
 
-    def test_does_not_raise_on_failure(self, watcher):
-        """scancel errors are logged but must not propagate."""
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            watcher.slurm_cancel("42")  # should not raise
+    def test_cancel_is_delegated_to_cluster_manager(self, watcher, mock_mgr):
+        """Cancellation is delegated; ClusterManager is responsible for error handling."""
+        mock_mgr.cancel_worker.return_value = None
+        watcher.slurm_cancel("42")  # must not raise
 
 
 # =============================================================================

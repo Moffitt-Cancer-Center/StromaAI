@@ -10,6 +10,8 @@
 [[ -n "${_STROMA_PACKAGES_LOADED:-}" ]] && return 0
 readonly _STROMA_PACKAGES_LOADED=1
 
+set -euo pipefail
+
 # ---------------------------------------------------------------------------
 # pkg_update — refresh package metadata
 # ---------------------------------------------------------------------------

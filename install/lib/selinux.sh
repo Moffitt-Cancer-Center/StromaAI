@@ -10,6 +10,8 @@
 [[ -n "${_STROMA_SELINUX_LOADED:-}" ]] && return 0
 readonly _STROMA_SELINUX_LOADED=1
 
+set -euo pipefail
+
 # ---------------------------------------------------------------------------
 # configure_security — dispatch to SELinux or AppArmor based on OS
 # ---------------------------------------------------------------------------

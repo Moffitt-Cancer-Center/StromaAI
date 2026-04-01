@@ -16,6 +16,8 @@
 [[ -n "${_STROMA_APPTAINER_LOADED:-}" ]] && return 0
 readonly _STROMA_APPTAINER_LOADED=1
 
+set -euo pipefail
+
 APPTAINER_VERSION="${APPTAINER_VERSION:-1.3.6}"
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,12 @@
 # STROMA_API_KEY is automatically redacted from all included files.
 #
 # Usage:
-#   scripts/debug-bundle.sh [/path/to/output.tar.gz]
+#   scripts/debug-bundle.sh [options] [/path/to/output.tar.gz]
+#
+# Options:
+#   --dry-run              List what would be collected without creating a bundle
+#   --output-dir <dir>     Directory for the bundle file (default: /tmp)
+#   -h, --help             Show this help message
 #
 # Default output: /tmp/stroma-ai-debug-<timestamp>.tar.gz
 # =============================================================================
@@ -15,8 +20,25 @@ set -euo pipefail
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BUNDLE_NAME="stroma-ai-debug-${TIMESTAMP}"
-BUNDLE_DIR="/tmp/${BUNDLE_NAME}"
-OUTPUT="${1:-/tmp/${BUNDLE_NAME}.tar.gz}"
+DRY_RUN=false
+OUTPUT_DIR="/tmp"
+OUTPUT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)       DRY_RUN=true; shift ;;
+        --output-dir)    OUTPUT_DIR="$2"; shift 2 ;;
+        -h|--help)
+            sed -n '/^# Usage:/,/^# ====/p' "$0" | sed 's/^# \?//'
+            exit 0
+            ;;
+        -*)  echo "Unknown option: $1" >&2; exit 1 ;;
+        *)   OUTPUT="$1"; shift ;;  # positional — backward compatible
+    esac
+done
+
+BUNDLE_DIR="${OUTPUT_DIR}/${BUNDLE_NAME}"
+OUTPUT="${OUTPUT:-${OUTPUT_DIR}/${BUNDLE_NAME}.tar.gz}"
 
 CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
 STATE_FILE="${STROMA_STATE_FILE:-/opt/stroma-ai/watcher_state.json}"
@@ -28,6 +50,22 @@ SLURM_PARTITION="${STROMA_SLURM_PARTITION:-stroma-ai-gpu}"
 SLURM_PARTITION="${STROMA_SLURM_PARTITION:-${SLURM_PARTITION}}"
 HEAD="${STROMA_HEAD_HOST:-localhost}"
 PORT="${STROMA_VLLM_PORT:-8000}"
+
+if [[ "${DRY_RUN}" == "true" ]]; then
+    echo "=== DRY-RUN — would collect ==="
+    echo "  System info, kernel, uptime, disk usage"
+    echo "  Systemd status for: ray-head, stroma-ai-vllm, stroma-ai-watcher"
+    command -v journalctl &>/dev/null && echo "  Journal logs (last 500 lines per service)"
+    [[ -f "${STATE_FILE}" ]] && echo "  Watcher state: ${STATE_FILE}"
+    [[ -f "${CONFIG_FILE}" ]] && echo "  Config (API key redacted): ${CONFIG_FILE}"
+    command -v squeue &>/dev/null    && echo "  Slurm jobs for partition: ${SLURM_PARTITION}"
+    command -v nvidia-smi &>/dev/null && echo "  GPU info (nvidia-smi)"
+    command -v ray &>/dev/null        && echo "  Ray status"
+    echo "  vLLM health/metrics: http://${HEAD}:${PORT}/"
+    echo
+    echo "Output: ${OUTPUT}"
+    exit 0
+fi
 
 echo "=== StromaAI Debug Bundle ==="
 echo "Collecting diagnostics..."

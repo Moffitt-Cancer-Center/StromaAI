@@ -41,11 +41,11 @@ services:
       OAUTH_PROVIDER_NAME: "${OAUTH_PROVIDER_NAME:-StromaAI Identity}"
 
       # OIDC discovery URL (set by setup-keycloak.sh or provided externally)
-      OPENID_PROVIDER_URL: "${OIDC_DISCOVERY_URL:?OIDC_DISCOVERY_URL must be set — run setup-keycloak.sh first}"
+      OPENID_PROVIDER_URL: "${OIDC_DISCOVERY_URL:-}"
 
       # Client credentials registered in the stroma-ai Keycloak realm
-      OAUTH_CLIENT_ID: "${KC_OPENWEBUI_CLIENT_ID:?KC_OPENWEBUI_CLIENT_ID must be set}"
-      OAUTH_CLIENT_SECRET: "${KC_OPENWEBUI_CLIENT_SECRET:?KC_OPENWEBUI_CLIENT_SECRET must be set}"
+      OAUTH_CLIENT_ID: "${KC_OPENWEBUI_CLIENT_ID:-}"
+      OAUTH_CLIENT_SECRET: "${KC_OPENWEBUI_CLIENT_SECRET:-}"
 
       # Scopes to request (openid + profile + email are sufficient)
       OAUTH_SCOPES: "openid profile email"
@@ -71,7 +71,7 @@ services:
       ANONYMIZED_TELEMETRY: "false"
 
       # Secret key for session signing — MUST be set to a stable random value
-      WEBUI_SECRET_KEY: "${WEBUI_SECRET_KEY:?WEBUI_SECRET_KEY must be set — generate with: openssl rand -hex 32}"
+      WEBUI_SECRET_KEY: "${WEBUI_SECRET_KEY:-}"
 
     volumes:
       # Persist user data, model configs, and chat history

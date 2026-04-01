@@ -10,6 +10,8 @@
 [[ -n "${_STROMA_COMMON_LOADED:-}" ]] && return 0
 readonly _STROMA_COMMON_LOADED=1
 
+set -euo pipefail
+
 # ---------------------------------------------------------------------------
 # Terminal colors (disabled if stdout is not a TTY)
 # ---------------------------------------------------------------------------
@@ -109,6 +111,41 @@ backup_file() {
         cp -p "${file}" "${file}.bak.$(date +%Y%m%d%H%M%S)"
         log_info "Backed up ${file}"
     fi
+}
+
+# ---------------------------------------------------------------------------
+# write_env_var — safely write KEY=VALUE to a .env file
+# ---------------------------------------------------------------------------
+# Uses Python instead of sed to avoid breakage when VALUE contains sed
+# special characters (|, &, \, newlines, etc.).  Python 3 is a hard
+# prerequisite for StromaAI so this function is always available.
+# Creates the file if it does not already exist.
+# ---------------------------------------------------------------------------
+write_env_var() {
+    local key="$1" value="$2" file="$3"
+    python3 - "${key}" "${value}" "${file}" <<'PYEOF'
+import sys, re, os
+
+key, value, path = sys.argv[1], sys.argv[2], sys.argv[3]
+entry = key + "=" + value + "\n"
+
+if os.path.exists(path):
+    with open(path, "r") as fh:
+        lines = fh.readlines()
+    updated = False
+    for i, line in enumerate(lines):
+        if re.match(r"^" + re.escape(key) + r"=", line):
+            lines[i] = entry
+            updated = True
+            break
+    if not updated:
+        lines.append(entry)
+    with open(path, "w") as fh:
+        fh.writelines(lines)
+else:
+    with open(path, "w") as fh:
+        fh.write(entry)
+PYEOF
 }
 
 # ---------------------------------------------------------------------------

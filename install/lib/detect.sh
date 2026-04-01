@@ -9,6 +9,8 @@
 [[ -n "${_STROMA_DETECT_LOADED:-}" ]] && return 0
 readonly _STROMA_DETECT_LOADED=1
 
+set -euo pipefail
+
 # ---------------------------------------------------------------------------
 # detect_os — populate OS_* variables from /etc/os-release
 # ---------------------------------------------------------------------------

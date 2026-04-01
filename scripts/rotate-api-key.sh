@@ -21,6 +21,36 @@ set -euo pipefail
 CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
 DRY_RUN=false
 
+# ---------------------------------------------------------------------------
+# write_env_var KEY VALUE FILE — safe .env writer (avoids sed special chars)
+# ---------------------------------------------------------------------------
+write_env_var() {
+    local key="$1" value="$2" file="$3"
+    python3 - "${key}" "${value}" "${file}" <<'PYEOF'
+import sys, re, os
+
+key, value, path = sys.argv[1], sys.argv[2], sys.argv[3]
+entry = key + "=" + value + "\n"
+
+if os.path.exists(path):
+    with open(path, "r") as fh:
+        lines = fh.readlines()
+    updated = False
+    for i, line in enumerate(lines):
+        if re.match(r"^" + re.escape(key) + r"=", line):
+            lines[i] = entry
+            updated = True
+            break
+    if not updated:
+        lines.append(entry)
+    with open(path, "w") as fh:
+        fh.writelines(lines)
+else:
+    with open(path, "w") as fh:
+        fh.write(entry)
+PYEOF
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --config)  CONFIG_FILE="$2"; shift 2 ;;
@@ -69,7 +99,7 @@ cp "${CONFIG_FILE}" "${BACKUP}"
 chmod 640 "${BACKUP}"
 echo "Backup : ${BACKUP}"
 
-sed -i "s|^STROMA_API_KEY=.*|STROMA_API_KEY=${NEW_KEY}|" "${CONFIG_FILE}"
+write_env_var "STROMA_API_KEY" "${NEW_KEY}" "${CONFIG_FILE}"
 echo "Updated: ${CONFIG_FILE}"
 
 # ---------------------------------------------------------------------------
@@ -79,7 +109,7 @@ if [[ -n "${OOD_CONF}" && -f "${OOD_CONF}" ]]; then
     if grep -q "^STROMA_API_KEY=" "${OOD_CONF}" 2>/dev/null; then
         OOD_BACKUP="${OOD_CONF}.bak.$(date +%Y%m%d_%H%M%S)"
         cp "${OOD_CONF}" "${OOD_BACKUP}"
-        sed -i "s|^STROMA_API_KEY=.*|STROMA_API_KEY=${NEW_KEY}|" "${OOD_CONF}"
+        write_env_var "STROMA_API_KEY" "${NEW_KEY}" "${OOD_CONF}"
         echo "Updated: ${OOD_CONF} (backup: ${OOD_BACKUP})"
     fi
 fi

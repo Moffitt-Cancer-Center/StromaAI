@@ -133,11 +133,7 @@ write_or_update_config() {
         touch "${CONFIG_ENV}"
         chmod 640 "${CONFIG_ENV}"
     fi
-    if grep -qE "^${key}=" "${CONFIG_ENV}" 2>/dev/null; then
-        sed -i "s|^${key}=.*|${key}=${value}|" "${CONFIG_ENV}"
-    else
-        echo "${key}=${value}" >> "${CONFIG_ENV}"
-    fi
+    write_env_var "${key}" "${value}" "${CONFIG_ENV}"
 }
 
 # ---------------------------------------------------------------------------
