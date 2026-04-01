@@ -66,8 +66,9 @@ services:
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
 
-      # Logging
-      KC_LOG_LEVEL: INFO
+      # Logging — import package at DEBUG so realm-import failures show the
+      # actual exception rather than the generic "Failed to run import" message.
+      KC_LOG_LEVEL: INFO,org.keycloak.exportimport:DEBUG
     volumes:
       - ./realm-import.json:/opt/keycloak/data/import/stroma-ai-realm.json:ro
     ports:

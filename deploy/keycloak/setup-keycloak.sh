@@ -326,6 +326,10 @@ PYEOF
     if [[ "${STROMA_DRY_RUN:-0}" != "1" && ! -f "${SCRIPT_DIR}/realm-import.json" ]]; then
         die "realm-import.json not found. Run ./setup-keycloak.sh to generate it before starting."
     fi
+    # Always stop existing containers before starting so that any changed volume
+    # mounts (e.g. realm-import.json replacing realm-export.json) take effect.
+    # Named volumes (postgres_data) are preserved; only containers are removed.
+    run_cmd ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" down 2>/dev/null || true
     run_cmd ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" up -d
 
     log_step "Configuring Firewall"
