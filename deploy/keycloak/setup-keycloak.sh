@@ -276,18 +276,19 @@ EOF
     fi
 
     # -------------------------------------------------------------------------
-    # Patch realm-export.json with generated secrets
+    # Generate realm-import.json with substituted secrets
+    # realm-export.json is the committed template — never modified.
+    # realm-import.json is the runtime file mounted into Keycloak.
     # -------------------------------------------------------------------------
-    log_step "Patching realm-export.json with generated client secrets"
-    REALM_FILE="${SCRIPT_DIR}/realm-export.json"
-    REALM_TMP="${REALM_FILE}.tmp"
+    log_step "Generating realm-import.json with substituted secrets"
+    REALM_TEMPLATE="${SCRIPT_DIR}/realm-export.json"
+    REALM_IMPORT="${SCRIPT_DIR}/realm-import.json"
 
     if [[ "${STROMA_DRY_RUN:-0}" != "1" ]]; then
-        backup_file "${REALM_FILE}"
         python3 - <<PYEOF
 import json, sys
 
-with open("${REALM_FILE}") as f:
+with open("${REALM_TEMPLATE}") as f:
     realm = json.load(f)
 
 for client in realm.get("clients", []):
@@ -305,19 +306,26 @@ for user in realm.get("users", []):
         if cred["type"] == "password":
             cred["value"] = "${DEMO_USER_PASSWORD}"
 
-with open("${REALM_TMP}", "w") as f:
+with open("${REALM_IMPORT}", "w") as f:
     json.dump(realm, f, indent=2)
 PYEOF
-        mv "${REALM_TMP}" "${REALM_FILE}"
-        log_ok "realm-export.json patched"
+        chmod 600 "${REALM_IMPORT}"
+        log_ok "realm-import.json generated"
     else
-        log_dry "Would patch ${REALM_FILE} with generated client secrets"
+        log_dry "Would generate ${REALM_IMPORT} with substituted client secrets"
     fi
 
     # -------------------------------------------------------------------------
     # Start services
     # -------------------------------------------------------------------------
     log_step "Starting Keycloak + PostgreSQL via Podman Compose"
+    # Verify the processed realm JSON exists before starting — if it's missing,
+    # Keycloak will get the raw template with REPLACE_WITH_* placeholders and
+    # fail silently in a restart loop. This should never happen when running
+    # via setup-keycloak.sh, but guard against direct podman-compose invocations.
+    if [[ "${STROMA_DRY_RUN:-0}" != "1" && ! -f "${SCRIPT_DIR}/realm-import.json" ]]; then
+        die "realm-import.json not found. Run ./setup-keycloak.sh to generate it before starting."
+    fi
     run_cmd ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" up -d
 
     log_step "Configuring Firewall"
