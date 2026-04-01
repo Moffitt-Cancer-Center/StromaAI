@@ -260,6 +260,12 @@ EOF
     log_step "Starting OpenWebUI via Podman Compose"
     run_cmd ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" up -d
 
+    log_step "Configuring Firewall"
+    open_firewall_port "${OWU_PORT:-3000}/tcp"
+
+    log_step "Installing Systemd Service"
+    install_systemd_service "${SCRIPT_DIR}/stroma-ai-openwebui.service" "stroma-ai-openwebui"
+
     # -------------------------------------------------------------------------
     # Wait for health
     # -------------------------------------------------------------------------

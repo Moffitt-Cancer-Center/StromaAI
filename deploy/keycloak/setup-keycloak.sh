@@ -300,6 +300,12 @@ PYEOF
     log_step "Starting Keycloak + PostgreSQL via Podman Compose"
     run_cmd ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" up -d
 
+    log_step "Configuring Firewall"
+    open_firewall_port "${KC_PORT:-8080}/tcp"
+
+    log_step "Installing Systemd Service"
+    install_systemd_service "${SCRIPT_DIR}/stroma-ai-keycloak.service" "stroma-ai-keycloak"
+
     KEYCLOAK_URL="http://${KC_HOSTNAME}:${KC_PORT}/realms/stroma-ai"
 
     if [[ "${STROMA_DRY_RUN:-0}" != "1" ]]; then

@@ -1,0 +1,44 @@
+[Unit]
+Description=StromaAI — OpenWebUI Frontend (Podman Compose)
+Documentation=https://github.com/Moffitt-Cancer-Center/StromaAI
+After=network-online.target stroma-ai-keycloak.service
+Wants=network-online.target
+# Start after Keycloak so OIDC is available on first boot
+Wants=stroma-ai-keycloak.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+User=root
+Group=root
+
+WorkingDirectory=/opt/stroma-ai/deploy/openwebui
+
+# Compose .env is written by setup-openwebui.sh — must exist before start.
+# Contains OIDC client credentials and the WebUI secret key.
+EnvironmentFile=-/opt/stroma-ai/deploy/openwebui/.env
+
+ExecStartPre=/bin/bash -c 'test -f /opt/stroma-ai/deploy/openwebui/.env || \
+    { echo "ERROR: /opt/stroma-ai/deploy/openwebui/.env not found. Run setup-openwebui.sh first." >&2; exit 1; }'
+
+ExecStart=/usr/bin/podman-compose \
+    -f /opt/stroma-ai/deploy/openwebui/docker-compose.yml \
+    up -d --remove-orphans
+
+ExecStop=/usr/bin/podman-compose \
+    -f /opt/stroma-ai/deploy/openwebui/docker-compose.yml \
+    down --timeout 30
+
+ExecReload=/usr/bin/podman-compose \
+    -f /opt/stroma-ai/deploy/openwebui/docker-compose.yml \
+    restart
+
+TimeoutStartSec=120
+TimeoutStopSec=60
+
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

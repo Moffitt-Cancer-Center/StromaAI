@@ -1,0 +1,48 @@
+[Unit]
+Description=StromaAI — Keycloak Identity Provider (Podman Compose)
+Documentation=https://github.com/Moffitt-Cancer-Center/StromaAI
+After=network-online.target
+Wants=network-online.target
+# Ensure podman socket/storage is ready before starting
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Run as root — Podman rootful mode required for ports < 1024 and SELinux
+# label inheritance on shared volumes.
+User=root
+Group=root
+
+WorkingDirectory=/opt/stroma-ai/deploy/keycloak
+
+# Compose .env is written here by setup-keycloak.sh — must exist before start.
+# Secrets (KC_DB_PASSWORD, KC_ADMIN_PASSWORD) live only in this file.
+EnvironmentFile=-/opt/stroma-ai/deploy/keycloak/.env
+
+ExecStartPre=/bin/bash -c 'test -f /opt/stroma-ai/deploy/keycloak/.env || \
+    { echo "ERROR: /opt/stroma-ai/deploy/keycloak/.env not found. Run setup-keycloak.sh first." >&2; exit 1; }'
+
+ExecStart=/usr/bin/podman-compose \
+    -f /opt/stroma-ai/deploy/keycloak/docker-compose.yml \
+    up -d --remove-orphans
+
+ExecStop=/usr/bin/podman-compose \
+    -f /opt/stroma-ai/deploy/keycloak/docker-compose.yml \
+    down --timeout 30
+
+ExecReload=/usr/bin/podman-compose \
+    -f /opt/stroma-ai/deploy/keycloak/docker-compose.yml \
+    restart
+
+# Give containers up to 90s to come up before systemd marks the service failed
+TimeoutStartSec=90
+TimeoutStopSec=60
+
+# Restart on failure — e.g. if Podman engine restarts
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

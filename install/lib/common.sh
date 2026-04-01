@@ -184,3 +184,81 @@ readonly STROMA_VENV="${STROMA_INSTALL_DIR}/venv"
 readonly STROMA_PYTHON="${STROMA_VENV}/bin/python3"
 # shellcheck disable=SC2034  # used by packages.sh (sourced at runtime)
 readonly STROMA_PIP="${STROMA_VENV}/bin/pip"
+
+# ---------------------------------------------------------------------------
+# open_firewall_port PORT/PROTO [ZONE]
+# ---------------------------------------------------------------------------
+# Opens a TCP/UDP port in firewalld permanently and reloads the firewall.
+# Falls back to a warning if firewalld is not active.
+#
+# Usage:
+#   open_firewall_port 8080/tcp
+#   open_firewall_port 3000/tcp public
+# ---------------------------------------------------------------------------
+open_firewall_port() {
+    local port_proto="$1"
+    local zone="${2:-}"
+
+    if [[ "${STROMA_DRY_RUN:-0}" == "1" ]]; then
+        log_dry "firewall-cmd --permanent ${zone:+--zone=${zone} }--add-port=${port_proto} && firewall-cmd --reload"
+        return 0
+    fi
+
+    if ! command -v firewall-cmd &>/dev/null; then
+        log_warn "firewall-cmd not found — skipping firewall rule for ${port_proto}"
+        return 0
+    fi
+
+    if ! systemctl is-active --quiet firewalld 2>/dev/null; then
+        log_warn "firewalld is not running — skipping firewall rule for ${port_proto}"
+        return 0
+    fi
+
+    local zone_arg=""
+    if [[ -n "${zone}" ]]; then
+        zone_arg="--zone=${zone}"
+    fi
+
+    if firewall-cmd --permanent ${zone_arg} --query-port="${port_proto}" &>/dev/null; then
+        log_info "Firewall: port ${port_proto} already open${zone:+ in zone ${zone}}"
+        return 0
+    fi
+
+    log_info "Firewall: opening ${port_proto}${zone:+ in zone ${zone}} ..."
+    firewall-cmd --permanent ${zone_arg} --add-port="${port_proto}"
+    firewall-cmd --reload
+    log_ok "Firewall: ${port_proto} is open"
+}
+
+# ---------------------------------------------------------------------------
+# install_systemd_service SRC_FILE SERVICE_NAME
+# ---------------------------------------------------------------------------
+# Copies a systemd unit file to /etc/systemd/system/, reloads the daemon,
+# enables the service for boot, and starts it immediately.
+#
+# Usage:
+#   install_systemd_service /path/to/foo.service stroma-ai-foo
+# ---------------------------------------------------------------------------
+install_systemd_service() {
+    local src="$1"
+    local name="$2"
+    local dest="${STROMA_SYSTEMD_DIR}/${name}.service"
+
+    if [[ "${STROMA_DRY_RUN:-0}" == "1" ]]; then
+        log_dry "install systemd unit: ${src} → ${dest}"
+        log_dry "systemctl daemon-reload && systemctl enable --now ${name}"
+        return 0
+    fi
+
+    if [[ ! -f "${src}" ]]; then
+        die "Systemd unit file not found: ${src}"
+    fi
+
+    log_info "Installing systemd unit: ${dest}"
+    cp -p "${src}" "${dest}"
+    chmod 644 "${dest}"
+    systemctl daemon-reload
+    systemctl enable --now "${name}"
+    log_ok "Service ${name} enabled and started"
+}
+

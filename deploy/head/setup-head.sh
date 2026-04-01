@@ -80,6 +80,61 @@ require_cmd() {
 }
 
 # ---------------------------------------------------------------------------
+# open_firewall_port PORT/PROTO [ZONE]
+# ---------------------------------------------------------------------------
+open_firewall_port() {
+    local port_proto="$1"
+    local zone="${2:-}"
+    local zone_arg=""
+    [[ -n "${zone}" ]] && zone_arg="--zone=${zone}"
+
+    if [[ "${STROMA_DRY_RUN:-0}" == "1" ]]; then
+        echo -e "${YELLOW}[DRY-RUN]${RESET} firewall-cmd --permanent ${zone_arg:+${zone_arg} }--add-port=${port_proto} && firewall-cmd --reload"
+        return 0
+    fi
+    if ! command -v firewall-cmd &>/dev/null; then
+        log_warn "firewall-cmd not found — skipping firewall rule for ${port_proto}"
+        return 0
+    fi
+    if ! systemctl is-active --quiet firewalld 2>/dev/null; then
+        log_warn "firewalld is not running — skipping firewall rule for ${port_proto}"
+        return 0
+    fi
+    if firewall-cmd --permanent ${zone_arg} --query-port="${port_proto}" &>/dev/null; then
+        log_info "Firewall: port ${port_proto} already open${zone:+ in zone ${zone}}"
+        return 0
+    fi
+    log_info "Firewall: opening ${port_proto}${zone:+ in zone ${zone}} ..."
+    firewall-cmd --permanent ${zone_arg} --add-port="${port_proto}"
+    firewall-cmd --reload
+    log_ok "Firewall: ${port_proto} is open"
+}
+
+# ---------------------------------------------------------------------------
+# install_systemd_service SRC_FILE SERVICE_NAME
+# ---------------------------------------------------------------------------
+install_systemd_service() {
+    local src="$1"
+    local name="$2"
+    local dest="/etc/systemd/system/${name}.service"
+
+    if [[ "${STROMA_DRY_RUN:-0}" == "1" ]]; then
+        echo -e "${YELLOW}[DRY-RUN]${RESET} install systemd unit: ${src} → ${dest}"
+        echo -e "${YELLOW}[DRY-RUN]${RESET} systemctl daemon-reload && systemctl enable --now ${name}"
+        return 0
+    fi
+    if [[ ! -f "${src}" ]]; then
+        die "Systemd unit file not found: ${src}"
+    fi
+    log_info "Installing systemd unit: ${dest}"
+    cp -p "${src}" "${dest}"
+    chmod 644 "${dest}"
+    systemctl daemon-reload
+    systemctl enable --now "${name}"
+    log_ok "Service ${name} enabled and started"
+}
+
+# ---------------------------------------------------------------------------
 # write_env_var — safely write KEY=VALUE to a .env file
 # ---------------------------------------------------------------------------
 # Uses Python to avoid sed breakage with special chars in values
@@ -405,6 +460,13 @@ run_cmd ${COMPOSE_CMD} \
     --env-file "${CONFIG_FILE}" \
     -f "${SCRIPT_DIR}/docker-compose.yml" \
     up -d
+
+log_step "Configuring Firewall"
+open_firewall_port "80/tcp"
+open_firewall_port "${STROMA_HTTPS_PORT:-443}/tcp"
+
+log_step "Installing Systemd Service"
+install_systemd_service "${SCRIPT_DIR}/stroma-ai-head.service" "stroma-ai-head"
 
 echo ""
 log_ok "StromaAI head node stack started."

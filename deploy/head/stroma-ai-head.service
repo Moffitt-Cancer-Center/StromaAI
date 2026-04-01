@@ -1,0 +1,50 @@
+[Unit]
+Description=StromaAI — Head Node Stack (nginx, gateway, ray-head, vllm, watcher) via Podman Compose
+Documentation=https://github.com/Moffitt-Cancer-Center/StromaAI
+After=network-online.target
+Wants=network-online.target
+After=local-fs.target
+# Keycloak must be running so the gateway can validate JWTs on first request
+After=stroma-ai-keycloak.service
+Wants=stroma-ai-keycloak.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Run as root — Podman rootful mode required for ports < 1024 (80/443) and
+# SELinux label inheritance on shared model-weight volumes.
+User=root
+Group=root
+
+WorkingDirectory=/opt/stroma-ai/deploy/head
+
+# Primary config written by setup-head.sh (includes STROMA_API_KEY, model
+# path, OIDC URL, Slurm partition, etc.).
+EnvironmentFile=-/opt/stroma-ai/deploy/head/.env
+
+ExecStartPre=/bin/bash -c 'test -f /opt/stroma-ai/deploy/head/.env || \
+    { echo "ERROR: /opt/stroma-ai/deploy/head/.env not found. Run setup-head.sh first." >&2; exit 1; }'
+
+ExecStart=/usr/bin/podman-compose \
+    --env-file /opt/stroma-ai/deploy/head/.env \
+    -f /opt/stroma-ai/deploy/head/docker-compose.yml \
+    up -d --remove-orphans
+
+ExecStop=/usr/bin/podman-compose \
+    -f /opt/stroma-ai/deploy/head/docker-compose.yml \
+    down --timeout 30
+
+ExecReload=/usr/bin/podman-compose \
+    -f /opt/stroma-ai/deploy/head/docker-compose.yml \
+    restart
+
+# vLLM model loading can be slow — allow up to 10 min before marking failed
+TimeoutStartSec=600
+TimeoutStopSec=90
+
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
