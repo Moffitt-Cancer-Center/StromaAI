@@ -21,7 +21,7 @@ services:
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?KC_DB_PASSWORD must be set in .env}
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:-}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -46,11 +46,11 @@ services:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?KC_DB_PASSWORD must be set in .env}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:-}
 
       # Admin bootstrap (only used on first start)
       KEYCLOAK_ADMIN: ${KC_ADMIN_USER:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:?KC_ADMIN_PASSWORD must be set in .env}
+      KEYCLOAK_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-}
 
       # Hostname / TLS
       # In production, set KC_HOSTNAME to your FQDN and place a TLS-terminating
@@ -78,8 +78,9 @@ volumes:
   postgres_data:
 
 networks:
-  # Internal network: keycloak ↔ postgres (no host exposure)
+  # Internal network: keycloak ↔ postgres
+  # NOTE: internal: true disabled — CNI (RHEL 8) does not provide DNS on internal
+  # networks. Postgres is still unexposed: it has no published ports.
   keycloak-internal:
-    internal: true
   # External network: keycloak → host (port binding above)
   keycloak-external:
