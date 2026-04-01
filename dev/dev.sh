@@ -26,16 +26,32 @@
 #   ./dev.sh status              # health summary (ports, URLs, readiness)
 #   ./dev.sh clean               # remove containers, volumes, certs, and .env
 #   ./dev.sh ip                  # print the detected host IP
+#   ./dev.sh commit [VERSION]    # commit running containers to registry-named images
+#                                  VERSION defaults to date-based tag (e.g. 2026.04.01)
+#   ./dev.sh push [VERSION]      # push committed images to the registry
+#   ./dev.sh pull                # pull all images from registry (skips missing ones)
 #
 # Options (used with 'up'):
-#   --inference      Include the ray-head + vLLM inference stack
-#   --watcher        Include the Slurm burst scaler (requires sbatch on host)
-#   --full           Equivalent to --inference --watcher
+#   --inference        Include the ray-head + vLLM inference stack
+#   --watcher          Include the Slurm burst scaler (requires sbatch on host)
+#   --full             Equivalent to --inference --watcher
 #   --model-path=PATH  Override the model weights directory
-#   --port=PORT      Override STROMA_HTTPS_PORT (nginx TLS, default 443)
-#   --dry-run        Print commands without executing them
-#   --rebuild        Force rebuild of custom images before starting
-#   -h, --help       Show this help
+#   --port=PORT        Override STROMA_HTTPS_PORT (nginx TLS, default 443)
+#   --registry=URL     Override the container registry (default: dockerhub.moffitt.org/hpc)
+#   --no-registry      Skip registry pull; always use upstream/build images
+#   --dry-run          Print commands without executing them
+#   --rebuild          Force rebuild of custom images before starting
+#   -h, --help         Show this help
+#
+# Registry:
+#   Images are pulled from STROMA_REGISTRY (default: dockerhub.moffitt.org/hpc) first.
+#   If an image is not found there, the upstream public image is used / built locally.
+#   Set STROMA_REGISTRY in your environment or via --registry= to use your institution's
+#   internal registry (e.g. harbor.myorg.edu/stroma or registry.hospital.org/ai).
+#
+#   Image naming convention:
+#     kc-*     images: Keycloak ecosystem (postgres, keycloak)
+#     stroma-* images: StromaAI stack (gateway, nginx, openwebui, ray, vllm, watcher)
 #
 # Files managed:
 #   dev/.env           — generated secrets and configuration (git-ignored)
@@ -97,24 +113,68 @@ HTTPS_PORT_OVERRIDE=""
 DRY_RUN=0
 DO_REBUILD=0
 SERVICE_ARG=""
+VERSION_ARG=""
+SKIP_REGISTRY=0
+REGISTRY_OVERRIDE=""
 
 for _arg in "$@"; do
     case "${_arg}" in
-        up|down|restart|build|logs|ps|status|clean|ip)
+        up|down|restart|build|logs|ps|status|clean|ip|commit|push|pull)
             SUBCMD="${_arg}" ;;
-        --inference)   PROFILE_INFERENCE=1 ;;
-        --watcher)     PROFILE_WATCHER=1 ;;
-        --full)        PROFILE_INFERENCE=1; PROFILE_WATCHER=1 ;;
+        --inference)    PROFILE_INFERENCE=1 ;;
+        --watcher)      PROFILE_WATCHER=1 ;;
+        --full)         PROFILE_INFERENCE=1; PROFILE_WATCHER=1 ;;
         --model-path=*) MODEL_PATH_OVERRIDE="${_arg#--model-path=}" ;;
-        --port=*)      HTTPS_PORT_OVERRIDE="${_arg#--port=}" ;;
-        --dry-run)     DRY_RUN=1 ;;
-        --rebuild)     DO_REBUILD=1 ;;
-        -h|--help)     usage ;;
-        -*)            die "Unknown option: ${_arg}. Use --help for usage." ;;
-        *)             SERVICE_ARG="${_arg}" ;;  # service name for logs/restart
+        --port=*)       HTTPS_PORT_OVERRIDE="${_arg#--port=}" ;;
+        --registry=*)   REGISTRY_OVERRIDE="${_arg#--registry=}" ;;
+        --no-registry)  SKIP_REGISTRY=1 ;;
+        --dry-run)      DRY_RUN=1 ;;
+        --rebuild)      DO_REBUILD=1 ;;
+        -h|--help)      usage ;;
+        -*)             die "Unknown option: ${_arg}. Use --help for usage." ;;
+        *)              # positional: version for commit/push, service name for logs/restart
+                        if [[ -z "${VERSION_ARG}" && "${_arg}" =~ ^[0-9a-zA-Z._-]+$ ]]; then
+                            VERSION_ARG="${_arg}"
+                        fi
+                        SERVICE_ARG="${_arg}" ;;
     esac
 done
 unset _arg
+
+# ---------------------------------------------------------------------------
+# Registry configuration
+# Institutions should set STROMA_REGISTRY in their environment or via
+# --registry= to override.  The value should NOT have a trailing slash.
+# ---------------------------------------------------------------------------
+STROMA_REGISTRY="${REGISTRY_OVERRIDE:-${STROMA_REGISTRY:-dockerhub.moffitt.org/hpc}}"
+
+# Canonical image names in the registry
+# kc- prefix  : Keycloak ecosystem images
+# stroma- prefix: StromaAI stack images
+declare -A REGISTRY_IMAGE=(
+    [postgres]="${STROMA_REGISTRY}/kc-postgres"
+    [keycloak]="${STROMA_REGISTRY}/kc-keycloak"
+    [gateway]="${STROMA_REGISTRY}/stroma-gateway"
+    [nginx]="${STROMA_REGISTRY}/stroma-nginx"
+    [openwebui]="${STROMA_REGISTRY}/stroma-openwebui"
+    [ray-head]="${STROMA_REGISTRY}/stroma-ray"
+    [vllm]="${STROMA_REGISTRY}/stroma-vllm"
+    [watcher]="${STROMA_REGISTRY}/stroma-watcher"
+)
+
+# Upstream fallback images (used when registry image is not available)
+declare -A UPSTREAM_IMAGE=(
+    [postgres]="postgres:16-alpine"
+    [keycloak]="quay.io/keycloak/keycloak:26.0"
+    [nginx]="nginx:1.27-alpine"
+    [openwebui]="ghcr.io/open-webui/open-webui:v0.5.20"
+    [ray-head]="rayproject/ray:2.40.0-py311"
+    [vllm]="vllm/vllm-openai:v0.7.2"
+    # gateway and watcher have no upstream — always built locally
+)
+
+# Services that must be built locally (no upstream public image)
+LOCAL_BUILD_SERVICES=(gateway watcher)
 
 [[ -z "${SUBCMD}" ]] && { usage; }
 
@@ -127,6 +187,146 @@ run_cmd() {
         return 0
     fi
     "$@"
+}
+
+# ---------------------------------------------------------------------------
+# default_version — date-based version tag  YYYY.MM.DD
+# ---------------------------------------------------------------------------
+default_version() { date +%Y.%m.%d; }
+
+# ---------------------------------------------------------------------------
+# registry_host — extract the hostname[:port] from STROMA_REGISTRY
+# ---------------------------------------------------------------------------
+registry_host() { echo "${STROMA_REGISTRY%%/*}"; }
+
+# ---------------------------------------------------------------------------
+# registry_logged_in — return 0 if already authenticated to the registry
+# ---------------------------------------------------------------------------
+registry_logged_in() {
+    local host; host=$(registry_host)
+    # podman stores auth in ${XDG_RUNTIME_DIR}/containers/auth.json or
+    # ~/.config/containers/auth.json — check both locations.
+    local auth_files=(
+        "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/containers/auth.json"
+        "${HOME}/.config/containers/auth.json"
+        "${HOME}/.docker/config.json"
+    )
+    for f in "${auth_files[@]}"; do
+        if [[ -f "${f}" ]] && python3 -c "
+import sys, json
+try:
+    data = json.load(open('${f}'))
+    auths = data.get('auths', {})
+    sys.exit(0 if any('${host}' in k for k in auths) else 1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# ensure_registry_login — check auth; prompt user to login if needed
+# ---------------------------------------------------------------------------
+ensure_registry_login() {
+    local host; host=$(registry_host)
+    if registry_logged_in; then
+        log_ok "Registry auth: ${host}"
+        return 0
+    fi
+    log_warn "Not logged in to ${host}"
+    log_info "Run:  podman login ${host}"
+    if [[ -t 0 ]]; then
+        # Interactive — attempt login now
+        read -r -p "$(echo -e "${CYAN}Username for ${host}: ${RESET}")" _reg_user
+        run_cmd podman login --username "${_reg_user}" "${host}" || \
+            die "Login to ${host} failed. Re-run after logging in manually."
+        unset _reg_user
+    else
+        die "Not logged in to ${host}. Run: podman login ${host}"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# registry_image_exists FULL_IMAGE_REF — return 0 if the image exists in the
+# registry (does NOT pull it; uses skopeo or a manifest inspect).
+# ---------------------------------------------------------------------------
+registry_image_exists() {
+    local ref="$1"
+    # skopeo is ideal; fall back to podman manifest inspect
+    if command -v skopeo &>/dev/null; then
+        skopeo inspect --no-creds "docker://${ref}" &>/dev/null
+        return $?
+    fi
+    podman manifest inspect "${ref}" &>/dev/null
+    return $?
+}
+
+# ---------------------------------------------------------------------------
+# resolve_service_image SERVICE — print the image ref to use for SERVICE.
+# Priority:
+#   1. SKIP_REGISTRY=1 → upstream/build
+#   2. Registry image exists → registry ref (with :latest tag)
+#   3. Service is in LOCAL_BUILD_SERVICES → no image ref (will be built)
+#   4. UPSTREAM_IMAGE entry → upstream public image
+# Sets the global RESOLVED_IMAGE[SERVICE] associative array.
+# ---------------------------------------------------------------------------
+declare -A RESOLVED_IMAGE=()
+
+resolve_all_images() {
+    log_step "Resolving container images"
+    if [[ "${SKIP_REGISTRY}" -eq 1 ]]; then
+        log_info "Registry disabled (--no-registry) — using upstream/build images"
+    else
+        log_info "Registry: ${STROMA_REGISTRY}"
+    fi
+
+    local svc reg_ref upstream_ref
+    for svc in "${!REGISTRY_IMAGE[@]}"; do
+        reg_ref="${REGISTRY_IMAGE[${svc}]}:latest"
+        upstream_ref="${UPSTREAM_IMAGE[${svc}]:-}"
+
+        if [[ "${SKIP_REGISTRY}" -eq 0 ]] && registry_image_exists "${reg_ref}"; then
+            RESOLVED_IMAGE[${svc}]="${reg_ref}"
+            log_ok "  ${svc}: ${reg_ref}"
+        elif [[ -n "${upstream_ref}" ]]; then
+            RESOLVED_IMAGE[${svc}]="${upstream_ref}"
+            log_info "  ${svc}: ${upstream_ref} (registry miss — using upstream)"
+        else
+            # Local build service — no pre-pulled image
+            RESOLVED_IMAGE[${svc}]=""
+            log_info "  ${svc}: (local build)"
+        fi
+    done
+}
+
+# ---------------------------------------------------------------------------
+# write_image_overrides — write IMAGE_* vars to .env so docker-compose.yml
+# can reference them via ${IMAGE_POSTGRES}, ${IMAGE_KEYCLOAK}, etc.
+# ---------------------------------------------------------------------------
+write_image_overrides() {
+    local svc image_var
+    declare -A svc_to_var=(
+        [postgres]="IMAGE_POSTGRES"
+        [keycloak]="IMAGE_KEYCLOAK"
+        [gateway]="IMAGE_GATEWAY"
+        [nginx]="IMAGE_NGINX"
+        [openwebui]="IMAGE_OPENWEBUI"
+        [ray-head]="IMAGE_RAY"
+        [vllm]="IMAGE_VLLM"
+        [watcher]="IMAGE_WATCHER"
+    )
+    for svc in "${!svc_to_var[@]}"; do
+        image_var="${svc_to_var[${svc}]}"
+        local val="${RESOLVED_IMAGE[${svc}]:-}"
+        # Only write if we resolved a real image (build services without a
+        # registry image leave the compose `build:` block in charge)
+        if [[ -n "${val}" ]]; then
+            write_env_var "${image_var}" "${val}" "${DEV_ENV}"
+        fi
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -622,6 +822,9 @@ case "${SUBCMD}" in
         generate_tls_cert
         generate_realm_json
 
+        resolve_all_images
+        write_image_overrides
+
         if [[ "${PROFILE_WATCHER}" -eq 1 ]]; then
             log_step "Checking Slurm binaries (watcher profile)"
             check_slurm_binaries
@@ -683,6 +886,8 @@ case "${SUBCMD}" in
     # -------------------------------------------------------------------------
     build)
         log_step "Building custom images (gateway, watcher)"
+        resolve_all_images
+        write_image_overrides
         compose build gateway watcher
         log_ok "Build complete"
         ;;
@@ -744,13 +949,153 @@ case "${SUBCMD}" in
         compose down --volumes --remove-orphans 2>/dev/null || true
         podman network rm stroma-dev 2>/dev/null || true
         run_cmd rm -f "${DEV_ENV}"
-        run_cmd rm -rf "${CERT_DIR}"
+        run_cmd rm -rf "${CERT_DIR}" "${REALM_DIR}"
         log_ok "Cleaned. dev-data/models/ and dev-data/shared/ are preserved."
         ;;
 
     # -------------------------------------------------------------------------
     ip)
         detect_host_ip
+        ;;
+
+    # -------------------------------------------------------------------------
+    # commit — snapshot running containers into registry-named images.
+    # Usage:  ./dev.sh commit [VERSION]
+    # VERSION defaults to YYYY.MM.DD.  Images are tagged both :VERSION and
+    # :latest so they can be used immediately without a version argument.
+    # Does NOT push — use './dev.sh push' for that.
+    # -------------------------------------------------------------------------
+    commit)
+        local ver="${VERSION_ARG:-$(default_version)}"
+        log_step "Committing running containers → registry images (version: ${ver})"
+        log_info "Registry: ${STROMA_REGISTRY}"
+        log_info "This snapshots the current container state, not just the base image."
+        echo ""
+
+        # Map: container_name → (registry_image_name  upstream_base)
+        # We commit the running container and tag it as both :VERSION and :latest
+        declare -A COMMIT_MAP=(
+            [dev-stroma-postgres]="${STROMA_REGISTRY}/kc-postgres"
+            [dev-stroma-keycloak]="${STROMA_REGISTRY}/kc-keycloak"
+            [dev-stroma-gateway]="${STROMA_REGISTRY}/stroma-gateway"
+            [dev-stroma-nginx]="${STROMA_REGISTRY}/stroma-nginx"
+            [dev-stroma-openwebui]="${STROMA_REGISTRY}/stroma-openwebui"
+            [dev-stroma-ray-head]="${STROMA_REGISTRY}/stroma-ray"
+            [dev-stroma-vllm]="${STROMA_REGISTRY}/stroma-vllm"
+            [dev-stroma-watcher]="${STROMA_REGISTRY}/stroma-watcher"
+        )
+
+        local committed=0 skipped=0
+        for container in "${!COMMIT_MAP[@]}"; do
+            local image_base="${COMMIT_MAP[${container}]}"
+            # Check the container is actually running
+            if ! podman ps --format '{{.Names}}' 2>/dev/null | grep -qx "${container}"; then
+                log_warn "  ${container}: not running — skipped"
+                skipped=$(( skipped + 1 ))
+                continue
+            fi
+            log_info "  Committing ${container} → ${image_base}:${ver}"
+            run_cmd podman commit \
+                --pause=true \
+                --message "StromaAI dev commit ${ver}" \
+                "${container}" "${image_base}:${ver}"
+            # Also tag as :latest for easy use without a version
+            run_cmd podman tag "${image_base}:${ver}" "${image_base}:latest"
+            log_ok "  ${image_base}:${ver}  (+ :latest)"
+            committed=$(( committed + 1 ))
+        done
+
+        echo ""
+        log_ok "Committed ${committed} image(s), skipped ${skipped} (not running)."
+        log_info "Push to registry with:  ./dev.sh push ${ver}"
+        ;;
+
+    # -------------------------------------------------------------------------
+    # push — push committed images to the registry.
+    # Usage:  ./dev.sh push [VERSION]
+    # VERSION defaults to YYYY.MM.DD (same default as 'commit').
+    # Checks registry auth first; prompts for login if needed.
+    # Both :VERSION and :latest tags are pushed.
+    # -------------------------------------------------------------------------
+    push)
+        local ver="${VERSION_ARG:-$(default_version)}"
+        log_step "Pushing images to registry (version: ${ver})"
+        log_info "Registry: ${STROMA_REGISTRY}"
+        ensure_registry_login
+
+        local all_images=(
+            "${STROMA_REGISTRY}/kc-postgres"
+            "${STROMA_REGISTRY}/kc-keycloak"
+            "${STROMA_REGISTRY}/stroma-gateway"
+            "${STROMA_REGISTRY}/stroma-nginx"
+            "${STROMA_REGISTRY}/stroma-openwebui"
+            "${STROMA_REGISTRY}/stroma-ray"
+            "${STROMA_REGISTRY}/stroma-vllm"
+            "${STROMA_REGISTRY}/stroma-watcher"
+        )
+
+        local pushed=0 skipped=0
+        for image_base in "${all_images[@]}"; do
+            local versioned="${image_base}:${ver}"
+            local latest="${image_base}:latest"
+
+            # Only push if the versioned tag exists locally
+            if ! podman image exists "${versioned}" 2>/dev/null; then
+                log_warn "  ${versioned}: not found locally — skipped (run 'commit' first)"
+                skipped=$(( skipped + 1 ))
+                continue
+            fi
+
+            log_info "  Pushing ${versioned}"
+            run_cmd podman push "${versioned}"
+            log_info "  Pushing ${latest}"
+            run_cmd podman push "${latest}"
+            log_ok "  ${image_base} pushed (${ver} + latest)"
+            pushed=$(( pushed + 1 ))
+        done
+
+        echo ""
+        log_ok "Pushed ${pushed} image(s), skipped ${skipped}."
+        if (( pushed > 0 )); then
+            log_info "Team members can now use these images by running:"
+            log_info "  STROMA_REGISTRY=${STROMA_REGISTRY} ./dev.sh up"
+        fi
+        ;;
+
+    # -------------------------------------------------------------------------
+    # pull — pull all images from the registry (skips any that are missing).
+    # Useful to warm the local image cache before running in an air-gapped env.
+    # -------------------------------------------------------------------------
+    pull)
+        log_step "Pulling images from registry"
+        log_info "Registry: ${STROMA_REGISTRY}"
+        ensure_registry_login
+
+        local all_images=(
+            "${STROMA_REGISTRY}/kc-postgres:latest"
+            "${STROMA_REGISTRY}/kc-keycloak:latest"
+            "${STROMA_REGISTRY}/stroma-gateway:latest"
+            "${STROMA_REGISTRY}/stroma-nginx:latest"
+            "${STROMA_REGISTRY}/stroma-openwebui:latest"
+            "${STROMA_REGISTRY}/stroma-ray:latest"
+            "${STROMA_REGISTRY}/stroma-vllm:latest"
+            "${STROMA_REGISTRY}/stroma-watcher:latest"
+        )
+
+        local pulled=0 skipped=0
+        for ref in "${all_images[@]}"; do
+            log_info "  Pulling ${ref}"
+            if run_cmd podman pull "${ref}" 2>/dev/null; then
+                log_ok "  ${ref}"
+                pulled=$(( pulled + 1 ))
+            else
+                log_warn "  ${ref}: not found in registry — skipped"
+                skipped=$(( skipped + 1 ))
+            fi
+        done
+
+        echo ""
+        log_ok "Pulled ${pulled} image(s), skipped ${skipped} (not yet in registry)."
         ;;
 
     *)

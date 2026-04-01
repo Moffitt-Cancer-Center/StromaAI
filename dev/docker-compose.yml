@@ -38,7 +38,7 @@ services:
   # postgres — Keycloak relational backing store
   # ===========================================================================
   postgres:
-    image: postgres:16-alpine
+    image: ${IMAGE_POSTGRES:-postgres:16-alpine}
     container_name: dev-stroma-postgres
     hostname: postgres
     environment:
@@ -68,7 +68,7 @@ services:
   # Keycloak is published on KC_PORT (default 8080) on all interfaces.
   # ===========================================================================
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: ${IMAGE_KEYCLOAK:-quay.io/keycloak/keycloak:26.0}
     container_name: dev-stroma-keycloak
     command: >
       start-dev
@@ -120,7 +120,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/head/Dockerfile.gateway
-    image: stroma-ai-gateway:dev
+    image: ${IMAGE_GATEWAY:-stroma-ai-gateway:dev}
     container_name: dev-stroma-gateway
     environment:
       # Fetch OIDC config from Keycloak via the bridge service name.
@@ -159,7 +159,7 @@ services:
   # vLLM (host network) is reached via host.containers.internal.
   # ===========================================================================
   nginx:
-    image: nginx:1.27-alpine
+    image: ${IMAGE_NGINX:-nginx:1.27-alpine}
     container_name: dev-stroma-nginx
     ports:
       - "80:80"
@@ -191,7 +191,7 @@ services:
   # bridge so inter-service calls use the gateway service name directly.
   # ===========================================================================
   openwebui:
-    image: ghcr.io/open-webui/open-webui:v0.5.20
+    image: ${IMAGE_OPENWEBUI:-ghcr.io/open-webui/open-webui:v0.5.20}
     container_name: dev-stroma-openwebui
     ports:
       - "${OPENWEBUI_PORT:-3000}:8080"
@@ -238,7 +238,7 @@ services:
   # In a single-machine dev setup workers are launched manually or not at all.
   # ===========================================================================
   ray-head:
-    image: rayproject/ray:2.40.0-py311
+    image: ${IMAGE_RAY:-rayproject/ray:2.40.0-py311}
     container_name: dev-stroma-ray-head
     profiles:
       - inference
@@ -271,7 +271,7 @@ services:
   # for testing the API surface with a small CPU-runnable model.
   # ===========================================================================
   vllm:
-    image: vllm/vllm-openai:v0.7.2
+    image: ${IMAGE_VLLM:-vllm/vllm-openai:v0.7.2}
     container_name: dev-stroma-vllm
     profiles:
       - inference
@@ -317,7 +317,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/head/Dockerfile.watcher
-    image: stroma-ai-watcher:dev
+    image: ${IMAGE_WATCHER:-stroma-ai-watcher:dev}
     container_name: dev-stroma-watcher
     profiles:
       - watcher
