@@ -21,6 +21,17 @@ config/config.env
 /opt/stroma-ai/config.env
 /etc/ood/stroma-ai.conf
 
+# Dev environment secrets and generated files (dev/dev.sh writes these)
+dev/.env
+dev/dev-data/certs/
+
+# dev-data directories: keep the tree but not the contents
+# (model weights are large; logs/state are ephemeral)
+dev/dev-data/models/*
+dev/dev-data/shared/logs/*
+!dev/dev-data/models/.gitkeep
+!dev/dev-data/shared/logs/.gitkeep
+
 # Built Apptainer images (binary, large — store on shared storage instead)
 *.sif
 *.simg
