@@ -18,6 +18,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    hostname: postgres
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
@@ -33,7 +34,7 @@ services:
     restart: unless-stopped
     # No host-facing ports — only reachable by keycloak service on this network
     networks:
-      - keycloak-internal
+      - keycloak-net
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
@@ -83,16 +84,14 @@ services:
           memory: 2G
           cpus: '2'
     networks:
-      - keycloak-internal
-      - keycloak-external
+      - keycloak-net
 
 volumes:
   postgres_data:
 
 networks:
-  # Internal network: keycloak ↔ postgres
-  # NOTE: internal: true disabled — CNI (RHEL 8) does not provide DNS on internal
-  # networks. Postgres is still unexposed: it has no published ports.
-  keycloak-internal:
-  # External network: keycloak → host (port binding above)
-  keycloak-external:
+  # Single shared network for keycloak ↔ postgres.
+  # RHEL 8 CNI: attaching a container to multiple networks causes DNS resolution
+  # failures for hostnames on secondary networks.  One network avoids this.
+  # Postgres is still unexposed: it has no published ports.
+  keycloak-net:
