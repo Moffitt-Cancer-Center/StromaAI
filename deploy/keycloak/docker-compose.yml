@@ -73,9 +73,12 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      # Keycloak 26: --health-enabled=true exposes /health/ready on the
-      # management interface (port 9000), not the main HTTP port (8080).
-      test: ["CMD-SHELL", "curl -fs http://localhost:9000/health/ready || exit 1"]
+      # Probe the OIDC discovery document on the main port (8080).
+      # This is a better end-to-end check than /health/ready on port 9000
+      # because it verifies the realm is imported and serving requests.
+      # Port 9000 (management) is only available inside the container network
+      # and may not be reachable from the healthcheck exec context on RHEL 8.
+      test: ["CMD-SHELL", "curl -fs -o /dev/null http://localhost:8080/realms/stroma-ai/.well-known/openid-configuration"]
       interval: 30s
       timeout: 10s
       retries: 5
