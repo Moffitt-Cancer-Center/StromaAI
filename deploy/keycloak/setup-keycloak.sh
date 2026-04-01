@@ -15,7 +15,7 @@
 #   /opt/stroma-ai/config.env  — updated with OIDC_* variables (merged, not
 #                                overwritten) so other components auto-pick-up.
 #
-# Requirements (LOCAL mode): docker, docker compose plugin
+# Requirements (LOCAL mode): podman, podman-compose
 # Requirements (EXTERNAL mode): none
 # =============================================================================
 
@@ -71,7 +71,7 @@ wait_for_keycloak() {
     sleep 5
     waited=$((waited + 5))
     if (( waited >= max_wait )); then
-      die "Keycloak did not become healthy within ${max_wait}s. Check: docker compose logs keycloak"
+      die "Keycloak did not become healthy within ${max_wait}s. Check: podman compose logs keycloak"
     fi
     printf '.'
   done
@@ -109,8 +109,8 @@ esac
 # ===========================================================================
 if [[ "${MODE}" == "local" ]]; then
 
-  require_cmd docker
-  docker compose version &>/dev/null || die "Docker Compose plugin not found. Install: https://docs.docker.com/compose/install/"
+  require_cmd podman
+  podman compose version &>/dev/null || die "podman-compose not found. Install: dnf install podman-compose  or  pip install podman-compose"
 
   info "Generating cryptographic secrets..."
   KC_DB_PASSWORD="$(gen_secret)"
@@ -127,7 +127,7 @@ if [[ "${MODE}" == "local" ]]; then
   KC_PORT="${KC_PORT:-8080}"
 
   # ---------------------------------------------------------------------------
-  # Write compose .env (secrets for docker compose only — never committed)
+  # Write compose .env (secrets for podman compose only — never committed)
   # ---------------------------------------------------------------------------
   info "Writing ${COMPOSE_ENV} ..."
   cat > "${COMPOSE_ENV}" <<EOF
@@ -179,8 +179,8 @@ PYEOF
   # ---------------------------------------------------------------------------
   # Start services
   # ---------------------------------------------------------------------------
-  info "Starting Keycloak + PostgreSQL via Docker Compose..."
-  docker compose --project-directory "${SCRIPT_DIR}" up -d
+  info "Starting Keycloak + PostgreSQL via Podman Compose..."
+  podman compose --project-directory "${SCRIPT_DIR}" up -d
 
   KEYCLOAK_URL="http://${KC_HOSTNAME}:${KC_PORT}/realms/stroma-ai"
   wait_for_keycloak "http://${KC_HOSTNAME}:${KC_PORT}"

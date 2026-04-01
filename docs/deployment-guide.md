@@ -366,17 +366,17 @@ pip install -r requirements-gateway.txt
 
 ### 2.5.2 Set up identity provider
 
-Run the setup wizard. Choose **mode 1 (LOCAL)** to deploy a self-contained Keycloak + PostgreSQL stack via Docker Compose, or **mode 2 (EXTERNAL)** to point to your institution's existing OIDC/SAML provider.
+Run the setup wizard. Choose **mode 1 (LOCAL)** to deploy a self-contained Keycloak + PostgreSQL stack via Podman Compose, or **mode 2 (EXTERNAL)** to point to your institution's existing OIDC/SAML provider.
 
 ```bash
 bash deploy/keycloak/setup-keycloak.sh
 ```
 
-**Local mode prerequisites:** Docker and Docker Compose installed on the head node.
+**Local mode prerequisites:** Podman and Podman Compose installed on the head node.
 
 **What the wizard does (local mode):**
 1. Generates random `KC_ADMIN_PASSWORD` and `KC_DB_PASSWORD`
-2. Starts Keycloak 26.x and PostgreSQL 16 via Docker Compose
+2. Starts Keycloak 26.x and PostgreSQL 16 via Podman Compose
 3. Imports the pre-configured `stroma-ai` realm (roles: `stroma_researcher`, `stroma_admin`; clients: `stroma-gateway`, `openwebui`)
 4. Writes `OIDC_DISCOVERY_URL`, `KC_GATEWAY_CLIENT_ID`, and `KC_GATEWAY_CLIENT_SECRET` to `config.env`
 

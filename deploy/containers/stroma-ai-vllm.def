@@ -35,7 +35,7 @@ Bootstrap: docker
 From: nvcr.io/nvidia/pytorch:24.10-py3
 # ^^ Pin by tag; for maximum reproducibility pin by digest:
 # From: nvcr.io/nvidia/pytorch@sha256:<digest>
-# Get digest: docker pull nvcr.io/nvidia/pytorch:24.10-py3 && docker inspect
+# Get digest: podman pull nvcr.io/nvidia/pytorch:24.10-py3 && podman inspect
 
 %labels
     org.opencontainers.image.title       stroma-ai-vllm

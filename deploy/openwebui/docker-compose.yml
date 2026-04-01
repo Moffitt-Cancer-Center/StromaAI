@@ -11,7 +11,7 @@
 #   # Run setup script to configure OIDC + gateway connectivity:
 #   ./setup-openwebui.sh
 #   # Then start:
-#   docker compose up -d
+#   podman compose up -d
 #
 # Access: http://<host>:<OPENWEBUI_PORT>
 # =============================================================================
@@ -29,9 +29,9 @@ services:
       # Backend — StromaAI Secure Gateway (OpenAI-compatible endpoint)
       # -----------------------------------------------------------------------
       # The gateway URL must be reachable FROM inside this container.
-      # Use host.docker.internal for same-host Docker deployments.
+      # Use host.containers.internal for same-host Podman deployments.
       # For HPC/external gateways, set to the HTTPS FQDN.
-      OPENAI_API_BASE_URL: "${STROMA_GATEWAY_URL:-http://host.docker.internal:9000}/v1"
+      OPENAI_API_BASE_URL: "${STROMA_GATEWAY_URL:-http://host.containers.internal:9000}/v1"
       OPENAI_API_KEY: "${STROMA_GATEWAY_API_KEY:-not-used-gateway-validates-oidc}"
 
       # -----------------------------------------------------------------------
@@ -78,9 +78,9 @@ services:
       - openwebui_data:/app/backend/data
 
     extra_hosts:
-      # Allows the container to reach services running on the Docker host
+      # Allows the container to reach services running on the Podman host
       # (e.g., the gateway running as a systemd service or bare Python process)
-      - "host.docker.internal:host-gateway"
+      - "host.containers.internal:host-gateway"
 
     # Health check — OpenWebUI exposes /health on the same port
     healthcheck:

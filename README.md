@@ -103,7 +103,7 @@ StromaAI ships with a full OIDC authentication stack that can be deployed in min
 **Keycloak 26.x** (`deploy/keycloak/`):
 - Pre-configured `stroma-ai` realm with `stroma_researcher` and `stroma_admin` roles
 - Two OIDC clients: `stroma-gateway` (service account, client-credentials flow) and `openwebui` (PKCE, standard flow)
-- One-command setup: `deploy/keycloak/setup-keycloak.sh` — supports both *local* (Docker Compose) and *external* (any IdP with an OIDC discovery URL) modes
+- One-command setup: `deploy/keycloak/setup-keycloak.sh` — supports both *local* (Podman Compose) and *external* (any IdP with an OIDC discovery URL) modes
 - Uses PostgreSQL 16 for persistent storage; no H2 in production
 
 **OpenWebUI** (`deploy/openwebui/`):
@@ -249,11 +249,11 @@ The installer prompts for site-specific values (shared root, hostname, Slurm par
 
 ### 2. Set up the identity layer (recommended for multi-user deployments)
 
-After the base install, run the identity and gateway setup wizards. Each wizard supports **local** (self-contained Docker Compose stack) and **external** (your institution's existing OIDC/SAML provider) modes.
+After the base install, run the identity and gateway setup wizards. Each wizard supports **local** (self-contained Podman Compose stack) and **external** (your institution's existing OIDC/SAML provider) modes.
 
 ```bash
 # Step 2a — Keycloak or external IdP:
-# Requires Docker + Docker Compose if using local mode.
+# Requires Podman + Podman Compose if using local mode.
 bash deploy/keycloak/setup-keycloak.sh
 # Writes OIDC_DISCOVERY_URL, KC_GATEWAY_CLIENT_ID/SECRET to config.env
 

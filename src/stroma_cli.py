@@ -142,7 +142,7 @@ def _check_hardware() -> HardwareCheckResult:
       • Disk space on STROMA_SHARED_ROOT (warn if < 200 GB free)
       • Container runtime (apptainer or singularity)
       • CUDA availability
-      • Docker (for Keycloak / OpenWebUI containers)
+      • Podman (for Keycloak / OpenWebUI containers)
     """
     r = HardwareCheckResult()
 
@@ -247,21 +247,21 @@ def _check_hardware() -> HardwareCheckResult:
             "Install: https://apptainer.org/docs/admin/latest/installation.html"
         )
 
-    # Docker (for Keycloak / OpenWebUI containers)
-    if shutil.which("docker"):
+    # Podman (for Keycloak / OpenWebUI containers)
+    if shutil.which("podman"):
         try:
             proc = subprocess.run(
-                ["docker", "info"], capture_output=True, timeout=10, check=False
+                ["podman", "info"], capture_output=True, timeout=10, check=False
             )
             if proc.returncode == 0:
-                r.passed.append("Docker: available")
+                r.passed.append("Podman: available")
             else:
-                r.warnings.append("Docker installed but daemon not running")
+                r.warnings.append("Podman installed but not functioning correctly")
         except subprocess.TimeoutExpired:
-            r.warnings.append("Docker check timed out")
+            r.warnings.append("Podman check timed out")
     else:
         r.warnings.append(
-            "Docker not found — required for Keycloak and OpenWebUI containers "
+            "Podman not found — required for Keycloak and OpenWebUI containers "
             "(not required for HPC-only deployments)"
         )
 
@@ -310,12 +310,12 @@ def cmd_idp_setup(_args: argparse.Namespace) -> int:
         _console.print(f"[red]Setup script not found: {setup_script}[/red]" if HAS_RICH else str(setup_script))
         return 1
 
-    if not shutil.which("docker"):
+    if not shutil.which("podman"):
         _console.print(
-            "[yellow]Warning:[/yellow] Docker not found. "
-            "LOCAL mode requires Docker. EXTERNAL mode will still work."
+            "[yellow]Warning:[/yellow] Podman not found. "
+            "LOCAL mode requires Podman. EXTERNAL mode will still work."
             if HAS_RICH else
-            "Warning: Docker not found."
+            "Warning: Podman not found."
         )
 
     os.execv("/bin/bash", ["/bin/bash", str(setup_script)])

@@ -6,7 +6,7 @@
 #
 # Usage:
 #   cp ../../config/config.example.env .env  # then fill in secrets
-#   docker compose up -d
+#   podman compose up -d
 #
 # The stroma-ai realm is imported automatically on first start from:
 #   ./realm-export.json

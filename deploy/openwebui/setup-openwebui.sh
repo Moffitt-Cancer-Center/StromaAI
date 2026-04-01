@@ -14,7 +14,7 @@
 # must already be set in STROMA_CONFIG_ENV) so that OIDC variables are present.
 #
 # Output:
-#   deploy/openwebui/.env  — compose env file (auto-sourced by docker compose)
+#   deploy/openwebui/.env  — compose env file (auto-sourced by podman compose)
 #   /opt/stroma-ai/config.env — OPENWEBUI_URL added for other tools
 # =============================================================================
 
@@ -109,16 +109,16 @@ esac
 # ===========================================================================
 if [[ "${MODE}" == "local" ]]; then
 
-  require_cmd docker
-  docker compose version &>/dev/null || die "Docker Compose plugin not found"
+  require_cmd podman
+  podman compose version &>/dev/null || die "podman-compose not found. Install: dnf install podman-compose  or  pip install podman-compose"
 
   # Gather settings
   read -rp "OpenWebUI host port [default: 3000]: " OWU_PORT
   OWU_PORT="${OWU_PORT:-3000}"
 
   # Gateway URL — what the OpenWebUI container uses to reach the FastAPI gateway
-  read -rp "StromaAI Gateway URL (from inside Docker) [default: http://host.docker.internal:9000]: " GATEWAY_URL
-  GATEWAY_URL="${GATEWAY_URL:-http://host.docker.internal:9000}"
+  read -rp "StromaAI Gateway URL (from inside Podman) [default: http://host.containers.internal:9000]: " GATEWAY_URL
+  GATEWAY_URL="${GATEWAY_URL:-http://host.containers.internal:9000}"
 
   read -rp "WebUI display name [default: StromaAI Research Chat]: " WEBUI_NAME
   WEBUI_NAME="${WEBUI_NAME:-StromaAI Research Chat}"
@@ -149,15 +149,15 @@ EOF
   chmod 600 "${COMPOSE_ENV}"
 
   # Start
-  info "Starting OpenWebUI via Docker Compose..."
-  docker compose --project-directory "${SCRIPT_DIR}" up -d
+  info "Starting OpenWebUI via Podman Compose..."
+  podman compose --project-directory "${SCRIPT_DIR}" up -d
 
   # Wait for health
   MAX_WAIT=90 ; WAITED=0
   info "Waiting for OpenWebUI to become healthy..."
   while ! curl -sf --max-time 3 "http://localhost:${OWU_PORT}/health" &>/dev/null; do
     sleep 5 ; WAITED=$((WAITED + 5))
-    (( WAITED >= MAX_WAIT )) && die "OpenWebUI did not become healthy within ${MAX_WAIT}s. Check: docker compose logs openwebui"
+    (( WAITED >= MAX_WAIT )) && die "OpenWebUI did not become healthy within ${MAX_WAIT}s. Check: podman compose logs openwebui"
     printf '.'
   done
   echo
