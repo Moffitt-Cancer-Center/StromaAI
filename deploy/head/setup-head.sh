@@ -78,7 +78,8 @@ Usage: $0 [OPTIONS]
 Options:
   --config=FILE     Path to .env config file (default: deploy/head/.env)
   --gen-certs       Generate self-signed TLS certs in TLS_CERT_PATH
-  --build-only      Build images then exit, don't start the stack
+  --build-only      Build images but don't start the stack
+  --no-start        Alias for --build-only
   --start-only      Start stack without rebuilding images
   --dry-run         Print commands without executing them
   --yes             Non-interactive: auto-confirm all prompts
@@ -102,7 +103,7 @@ for _arg in "$@"; do
     case "${_arg}" in
         --config=*)    CONFIG_FILE="${_arg#--config=}" ;;
         --gen-certs)   GEN_CERTS=1 ;;
-        --build-only)  BUILD_ONLY=1 ;;
+        --build-only|--no-start) BUILD_ONLY=1 ;;
         --start-only)  START_ONLY=1 ;;
         --dry-run)     export STROMA_DRY_RUN=1 ;;
         --yes)         export STROMA_YES=1 ;;
@@ -130,11 +131,19 @@ detect_compose() {
 # ---------------------------------------------------------------------------
 # Banner
 # ---------------------------------------------------------------------------
-echo -e "${BOLD}"
-echo "╔══════════════════════════════════════════════════════╗"
-echo "║   StromaAI — Head Node Container Stack Setup         ║"
-echo "╚══════════════════════════════════════════════════════╝"
-echo -e "${RESET}"
+echo ""
+echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
+echo -e "${BOLD}║   StromaAI — Head Node Container Stack Setup         ║${RESET}"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
+echo ""
+
+if [[ "${STROMA_DRY_RUN:-0}" == "1" ]]; then
+    log_warn "DRY-RUN mode — no changes will be made."
+    echo ""
+fi
+
+detect_os
+log_info "OS: ${OS_PRETTY:-unknown}"
 
 detect_compose
 
@@ -147,6 +156,7 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
     log_warn ".env not found at: ${CONFIG_FILE}"
     EXAMPLE="${REPO_ROOT}/config/config.example.env"
     if confirm "Copy config.example.env to ${CONFIG_FILE} as a starting point?"; then
+        backup_file "${CONFIG_FILE}"
         run_cmd cp "${EXAMPLE}" "${CONFIG_FILE}"
         log_ok "Copied to ${CONFIG_FILE}"
         log_warn "IMPORTANT: Edit ${CONFIG_FILE} and fill in all required values before continuing."
@@ -232,7 +242,7 @@ log_step "Slurm CLI Bind-Mount Verification"
 
 _slurm_warn=0
 for _bin_var in SLURM_SBATCH_BIN SLURM_SQUEUE_BIN SLURM_SCANCEL_BIN SLURM_SINFO_BIN; do
-    _default_bin="/usr/bin/$(echo "${_bin_var}" | sed 's/SLURM_//;s/_BIN//;tr A-Z a-z')"
+    _default_bin="/usr/bin/$(echo "${_bin_var}" | sed 's/^SLURM_//;s/_BIN$//' | tr '[:upper:]' '[:lower:]')"
     _path="${!_bin_var:-${_default_bin}}"
     if [[ -x "${_path}" ]]; then
         log_ok "Slurm binary verified: ${_path}"
@@ -324,14 +334,19 @@ run_cmd ${COMPOSE_CMD} \
 echo ""
 log_ok "StromaAI head node stack started."
 echo ""
-echo -e "${BOLD}Services:${RESET}"
+echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
+echo -e "${BOLD}║   Head Node Stack — Summary                           ║${RESET}"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
+echo ""
 echo "  nginx     — HTTPS reverse proxy  → https://${STROMA_HEAD_HOST:-localhost}:${STROMA_HTTPS_PORT:-443}"
 echo "  gateway   — OIDC security proxy  → http://localhost:${GATEWAY_PORT:-9000}"
 echo "  ray-head  — Ray GCS coordinator  → localhost:${STROMA_RAY_PORT:-6380}"
 echo "  vllm      — vLLM inference API   → http://localhost:${STROMA_VLLM_PORT:-8000}"
 echo "  watcher   — Slurm burst scaler"
 echo ""
-echo -e "${BOLD}Useful commands:${RESET}"
-echo "  ${COMPOSE_CMD} -f ${SCRIPT_DIR}/docker-compose.yml logs -f"
-echo "  ${COMPOSE_CMD} -f ${SCRIPT_DIR}/docker-compose.yml ps"
-echo "  ${COMPOSE_CMD} -f ${SCRIPT_DIR}/docker-compose.yml down"
+echo "  Logs : ${COMPOSE_CMD} -f ${SCRIPT_DIR}/docker-compose.yml logs -f"
+echo "  Status: ${COMPOSE_CMD} -f ${SCRIPT_DIR}/docker-compose.yml ps"
+echo "  Stop : ${COMPOSE_CMD} -f ${SCRIPT_DIR}/docker-compose.yml down"
+echo ""
+echo "  Next: python3 src/stroma_cli.py --status"
+echo ""

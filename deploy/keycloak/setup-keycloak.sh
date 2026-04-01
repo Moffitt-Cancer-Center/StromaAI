@@ -15,53 +15,52 @@
 #   /opt/stroma-ai/config.env  — updated with OIDC_* variables (merged, not
 #                                overwritten) so other components auto-pick-up.
 #
-# Requirements (LOCAL mode): podman + either 'podman compose' (Podman 4.x plugin)
-#                             or standalone podman-compose
-# Requirements (EXTERNAL mode): none
+# Usage:
+#   ./setup-keycloak.sh                          # interactive wizard
+#   ./setup-keycloak.sh --mode=local             # non-interactive local deploy
+#   ./setup-keycloak.sh --mode=external          # non-interactive external IdP
+#   ./setup-keycloak.sh --config=/path/to/.env   # explicit config path
+#   ./setup-keycloak.sh --dry-run --yes          # print without executing
+#   ./setup-keycloak.sh -h | --help
+#
+# Options:
+#   --mode=local      Deploy Keycloak 26.x container non-interactively
+#   --mode=external   Configure an existing institutional IdP non-interactively
+#   --config=FILE     Path to platform config.env (default: /opt/stroma-ai/config.env)
+#   --dry-run         Print commands without executing them
+#   --yes             Non-interactive: auto-confirm all prompts
+#   -h, --help        Show this help message
+#
+# Requirements (LOCAL mode): podman + either 'podman compose' (Podman 4.x) or
+#                             standalone podman-compose
+# Requirements (EXTERNAL mode): curl, python3
 # =============================================================================
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# ---------------------------------------------------------------------------
+# Source shared library (provides log_ok/warn/error/step/dry, run_cmd,
+# confirm, backup_file, require_cmd, detect_os)
+# ---------------------------------------------------------------------------
+# shellcheck source=install/lib/common.sh
+source "${REPO_ROOT}/install/lib/common.sh"
+# shellcheck source=install/lib/detect.sh
+source "${REPO_ROOT}/install/lib/detect.sh"
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CONFIG_ENV="${STROMA_CONFIG_ENV:-/opt/stroma-ai/config.env}"
 COMPOSE_ENV="${SCRIPT_DIR}/.env"
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Usage
 # ---------------------------------------------------------------------------
-info()    { printf '\033[1;34m[INFO]\033[0m  %s\n' "$*"; }
-success() { printf '\033[1;32m[OK]\033[0m    %s\n' "$*"; }
-warn()    { printf '\033[1;33m[WARN]\033[0m  %s\n' "$*"; }
-err()     { printf '\033[1;31m[ERROR]\033[0m %s\n' "$*" >&2; }
-die()     { err "$*"; exit 1; }
-
-require_cmd() {
-  command -v "$1" &>/dev/null || die "Required command not found: $1"
-}
-
-# Detect available Podman Compose implementation.
-# Sets COMPOSE_CMD to the working invocation string.
-detect_compose() {
-  require_cmd podman
-  if podman compose version &>/dev/null 2>&1; then
-    COMPOSE_CMD="podman compose"
-  elif command -v podman-compose &>/dev/null; then
-    COMPOSE_CMD="podman-compose"
-  else
-    die "No Podman Compose found. Install with one of:
-  dnf install podman-compose        # RHEL/Rocky (requires EPEL)
-  pip3 install podman-compose       # pip fallback
-Podman 4.x+ also supports 'podman compose' if docker-compose is installed."
-  fi
-  info "Using compose command: ${COMPOSE_CMD}"
-}
-
 usage() {
-  cat <<EOF
+    cat <<EOF
 Usage: $(basename "${BASH_SOURCE[0]}") [OPTIONS]
 
 Options:
@@ -69,16 +68,16 @@ Options:
   --mode=external   Configure an existing institutional IdP non-interactively
   --config=FILE     Path to platform config.env
                     (default: /opt/stroma-ai/config.env)
+  --dry-run         Print commands without executing them
+  --yes             Non-interactive (auto-confirm all prompts)
   -h, --help        Show this help message
 
 Examples:
-  # Interactive wizard:
-  ./setup-keycloak.sh
-
-  # Non-interactive with a pre-filled config:
-  STROMA_CONFIG_ENV=/opt/stroma-ai/config.env ./setup-keycloak.sh --mode=local
+  ./setup-keycloak.sh                     # interactive wizard
+  ./setup-keycloak.sh --mode=local --yes  # fully non-interactive
+  STROMA_CONFIG_ENV=/my/config.env ./setup-keycloak.sh --mode=local
 EOF
-  exit 0
+    exit 0
 }
 
 # ---------------------------------------------------------------------------
@@ -86,78 +85,116 @@ EOF
 # ---------------------------------------------------------------------------
 MODE=""
 for _arg in "$@"; do
-  case "${_arg}" in
-    --mode=local)    MODE="local" ;;
-    --mode=external) MODE="external" ;;
-    --config=*)      CONFIG_ENV="${_arg#--config=}" ;;
-    -h|--help)       usage ;;
-    *) die "Unknown argument: ${_arg}. Use --help for usage." ;;
-  esac
+    case "${_arg}" in
+        --mode=local)    MODE="local" ;;
+        --mode=external) MODE="external" ;;
+        --config=*)      CONFIG_ENV="${_arg#--config=}" ;;
+        --dry-run)       export STROMA_DRY_RUN=1 ;;
+        --yes)           export STROMA_YES=1 ;;
+        -h|--help)       usage ;;
+        *) die "Unknown argument: ${_arg}. Use --help for usage." ;;
+    esac
 done
 unset _arg
 
+# ---------------------------------------------------------------------------
+# Detect Podman Compose implementation — sets COMPOSE_CMD
+# ---------------------------------------------------------------------------
+detect_compose() {
+    require_cmd podman
+    if podman compose version &>/dev/null 2>&1; then
+        COMPOSE_CMD="podman compose"
+        log_ok "Compose: using 'podman compose' (Podman 4.x built-in)"
+    elif command -v podman-compose &>/dev/null; then
+        COMPOSE_CMD="podman-compose"
+        log_ok "Compose: using 'podman-compose' (standalone)"
+    else
+        die "No Podman Compose found. Install with:
+  dnf install podman-compose        # RHEL/Rocky (requires EPEL)
+  pip3 install podman-compose       # pip fallback"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 gen_secret() {
-  # 32 random bytes → hex (64 chars), no openssl dependency branch
-  python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null \
-    || openssl rand -hex 32
+    python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null \
+        || openssl rand -hex 32
 }
 
 write_or_update_config() {
-  # Writes KEY=VALUE to CONFIG_ENV, replacing the line if the key already exists.
-  local key="$1" value="$2"
-  if [[ ! -f "${CONFIG_ENV}" ]]; then
-    mkdir -p "$(dirname "${CONFIG_ENV}")"
-    touch "${CONFIG_ENV}"
-    chmod 640 "${CONFIG_ENV}"
-  fi
-  if grep -qE "^${key}=" "${CONFIG_ENV}" 2>/dev/null; then
-    # Replace existing
-    sed -i "s|^${key}=.*|${key}=${value}|" "${CONFIG_ENV}"
-  else
-    echo "${key}=${value}" >> "${CONFIG_ENV}"
-  fi
+    # Writes KEY=VALUE to CONFIG_ENV, replacing the line if the key already
+    # exists. Creates the file (mode 640) if it does not exist.
+    local key="$1" value="$2"
+    if [[ "${STROMA_DRY_RUN:-0}" == "1" ]]; then
+        log_dry "write_config ${key}=<value> → ${CONFIG_ENV}"
+        return 0
+    fi
+    if [[ ! -f "${CONFIG_ENV}" ]]; then
+        mkdir -p "$(dirname "${CONFIG_ENV}")"
+        touch "${CONFIG_ENV}"
+        chmod 640 "${CONFIG_ENV}"
+    fi
+    if grep -qE "^${key}=" "${CONFIG_ENV}" 2>/dev/null; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "${CONFIG_ENV}"
+    else
+        echo "${key}=${value}" >> "${CONFIG_ENV}"
+    fi
 }
 
 wait_for_keycloak() {
-  local url="$1" max_wait=120 waited=0
-  info "Waiting for Keycloak to become healthy at ${url} ..."
-  while ! curl -sf --max-time 3 "${url}/health/ready" &>/dev/null; do
-    sleep 5
-    waited=$((waited + 5))
-    if (( waited >= max_wait )); then
-      die "Keycloak did not become healthy within ${max_wait}s. Check: ${COMPOSE_CMD} logs keycloak"
-    fi
-    printf '.'
-  done
-  echo
-  success "Keycloak is healthy"
+    local url="$1" max_wait=120 waited=0
+    log_info "Waiting for Keycloak at ${url} ..."
+    while ! curl -sf --max-time 3 "${url}/health/ready" &>/dev/null; do
+        sleep 5
+        waited=$((waited + 5))
+        if (( waited >= max_wait )); then
+            die "Keycloak did not become healthy within ${max_wait}s.\n  Check: ${COMPOSE_CMD} logs keycloak"
+        fi
+        printf '.'
+    done
+    echo
+    log_ok "Keycloak is healthy"
 }
 
 # ---------------------------------------------------------------------------
 # Banner
 # ---------------------------------------------------------------------------
-echo
-echo "┌─────────────────────────────────────────────────────────┐"
-echo "│       StromaAI  —  Identity Provider Setup               │"
-echo "│       deploy/keycloak/setup-keycloak.sh                  │"
-echo "└─────────────────────────────────────────────────────────┘"
-echo
+echo ""
+echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
+echo -e "${BOLD}║   StromaAI — Identity Provider Setup                  ║${RESET}"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
+echo ""
+
+if [[ "${STROMA_DRY_RUN:-0}" == "1" ]]; then
+    log_warn "DRY-RUN mode — no changes will be made."
+    echo ""
+fi
+
+detect_os
+log_info "OS: ${OS_PRETTY:-unknown}"
 
 # ---------------------------------------------------------------------------
-# Mode selection
+# Ensure python3 and curl are available (used by both modes)
+# ---------------------------------------------------------------------------
+require_cmd python3
+require_cmd curl
+
+# ---------------------------------------------------------------------------
+# Mode selection (interactive if not set by flag)
 # ---------------------------------------------------------------------------
 if [[ -z "${MODE}" ]]; then
-  echo "Select identity provider mode:"
-  echo "  1) LOCAL    — Deploy Keycloak 26.x container (recommended for standalone)"
-  echo "  2) EXTERNAL — Use an existing institutional IdP (Okta, Azure AD, etc.)"
-  echo
-  read -rp "Enter choice [1/2]: " MODE_CHOICE
-
-  case "${MODE_CHOICE}" in
-    1) MODE="local" ;;
-    2) MODE="external" ;;
-    *) die "Invalid choice: ${MODE_CHOICE}. Run the script again and enter 1 or 2." ;;
-  esac
+    echo "Select identity provider mode:"
+    echo "  1) LOCAL    — Deploy Keycloak 26.x container (recommended for standalone)"
+    echo "  2) EXTERNAL — Use an existing institutional IdP (Okta, Azure AD, etc.)"
+    echo ""
+    read -rp "Enter choice [1/2]: " MODE_CHOICE
+    case "${MODE_CHOICE}" in
+        1) MODE="local" ;;
+        2) MODE="external" ;;
+        *) die "Invalid choice: ${MODE_CHOICE}. Run again and enter 1 or 2." ;;
+    esac
 fi
 
 # ===========================================================================
@@ -165,27 +202,34 @@ fi
 # ===========================================================================
 if [[ "${MODE}" == "local" ]]; then
 
-  detect_compose
+    detect_compose
 
-  info "Generating cryptographic secrets..."
-  KC_DB_PASSWORD="$(gen_secret)"
-  KC_ADMIN_PASSWORD="$(gen_secret)"
-  GW_CLIENT_SECRET="$(gen_secret)"
-  OWU_CLIENT_SECRET="$(gen_secret)"
-  DEMO_USER_PASSWORD="$(gen_secret)"
+    log_step "Generating cryptographic secrets"
+    KC_DB_PASSWORD="$(gen_secret)"
+    KC_ADMIN_PASSWORD="$(gen_secret)"
+    GW_CLIENT_SECRET="$(gen_secret)"
+    OWU_CLIENT_SECRET="$(gen_secret)"
+    DEMO_USER_PASSWORD="$(gen_secret)"
 
-  # Prompt for optional hostname override
-  read -rp "Keycloak hostname [default: localhost]: " KC_HOSTNAME
-  KC_HOSTNAME="${KC_HOSTNAME:-localhost}"
+    # Prompt for optional hostname/port overrides
+    if [[ "${STROMA_YES:-0}" == "1" ]]; then
+        KC_HOSTNAME="${KC_HOSTNAME:-localhost}"
+        KC_PORT="${KC_PORT:-8080}"
+    else
+        read -rp "Keycloak hostname [default: localhost]: " _inp
+        KC_HOSTNAME="${_inp:-localhost}"
+        read -rp "Keycloak HTTP port [default: 8080]: " _inp
+        KC_PORT="${_inp:-8080}"
+        unset _inp
+    fi
 
-  read -rp "Keycloak HTTP port [default: 8080]: " KC_PORT
-  KC_PORT="${KC_PORT:-8080}"
-
-  # ---------------------------------------------------------------------------
-  # Write compose .env (secrets for podman compose only — never committed)
-  # ---------------------------------------------------------------------------
-  info "Writing ${COMPOSE_ENV} ..."
-  cat > "${COMPOSE_ENV}" <<EOF
+    # -------------------------------------------------------------------------
+    # Write compose .env (secrets for podman compose only — never committed)
+    # -------------------------------------------------------------------------
+    log_step "Writing ${COMPOSE_ENV}"
+    backup_file "${COMPOSE_ENV}"
+    if [[ "${STROMA_DRY_RUN:-0}" != "1" ]]; then
+        cat > "${COMPOSE_ENV}" <<EOF
 # Auto-generated by setup-keycloak.sh — do NOT commit this file
 KC_DB_PASSWORD=${KC_DB_PASSWORD}
 KC_ADMIN_USER=admin
@@ -193,16 +237,21 @@ KC_ADMIN_PASSWORD=${KC_ADMIN_PASSWORD}
 KC_HOSTNAME=${KC_HOSTNAME}
 KC_PORT=${KC_PORT}
 EOF
-  chmod 600 "${COMPOSE_ENV}"
+        chmod 600 "${COMPOSE_ENV}"
+    else
+        log_dry "Would write ${COMPOSE_ENV} with KC_HOSTNAME=${KC_HOSTNAME} KC_PORT=${KC_PORT}"
+    fi
 
-  # ---------------------------------------------------------------------------
-  # Patch realm-export.json with generated secrets
-  # ---------------------------------------------------------------------------
-  info "Patching realm-export.json with generated client secrets..."
-  REALM_FILE="${SCRIPT_DIR}/realm-export.json"
-  REALM_TMP="${REALM_FILE}.tmp"
+    # -------------------------------------------------------------------------
+    # Patch realm-export.json with generated secrets
+    # -------------------------------------------------------------------------
+    log_step "Patching realm-export.json with generated client secrets"
+    REALM_FILE="${SCRIPT_DIR}/realm-export.json"
+    REALM_TMP="${REALM_FILE}.tmp"
 
-  python3 - <<PYEOF
+    if [[ "${STROMA_DRY_RUN:-0}" != "1" ]]; then
+        backup_file "${REALM_FILE}"
+        python3 - <<PYEOF
 import json, sys
 
 with open("${REALM_FILE}") as f:
@@ -213,7 +262,6 @@ for client in realm.get("clients", []):
         client["secret"] = "${GW_CLIENT_SECRET}"
     elif client["clientId"] == "openwebui":
         client["secret"] = "${OWU_CLIENT_SECRET}"
-        # Patch redirect URIs for local deployment
         client["redirectUris"] = [
             "http://${KC_HOSTNAME}:3000/*",
             "http://localhost:3000/*",
@@ -227,111 +275,130 @@ for user in realm.get("users", []):
 with open("${REALM_TMP}", "w") as f:
     json.dump(realm, f, indent=2)
 PYEOF
+        mv "${REALM_TMP}" "${REALM_FILE}"
+        log_ok "realm-export.json patched"
+    else
+        log_dry "Would patch ${REALM_FILE} with generated client secrets"
+    fi
 
-  mv "${REALM_TMP}" "${REALM_FILE}"
-  success "realm-export.json patched"
+    # -------------------------------------------------------------------------
+    # Start services
+    # -------------------------------------------------------------------------
+    log_step "Starting Keycloak + PostgreSQL via Podman Compose"
+    run_cmd ${COMPOSE_CMD} --project-directory "${SCRIPT_DIR}" up -d
 
-  # ---------------------------------------------------------------------------
-  # Start services
-  # ---------------------------------------------------------------------------
-  info "Starting Keycloak + PostgreSQL via Podman Compose..."
-  ${COMPOSE_CMD} --project-directory "${SCRIPT_DIR}" up -d
+    KEYCLOAK_URL="http://${KC_HOSTNAME}:${KC_PORT}/realms/stroma-ai"
 
-  KEYCLOAK_URL="http://${KC_HOSTNAME}:${KC_PORT}/realms/stroma-ai"
-  wait_for_keycloak "http://${KC_HOSTNAME}:${KC_PORT}"
+    if [[ "${STROMA_DRY_RUN:-0}" != "1" ]]; then
+        wait_for_keycloak "http://${KC_HOSTNAME}:${KC_PORT}"
+    else
+        log_dry "Would wait for Keycloak health at http://${KC_HOSTNAME}:${KC_PORT}/health/ready"
+    fi
 
-  OIDC_DISCOVERY_URL="${KEYCLOAK_URL}/.well-known/openid-configuration"
+    OIDC_DISCOVERY_URL="${KEYCLOAK_URL}/.well-known/openid-configuration"
 
-  # ---------------------------------------------------------------------------
-  # Write OIDC variables to platform config
-  # ---------------------------------------------------------------------------
-  info "Writing OIDC configuration to ${CONFIG_ENV} ..."
-  write_or_update_config "OIDC_DISCOVERY_URL"       "${OIDC_DISCOVERY_URL}"
-  write_or_update_config "OIDC_ISSUER"              "${KEYCLOAK_URL}"
-  write_or_update_config "KC_GATEWAY_CLIENT_ID"     "stroma-gateway"
-  write_or_update_config "KC_GATEWAY_CLIENT_SECRET" "${GW_CLIENT_SECRET}"
-  write_or_update_config "KC_OPENWEBUI_CLIENT_ID"   "openwebui"
-  write_or_update_config "KC_OPENWEBUI_CLIENT_SECRET" "${OWU_CLIENT_SECRET}"
-  write_or_update_config "KC_ADMIN_URL"             "http://${KC_HOSTNAME}:${KC_PORT}"
+    # -------------------------------------------------------------------------
+    # Write OIDC variables to platform config
+    # -------------------------------------------------------------------------
+    log_step "Writing OIDC configuration to ${CONFIG_ENV}"
+    write_or_update_config "OIDC_DISCOVERY_URL"         "${OIDC_DISCOVERY_URL}"
+    write_or_update_config "OIDC_ISSUER"                "${KEYCLOAK_URL}"
+    write_or_update_config "KC_GATEWAY_CLIENT_ID"       "stroma-gateway"
+    write_or_update_config "KC_GATEWAY_CLIENT_SECRET"   "${GW_CLIENT_SECRET}"
+    write_or_update_config "KC_OPENWEBUI_CLIENT_ID"     "openwebui"
+    write_or_update_config "KC_OPENWEBUI_CLIENT_SECRET" "${OWU_CLIENT_SECRET}"
+    write_or_update_config "KC_ADMIN_URL"               "http://${KC_HOSTNAME}:${KC_PORT}"
 
-  echo
-  success "Local Keycloak deployment complete!"
-  echo
-  echo "  Admin console : http://${KC_HOSTNAME}:${KC_PORT}/admin"
-  echo "  Admin user    : admin"
-  echo "  Admin password: ${KC_ADMIN_PASSWORD}"
-  echo "  Demo user     : researcher-demo  (password: ${DEMO_USER_PASSWORD})"
-  echo
-  warn "Save these credentials — they will not be displayed again."
-  warn "Demo user password is set as TEMPORARY — user must change on first login."
-  echo
+    echo ""
+    echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
+    echo -e "${BOLD}║   Keycloak Local Deployment — Summary                 ║${RESET}"
+    echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
+    echo ""
+    echo "  Admin console : http://${KC_HOSTNAME}:${KC_PORT}/admin"
+    echo "  Admin user    : admin"
+    echo -e "  Admin password: ${YELLOW}${KC_ADMIN_PASSWORD}${RESET}"
+    echo "  Demo user     : researcher-demo"
+    echo -e "  Demo password : ${YELLOW}${DEMO_USER_PASSWORD}${RESET}"
+    echo ""
+    log_warn "Save these credentials — they will not be displayed again."
+    log_warn "Demo user password is TEMPORARY — user must change on first login."
+    echo ""
+    echo "  Next: ./deploy/openwebui/setup-openwebui.sh"
+    echo ""
 
 # ===========================================================================
 # MODE: EXTERNAL
 # ===========================================================================
 else
 
-  echo
-  info "External IdP configuration"
-  echo "You will need the following from your institutional IdP administrator:"
-  echo "  • OIDC Discovery URL  (ends in /.well-known/openid-configuration)"
-  echo "  • Client ID for the StromaAI gateway"
-  echo "  • Client Secret for the StromaAI gateway"
-  echo "  • Client ID for OpenWebUI"
-  echo "  • Client Secret for OpenWebUI"
-  echo
+    echo ""
+    log_step "External IdP configuration"
+    echo "You will need the following from your institutional IdP administrator:"
+    echo "  • OIDC Discovery URL  (ends in /.well-known/openid-configuration)"
+    echo "  • Client ID and secret for the StromaAI gateway"
+    echo "  • Client ID and secret for OpenWebUI"
+    echo ""
 
-  read -rp "OIDC Discovery URL: " EXT_DISCOVERY_URL
-  [[ -z "${EXT_DISCOVERY_URL}" ]] && die "Discovery URL cannot be empty"
+    read -rp "OIDC Discovery URL: " EXT_DISCOVERY_URL
+    [[ -z "${EXT_DISCOVERY_URL}" ]] && die "Discovery URL cannot be empty"
 
-  # Validate the URL is reachable and returns JSON
-  info "Validating discovery URL..."
-  DISCOVERY_JSON=$(curl -sf --max-time 10 "${EXT_DISCOVERY_URL}") \
-    || die "Cannot reach discovery URL: ${EXT_DISCOVERY_URL}"
+    log_info "Validating discovery URL..."
+    DISCOVERY_JSON=$(curl -sf --max-time 10 "${EXT_DISCOVERY_URL}") \
+        || die "Cannot reach discovery URL: ${EXT_DISCOVERY_URL}"
 
-  EXT_ISSUER=$(echo "${DISCOVERY_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['issuer'])" 2>/dev/null) \
-    || die "Discovery document does not contain 'issuer' field"
-  success "Issuer: ${EXT_ISSUER}"
+    EXT_ISSUER=$(echo "${DISCOVERY_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['issuer'])" 2>/dev/null) \
+        || die "Discovery document does not contain 'issuer' field"
+    log_ok "Issuer: ${EXT_ISSUER}"
 
-  read -rp "Gateway Client ID [default: stroma-gateway]: " EXT_GW_CLIENT_ID
-  EXT_GW_CLIENT_ID="${EXT_GW_CLIENT_ID:-stroma-gateway}"
+    read -rp "Gateway Client ID [default: stroma-gateway]: " _inp
+    EXT_GW_CLIENT_ID="${_inp:-stroma-gateway}"
 
-  read -rsp "Gateway Client Secret: " EXT_GW_SECRET
-  echo
-  [[ -z "${EXT_GW_SECRET}" ]] && die "Gateway client secret cannot be empty"
+    read -rsp "Gateway Client Secret: " EXT_GW_SECRET
+    echo
+    [[ -z "${EXT_GW_SECRET}" ]] && die "Gateway client secret cannot be empty"
 
-  read -rp "OpenWebUI Client ID [default: openwebui]: " EXT_OWU_CLIENT_ID
-  EXT_OWU_CLIENT_ID="${EXT_OWU_CLIENT_ID:-openwebui}"
+    read -rp "OpenWebUI Client ID [default: openwebui]: " _inp
+    EXT_OWU_CLIENT_ID="${_inp:-openwebui}"
 
-  read -rsp "OpenWebUI Client Secret: " EXT_OWU_SECRET
-  echo
-  [[ -z "${EXT_OWU_SECRET}" ]] && die "OpenWebUI client secret cannot be empty"
+    read -rsp "OpenWebUI Client Secret: " EXT_OWU_SECRET
+    echo
+    [[ -z "${EXT_OWU_SECRET}" ]] && die "OpenWebUI client secret cannot be empty"
+    unset _inp
 
-  # Write to config
-  info "Writing OIDC configuration to ${CONFIG_ENV} ..."
-  write_or_update_config "OIDC_DISCOVERY_URL"         "${EXT_DISCOVERY_URL}"
-  write_or_update_config "OIDC_ISSUER"                "${EXT_ISSUER}"
-  write_or_update_config "KC_GATEWAY_CLIENT_ID"       "${EXT_GW_CLIENT_ID}"
-  write_or_update_config "KC_GATEWAY_CLIENT_SECRET"   "${EXT_GW_SECRET}"
-  write_or_update_config "KC_OPENWEBUI_CLIENT_ID"     "${EXT_OWU_CLIENT_ID}"
-  write_or_update_config "KC_OPENWEBUI_CLIENT_SECRET" "${EXT_OWU_SECRET}"
-  write_or_update_config "KC_ADMIN_URL"               ""
+    log_step "Writing OIDC configuration to ${CONFIG_ENV}"
+    write_or_update_config "OIDC_DISCOVERY_URL"         "${EXT_DISCOVERY_URL}"
+    write_or_update_config "OIDC_ISSUER"                "${EXT_ISSUER}"
+    write_or_update_config "KC_GATEWAY_CLIENT_ID"       "${EXT_GW_CLIENT_ID}"
+    write_or_update_config "KC_GATEWAY_CLIENT_SECRET"   "${EXT_GW_SECRET}"
+    write_or_update_config "KC_OPENWEBUI_CLIENT_ID"     "${EXT_OWU_CLIENT_ID}"
+    write_or_update_config "KC_OPENWEBUI_CLIENT_SECRET" "${EXT_OWU_SECRET}"
+    write_or_update_config "KC_ADMIN_URL"               ""
 
-  echo
-  success "External IdP configuration written to ${CONFIG_ENV}"
-  echo
-  warn "Ensure roles are mapped to the 'realm_access.roles' JWT claim."
-  warn "Users must have the 'stroma_researcher' role assigned for API access."
-  echo
+    echo ""
+    echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
+    echo -e "${BOLD}║   External IdP — Configuration Written                ║${RESET}"
+    echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
+    echo ""
+    echo "  Discovery URL : ${EXT_DISCOVERY_URL}"
+    echo "  Issuer        : ${EXT_ISSUER}"
+    echo "  Config file   : ${CONFIG_ENV}"
+    echo ""
+    log_warn "Ensure roles are mapped to the 'realm_access.roles' JWT claim."
+    log_warn "Users must have the 'stroma_researcher' role for API access."
+    echo ""
+    echo "  Next: ./deploy/openwebui/setup-openwebui.sh"
+    echo ""
 fi
 
 # ---------------------------------------------------------------------------
 # Common tail: verify discovery URL is in config
 # ---------------------------------------------------------------------------
-info "Verifying ${CONFIG_ENV} ..."
-grep -q "OIDC_DISCOVERY_URL" "${CONFIG_ENV}" \
-  || die "OIDC_DISCOVERY_URL not found in ${CONFIG_ENV} — something went wrong"
-
-success "Identity provider setup complete."
-echo "  Next step: run  deploy/keycloak/../gateway/setup-gateway.sh"
-echo "             or:  python3 src/stroma_cli.py --setup"
+if [[ "${STROMA_DRY_RUN:-0}" != "1" ]]; then
+    log_step "Verifying ${CONFIG_ENV}"
+    grep -q "OIDC_DISCOVERY_URL" "${CONFIG_ENV}" \
+        || die "OIDC_DISCOVERY_URL not found in ${CONFIG_ENV} — something went wrong"
+    log_ok "Identity provider setup complete."
+else
+    log_dry "Would verify OIDC_DISCOVERY_URL in ${CONFIG_ENV}"
+    log_ok "Dry-run complete — no changes made."
+fi
