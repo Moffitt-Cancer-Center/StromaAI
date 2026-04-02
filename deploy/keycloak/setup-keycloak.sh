@@ -305,7 +305,9 @@ for user in realm.get("users", []):
 with open("${REALM_IMPORT}", "w") as f:
     json.dump(realm, f, indent=2)
 PYEOF
-        chmod 600 "${REALM_IMPORT}"
+        # 644: Keycloak container user (UID 1000) must be able to read this file.
+        # 600 would deny access to the container, causing AccessDeniedException.
+        chmod 644 "${REALM_IMPORT}"
         log_ok "realm-import.json generated"
     else
         log_dry "Would generate ${REALM_IMPORT} with substituted client secrets"

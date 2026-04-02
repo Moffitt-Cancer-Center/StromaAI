@@ -583,7 +583,9 @@ with open(out, "w") as f:
     json.dump(data, f, indent=2)
 PYEOF
 
-    chmod 600 "${out}"
+    # 644: Keycloak container user (UID 1000) must be able to read this file.
+    # 600 would deny access to the container, causing AccessDeniedException.
+    chmod 644 "${out}"
     log_ok "Realm JSON → ${out}"
 }
 
