@@ -2,20 +2,35 @@
 # =============================================================================
 # StromaAI — Deploy/Update nginx Configuration
 # =============================================================================
-# Regenerates nginx reverse proxy config from template using envsubst.
-# Automatically handles:
-#   • Backend URL variable loading from config.env
-#   • http:// prefix stripping for nginx upstream blocks
-#   • Missing SSL certificate generation (self-signed)
-#   • OS-specific nginx config paths (RHEL/Rocky vs Ubuntu/Debian)
-#   • Configuration validation before reload
+# Deploys or updates nginx reverse proxy in either containerized or bare-metal mode.
+#
+# Modes:
+#   container — nginx runs in Podman Compose stack (deploy/head/docker-compose.yml)
+#               • Uses deploy/head/nginx.conf (hardcoded service names)
+#               • Routes through OIDC gateway container
+#               • Restarts nginx container to apply changes
+#
+#   host      — nginx runs as system service via systemd
+#               • Uses deploy/nginx/stroma-ai.conf (template with envsubst)
+#               • Routes to backend URLs from config.env
+#               • Reloads system nginx to apply changes
+#
+# Both modes:
+#   • Automatically generate self-signed SSL certs if missing
+#   • Validate configuration before applying
 #
 # Usage:
-#   scripts/deploy-nginx.sh [--repo-dir=/path/to/StromaAI]
+#   scripts/deploy-nginx.sh [OPTIONS]
+#
+# Options:
+#   --mode=container|host   Deployment mode (default: auto-detect)
+#   --repo-dir=PATH         Path to StromaAI repository (default: auto-detect)
+#   -h, --help              Show this help
 #
 # Environment overrides:
 #   STROMA_CONFIG       path to config.env (default: /opt/stroma-ai/config.env)
 #   STROMA_REPO_DIR     path to StromaAI git repo (default: auto-detect)
+#   TLS_CERT_PATH       SSL cert directory (default: /etc/ssl/stroma-ai)
 # =============================================================================
 
 set -euo pipefail
@@ -26,9 +41,10 @@ set -euo pipefail
 
 CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
 REPO_DIR="${STROMA_REPO_DIR:-}"
-SSL_CERT_DIR="/etc/ssl/stroma-ai"
+SSL_CERT_DIR="${TLS_CERT_PATH:-/etc/ssl/stroma-ai}"
 SSL_CERT_PATH="${SSL_CERT_DIR}/server.crt"
 SSL_KEY_PATH="${SSL_CERT_DIR}/server.key"
+MODE=""  # container | host | auto-detect
 
 # =============================================================================
 # Helper Functions
@@ -118,40 +134,70 @@ check_or_create_ssl_cert() {
     generate_self_signed_cert "${hostname}"
 }
 
-# =============================================================================
-# Main Deployment Logic
-# =============================================================================
+detect_nginx_mode() {
+    # Check if nginx container is running from the head stack
+    if command -v podman &>/dev/null; then
+        if podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^stroma-nginx$'; then
+            echo "container"
+            return 0
+        fi
+    fi
+    
+    # Check if system nginx service exists
+    if systemctl list-unit-files nginx.service &>/dev/null; then
+        echo "host"
+        return 0
+    fi
+    
+    # Default to host mode if neither detected (fresh install)
+    echo "host"
+}
 
-main() {
-    # Parse arguments
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --repo-dir=*)
-                REPO_DIR="${1#*=}"
-                shift
-                ;;
-            --help|-h)
-                grep '^#' "$0" | grep -v '#!/usr/bin/env' | sed 's/^# //' | sed 's/^#//'
-                exit 0
-                ;;
-            *)
-                log_fatal "Unknown option: $1"
-                ;;
-        esac
-    done
+deploy_container_mode() {
+    log_info "Deploying nginx in container mode (Podman Compose stack)"
     
-    # Detect repository directory if not set
-    if [[ -z "${REPO_DIR}" ]]; then
-        REPO_DIR=$(detect_repo_dir)
+    local compose_file="${REPO_DIR}/deploy/head/docker-compose.yml"
+    if [[ ! -f "${compose_file}" ]]; then
+        log_fatal "docker-compose.yml not found: ${compose_file}"
     fi
     
-    log_info "Using StromaAI repository: ${REPO_DIR}"
+    # Ensure SSL certs exist (container mounts from ${SSL_CERT_DIR})
+    check_or_create_ssl_cert
     
-    # Verify template exists
+    # Check if compose stack is running
+    if ! podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^stroma-nginx$'; then
+        log_error "nginx container not running. Start the full stack first:"
+        log_error "  cd ${REPO_DIR}/deploy/head"
+        log_error "  ./setup-head.sh"
+        exit 1
+    fi
+    
+    # Restart nginx container to pick up any config or cert changes
+    log_info "Restarting nginx container"
+    cd "${REPO_DIR}/deploy/head"
+    
+    # Detect compose command
+    local compose_cmd
+    if podman compose version &>/dev/null 2>&1; then
+        compose_cmd="podman compose"
+    elif command -v podman-compose &>/dev/null; then
+        compose_cmd="podman-compose"
+    else
+        log_fatal "No Podman Compose found. Install: dnf install podman-compose"
+    fi
+    
+    ${compose_cmd} restart nginx || log_fatal "Failed to restart nginx container"
+    
+    log_ok "nginx container restarted"
+    echo ""
+    log_ok "Container nginx deployment complete"
+    log_info "Check logs: cd ${REPO_DIR}/deploy/head && ${compose_cmd} logs nginx"
+}
+
+deploy_host_mode() {
+    log_info "Deploying nginx in host mode (systemd service)"
+    
     local template="${REPO_DIR}/deploy/nginx/stroma-ai.conf"
-    if [[ ! -f "${template}" ]]; then
-        log_fatal "nginx template not found: ${template}"
-    fi
     
     # Detect OS family for nginx config path
     local os_family
@@ -254,12 +300,69 @@ main() {
     fi
     
     echo ""
-    log_ok "nginx deployment complete"
+    log_ok "Host nginx deployment complete"
     log_info "Access endpoints:"
     log_info "  Main API:       https://$(hostname)/v1/chat/completions"
     log_info "  OpenWebUI:      https://$(hostname)/webui"
-    log_info "  Keycloak admin: https://$(hostname)/admin"
-    log_info "  Health check:   https://$(hostname)/health"
+    log_info "  Keycloak:       https://$(hostname)/realms/stroma-ai"
+}
+
+# =============================================================================
+# Main Deployment Logic
+# =============================================================================
+
+main() {
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --mode=*)
+                MODE="${1#*=}"
+                if [[ "${MODE}" != "container" && "${MODE}" != "host" ]]; then
+                    log_fatal "Invalid mode: ${MODE}. Use --mode=container or --mode=host"
+                fi
+                shift
+                ;;
+            --repo-dir=*)
+                REPO_DIR="${1#*=}"
+                shift
+                ;;
+            --help|-h)
+                grep '^#' "$0" | grep -v '#!/usr/bin/env' | sed 's/^# //' | sed 's/^#//'
+                exit 0
+                ;;
+            *)
+                log_fatal "Unknown option: $1"
+                ;;
+        esac
+    done
+    
+    # Detect repository directory if not set
+    if [[ -z "${REPO_DIR}" ]]; then
+        REPO_DIR=$(detect_repo_dir)
+    fi
+    
+    log_info "Using StromaAI repository: ${REPO_DIR}"
+    
+    # Auto-detect mode if not specified
+    if [[ -z "${MODE}" ]]; then
+        MODE=$(detect_nginx_mode)
+        log_info "Auto-detected deployment mode: ${MODE}"
+    else
+        log_info "Deployment mode: ${MODE}"
+    fi
+    
+    # Route to appropriate deployment function
+    case "${MODE}" in
+        container)
+            deploy_container_mode
+            ;;
+        host)
+            deploy_host_mode
+            ;;
+        *)
+            log_fatal "Invalid mode: ${MODE}"
+            ;;
+    esac
 }
 
 # =============================================================================

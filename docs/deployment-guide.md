@@ -1032,24 +1032,34 @@ Seven helper scripts are included in `scripts/` for deployment, operations, and 
 
 **When to use:** During initial deployment (Phase 4.2) or when updating backend service URLs.
 
-**Why:** Automates nginx reverse proxy configuration with SSL certificate generation, OS detection, and config validation. Prevents manual errors in multi-step nginx setup.
+**Why:** Automates nginx reverse proxy configuration with SSL certificate generation, OS detection, and config validation. Supports both containerized (Podman Compose) and bare-metal (systemd) deployments. Prevents manual errors in multi-step nginx setup.
+
+**Deployment modes:**
+- **container** — nginx runs in deploy/head/docker-compose.yml stack (routes through OIDC gateway)
+- **host** — nginx runs as systemd service (routes directly to backend URLs from config.env)
+- Auto-detects mode by checking for running `stroma-nginx` container
 
 **Usage:**
 ```bash
-sudo scripts/deploy-nginx.sh
+sudo scripts/deploy-nginx.sh                # auto-detect mode
+sudo scripts/deploy-nginx.sh --mode=host    # force bare-metal mode
+sudo scripts/deploy-nginx.sh --mode=container  # force container mode
 sudo scripts/deploy-nginx.sh --repo-dir=/path/to/StromaAI
 ```
 
 **What it does:**
-- Detects OS family (RHEL/Rocky vs Ubuntu/Debian) for correct nginx paths
-- Loads backend URLs from config.env (VLLM_INTERNAL_URL, KC_INTERNAL_URL, OPENWEBUI_INTERNAL_URL)
+- Auto-detects deployment mode (container vs host) or accepts explicit --mode flag
 - Generates self-signed SSL certificates if missing (fixes `BIO_new_file` errors)
-- Backs up existing nginx config before changes
-- Processes nginx template with `envsubst`
-- Validates config with `nginx -t`
-- Starts or reloads nginx depending on current state
+- **Container mode:** Restarts nginx container to pick up cert/config changes
+- **Host mode:** 
+  - Detects OS family (RHEL/Rocky vs Ubuntu/Debian) for correct nginx paths
+  - Loads backend URLs from config.env and processes template with envsubst
+  - Backs up existing config, validates with `nginx -t`, reloads systemd nginx
+- Prevents port 443 conflicts between container and host nginx
 
-**In deployment workflow:** Run after creating config.env but before setup-keycloak.sh.
+**In deployment workflow:** 
+- Container mode: Run after `setup-head.sh` to regenerate SSL certs
+- Host mode: Run after creating config.env but before setup-keycloak.sh
 
 ### `scripts/status.sh` — System dashboard
 
