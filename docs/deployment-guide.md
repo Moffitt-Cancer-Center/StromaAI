@@ -1012,66 +1012,184 @@ cat /opt/stroma-ai/watcher_state.json | python3 -m json.tool
 
 ## Operational Scripts
 
-Five helper scripts are included in `scripts/` for day-to-day operations. All scripts read `/opt/stroma-ai/config.env` by default.
+Seven helper scripts are included in `scripts/` for deployment, operations, and troubleshooting. All scripts read `/opt/stroma-ai/config.env` by default.
+
+### Quick Reference: When to Use Each Script
+
+| Script | Phase | Purpose | Frequency |
+|--------|-------|---------|-----------|
+| `deploy-nginx.sh` | Phase 4 | Initial nginx setup with SSL | Once during deployment |
+| `check-config.sh` | Phase 3, 6 | Validate config.env | Before starting services |
+| `status.sh` | Phase 6+, Daily | Health dashboard | Anytime, daily checks |
+| `generate-grafana-dashboard.sh` | Phase 7 | Create monitoring dashboard | Once after Prometheus setup |
+| `rotate-api-key.sh` | Post-deployment | Security maintenance | Every 90-180 days |
+| `drain-and-restart.sh` | Maintenance | Zero-downtime restarts | During planned updates |
+| `debug-bundle.sh` | Troubleshooting | Collect diagnostic data | When issues occur |
+
+---
+
+### `scripts/deploy-nginx.sh` — Automated nginx deployment
+
+**When to use:** During initial deployment (Phase 4.2) or when updating backend service URLs.
+
+**Why:** Automates nginx reverse proxy configuration with SSL certificate generation, OS detection, and config validation. Prevents manual errors in multi-step nginx setup.
+
+**Usage:**
+```bash
+sudo scripts/deploy-nginx.sh
+sudo scripts/deploy-nginx.sh --repo-dir=/path/to/StromaAI
+```
+
+**What it does:**
+- Detects OS family (RHEL/Rocky vs Ubuntu/Debian) for correct nginx paths
+- Loads backend URLs from config.env (VLLM_INTERNAL_URL, KC_INTERNAL_URL, OPENWEBUI_INTERNAL_URL)
+- Generates self-signed SSL certificates if missing (fixes `BIO_new_file` errors)
+- Backs up existing nginx config before changes
+- Processes nginx template with `envsubst`
+- Validates config with `nginx -t`
+- Starts or reloads nginx depending on current state
+
+**In deployment workflow:** Run after creating config.env but before setup-keycloak.sh.
 
 ### `scripts/status.sh` — System dashboard
 
-Displays a combined view of systemd service states, active Slurm burst jobs, GPU utilization, watcher state file summary, and recent journal entries.
+**When to use:** Anytime you need to check system health or troubleshoot issues.
 
+**Why:** Provides at-a-glance view of all StromaAI components without checking multiple systemd units individually.
+
+**Usage:**
 ```bash
 scripts/status.sh
 ```
 
+**What it displays:**
+- Systemd service states (ray-head, stroma-ai-vllm, stroma-ai-watcher)
+- Active Slurm burst jobs in the stroma-ai partition
+- GPU utilization from nvidia-smi
+- Watcher state file summary (job count, last scale-up, idle timer)
+- Recent journal entries from vLLM and watcher services
+
+**In deployment workflow:** Use after Phase 6 (start services) to verify everything is running. Use daily for health checks.
+
 ### `scripts/check-config.sh` — Config validation
 
-Validates `/opt/stroma-ai/config.env` before starting or restarting services. Checks required variables, detects CHANGEME placeholders, validates hostname format, port ranges, and path existence. Verifies the Slurm partition exists.
+**When to use:** Before starting services initially, before restarts, or after editing config.env.
 
+**Why:** Catches configuration errors early before they cause runtime failures. Validates required variables, detects placeholder values, checks format/ranges.
+
+**Usage:**
 ```bash
 scripts/check-config.sh
 scripts/check-config.sh --config /path/to/other-config.env
 ```
 
-Exit codes: `0` = pass; `1` = errors found; `2` = config file not found.
+**What it validates:**
+- Required variables are set (no empty values)
+- No CHANGEME placeholders remain
+- Hostname format validity
+- Port ranges (1024-65535)
+- Path existence for critical directories
+- Slurm partition exists and is accessible
+
+**Exit codes:** `0` = pass; `1` = errors found; `2` = config file not found.
+
+**In deployment workflow:** Run at Phase 3 (after config.env creation) and before Phase 6 (starting services).
 
 ### `scripts/rotate-api-key.sh` — Zero-downtime key rotation
 
-Generates a new API key, updates both `/opt/stroma-ai/config.env` and `/etc/ood/stroma-ai.conf`, and performs a rolling restart (vLLM first, then watcher) with health-check gating. Creates a timestamped backup of the old config.
+**When to use:** Periodically for security hygiene (every 90-180 days), or immediately if a key is compromised.
 
+**Why:** Rotates API keys without service downtime. Automatically updates config, restarts services with health checks, and creates backups.
+
+**Usage:**
 ```bash
 scripts/rotate-api-key.sh              # interactive
 scripts/rotate-api-key.sh --dry-run   # preview without changes
 scripts/rotate-api-key.sh --config /opt/stroma-ai/config.env
 ```
 
+**What it does:**
+- Generates cryptographically strong new API key
+- Updates `/opt/stroma-ai/config.env` and `/etc/ood/stroma-ai.conf`
+- Creates timestamped backup of old config
+- Performs rolling restart: vLLM first (with health gate), then watcher
+- Validates new key works before completing
+
 > **Important:** After rotation, update any external clients or CI systems that hold the old API key.
+
+**In deployment workflow:** Not used during initial deployment. Use post-deployment for ongoing security maintenance.
 
 ### `scripts/debug-bundle.sh` — Support tarball
 
-Collects journals (500 lines each), watcher state, redacted config, `squeue` output, `nvidia-smi`, Ray status, and vLLM endpoint responses into a single `.tar.gz` for support escalation.
+**When to use:** When troubleshooting issues or preparing information for support escalation.
 
+**Why:** Collects all diagnostic information in one redacted tarball. Saves time gathering logs, configs, and system state from multiple sources.
+
+**Usage:**
 ```bash
 scripts/debug-bundle.sh                       # output to /tmp/stroma-ai-debug-<timestamp>.tar.gz
 scripts/debug-bundle.sh /path/to/output.tar.gz
 ```
 
+**What it collects:**
+- Journal logs (500 lines each from ray-head, vllm, watcher services)
+- Watcher state file (`/opt/stroma-ai/watcher_state.json`)
+- Redacted config.env (API keys masked with ***)
+- `squeue` output showing active Slurm jobs
+- `nvidia-smi` GPU state
+- Ray cluster status (`ray status`)
+- vLLM endpoint health responses (`/health`, `/metrics`)
+
 > **Warning:** Review the tarball before sharing — API keys may appear in journal log lines even after config redaction.
+
+**In deployment workflow:** Use anytime issues occur. Not part of normal deployment flow.
 
 ### `scripts/drain-and-restart.sh` — Planned maintenance restart
 
-Performs a zero-dropped-request restart for planned maintenance:
-1. Stops the watcher (no new burst jobs submitted)
-2. Polls `/metrics` until in-flight request count reaches zero
-3. Stops vLLM and Ray
-4. Starts Ray, waits for GCS
-5. Starts vLLM with a health-check gate
-6. Restarts the watcher
+**When to use:** During planned maintenance windows when you need to restart services without dropping in-flight requests.
 
+**Why:** Ensures zero-dropped requests during restart by draining queue, waiting for completion, then performing clean restart with health checks.
+
+**Usage:**
 ```bash
 scripts/drain-and-restart.sh
 scripts/drain-and-restart.sh --drain-timeout 300 --start-timeout 600
 ```
 
-Use this instead of a raw `systemctl restart` during business hours.
+**What it does:**
+1. Stops the watcher (prevents new burst jobs from being submitted)
+2. Polls `/metrics` endpoint until in-flight request count reaches zero
+3. Stops vLLM and Ray services
+4. Starts Ray head, waits for GCS readiness
+5. Starts vLLM with health-check gate (`/health` returns 200)
+6. Restarts the watcher
+
+**When NOT to use:** Emergency situations requiring immediate shutdown. Use `systemctl stop` instead.
+
+**In deployment workflow:** Not used during initial deployment. Use post-deployment during business hours for planned updates/restarts.
+
+### `scripts/generate-grafana-dashboard.sh` — Grafana dashboard generator
+
+**When to use:** After completing deployment and setting up Prometheus monitoring.
+
+**Why:** Generates a ready-to-import Grafana 10.x dashboard JSON pre-configured with your site's thresholds, data source labels, and StromaAI-specific metrics. Eliminates manual panel configuration.
+
+**Usage:**
+```bash
+scripts/generate-grafana-dashboard.sh
+scripts/generate-grafana-dashboard.sh --output custom-dashboard.json
+scripts/generate-grafana-dashboard.sh --config /path/to/config.env
+```
+
+**What it generates:**
+- Pre-configured panels for GPU KV cache saturation
+- Request queue depth and backlog metrics  
+- vLLM availability and uptime
+- CPU KV cache pressure alerts
+- Panels use thresholds from your config.env
+- Data source labels match your Prometheus setup
+
+**In deployment workflow:** Run after Phase 7 (monitoring setup). Import generated JSON into Grafana UI.
 
 ---
 
