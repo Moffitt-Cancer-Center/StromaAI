@@ -173,6 +173,9 @@ if [[ "${STROMA_DRY_RUN:-0}" != "1" ]]; then
     if [[ -z "${KC_OPENWEBUI_CLIENT_ID}" || -z "${KC_OPENWEBUI_CLIENT_SECRET}" ]]; then
         die "OpenWebUI OIDC client credentials not found in ${CONFIG_ENV}.\n  Run setup-keycloak.sh first."
     fi
+    
+    STROMA_HEAD_HOST="$(read_config_var STROMA_HEAD_HOST)"
+    STROMA_HEAD_HOST="${STROMA_HEAD_HOST:-localhost}"
 else
     OIDC_DISCOVERY_URL="${OIDC_DISCOVERY_URL:-<from config.env>}"
     KC_OPENWEBUI_CLIENT_ID="${KC_OPENWEBUI_CLIENT_ID:-openwebui}"
@@ -283,7 +286,7 @@ EOF
         log_dry "Would wait for OpenWebUI health at http://localhost:${OWU_PORT}/health"
     fi
 
-    OPENWEBUI_URL="http://localhost:${OWU_PORT}"
+    OPENWEBUI_URL="https://${STROMA_HEAD_HOST}/webui"
     write_or_update_config "OPENWEBUI_URL" "${OPENWEBUI_URL}"
 
     echo ""
@@ -291,9 +294,10 @@ EOF
     echo -e "${BOLD}║   OpenWebUI Local Deployment — Summary                ║${RESET}"
     echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
     echo ""
-    echo "  URL     : ${OPENWEBUI_URL}"
-    echo "  Login   : Click 'Continue with StromaAI Identity' on the login page"
-    echo "  Backend : ${GATEWAY_URL}/v1"
+    echo "  Public URL  : ${OPENWEBUI_URL} (nginx-proxied HTTPS)"
+    echo "  Internal URL: http://localhost:${OWU_PORT} (container direct access)"
+    echo "  Login       : Click 'Continue with StromaAI Identity' on the login page"
+    echo "  Backend     : ${GATEWAY_URL}/v1"
     echo ""
     echo "  Next: ./deploy/head/setup-head.sh"
     echo ""

@@ -291,11 +291,11 @@ _http('POST', f'/admin/realms/{realm}/clients', {
     'publicClient': False, 'standardFlowEnabled': True,
     'implicitFlowEnabled': False, 'directAccessGrantsEnabled': False,
     'clientAuthenticatorType': 'client-secret',
-    'secret': owu_sec,         # Dev: direct Keycloak access
+    'secret': owu_sec,
+    'redirectUris': [
         f'https://{head_host}/*',          # Prod: nginx-proxied Keycloak
-        f'{owu_url}/*',                    # OpenWebUI callbacktps://{host}/*',
-        'http://localhost:3000/*',
-        '*',
+        f'{owu_url}/*',                    # OpenWebUI callback
+        'http://localhost:3000/*',         # Dev: direct to OpenWebUI
     ],
     'webOrigins': ['+'],
     'attributes': {'pkce.code.challenge.method': 'S256'},
@@ -484,19 +484,22 @@ EOF
         log_dry "Would wait for Keycloak and configure stroma-ai realm via REST API"
     fi
 
-    OIDC_DISCOVERY_URL="${KEYCLOAK_URL}/.well-known/openid-configuration"
+    # Use HTTPS URL through nginx for OIDC discovery (production access pattern)
+    # Internal admin API uses http://localhost:8080, but clients use nginx-proxied HTTPS
+    OIDC_DISCOVERY_URL="https://${STROMA_HEAD_HOST}/realms/stroma-ai/.well-known/openid-configuration"
+    OIDC_ISSUER="https://${STROMA_HEAD_HOST}/realms/stroma-ai"
 
     # -------------------------------------------------------------------------
     # Write OIDC variables to platform config
     # -------------------------------------------------------------------------
     log_step "Writing OIDC configuration to ${CONFIG_ENV}"
     write_or_update_config "OIDC_DISCOVERY_URL"         "${OIDC_DISCOVERY_URL}"
-    write_or_update_config "OIDC_ISSUER"                "${KEYCLOAK_URL}"
+    write_or_update_config "OIDC_ISSUER"                "${OIDC_ISSUER}"
     write_or_update_config "KC_GATEWAY_CLIENT_ID"       "stroma-gateway"
     write_or_update_config "KC_GATEWAY_CLIENT_SECRET"   "${GW_CLIENT_SECRET}"
     write_or_update_config "KC_OPENWEBUI_CLIENT_ID"     "openwebui"
     write_or_update_config "KC_OPENWEBUI_CLIENT_SECRET" "${OWU_CLIENT_SECRET}"
-    write_or_update_config "KC_ADMIN_URL"               "http://${KC_HOSTNAME}:${KC_PORT}"
+    write_or_update_config "KC_ADMIN_URL"               "https://${STROMA_HEAD_HOST}/admin"
 
     echo ""
     echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
