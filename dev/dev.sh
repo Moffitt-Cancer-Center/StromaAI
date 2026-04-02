@@ -897,6 +897,24 @@ ensure_dot_env() {
 }
 
 # ---------------------------------------------------------------------------
+# detect_active_profiles — check which profile containers are running and
+# set PROFILE_* flags accordingly. Used by logs/ps/etc when invoked standalone.
+# ---------------------------------------------------------------------------
+detect_active_profiles() {
+    # Check if inference profile containers are running
+    if ${COMPOSE_CMD} ps --format json 2>/dev/null | grep -q "dev-stroma-vllm" || \
+       podman ps --format "{{.Names}}" 2>/dev/null | grep -q "dev-stroma-vllm"; then
+        PROFILE_INFERENCE=1
+    fi
+    
+    # Check if watcher profile containers are running
+    if ${COMPOSE_CMD} ps --format json 2>/dev/null | grep -q "dev-stroma-watcher" || \
+       podman ps --format "{{.Names}}" 2>/dev/null | grep -q "dev-stroma-watcher"; then
+        PROFILE_WATCHER=1
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # build_profiles_args — compose --profile flags based on CLI options
 # ---------------------------------------------------------------------------
 build_profile_args() {
@@ -1312,6 +1330,7 @@ case "${SUBCMD}" in
 
     # -------------------------------------------------------------------------
     logs)
+        detect_active_profiles
         if [[ -n "${SERVICE_ARG}" ]]; then
             compose logs --follow --tail=100 "${SERVICE_ARG}"
         else
@@ -1321,6 +1340,7 @@ case "${SUBCMD}" in
 
     # -------------------------------------------------------------------------
     ps)
+        detect_active_profiles
         compose ps
         ;;
 
