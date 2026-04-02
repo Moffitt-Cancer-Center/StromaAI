@@ -18,10 +18,16 @@ kilo_update.patch
 
 # Local config files (contain secrets — never commit)
 config/config.env
+config.env
 /opt/stroma-ai/config.env
 /etc/ood/stroma-ai.conf
 deploy/keycloak/.env
 deploy/keycloak/realm-import.json
+deploy/head/.env
+deploy/openwebui/.env
+
+# Backup files (contain secrets from original .env files)
+**/.env.bak.*
 
 # Dev environment secrets and generated files (dev/dev.sh writes these)
 dev/.env
