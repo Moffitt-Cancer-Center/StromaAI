@@ -1,4 +1,5 @@
 {
+  "id": "stroma-ai",
   "realm": "stroma-ai",
   "enabled": true,
   "displayName": "StromaAI Research Platform",

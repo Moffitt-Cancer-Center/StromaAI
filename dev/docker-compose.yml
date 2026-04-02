@@ -77,6 +77,7 @@ services:
     command: >
       start-dev
       --import-realm
+      --verbose
       --features=token-exchange,admin-fine-grained-authz
       --health-enabled=true
     environment:
@@ -98,7 +99,7 @@ services:
       KC_HTTP_PORT:                "8080"
       KC_HOSTNAME_STRICT:          "false"
       KC_HTTP_ENABLED:             "true"
-      KC_LOG_LEVEL:                INFO
+      KC_LOG_LEVEL:                INFO,org.keycloak.exportimport:DEBUG
     volumes:
       - ./dev-data/realm/stroma-ai-realm.json:/opt/keycloak/data/import/stroma-ai-realm.json:ro
     ports:
