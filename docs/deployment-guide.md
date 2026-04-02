@@ -645,8 +645,9 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl enable --now nginx
 
-# Test HTTPS:
-curl -k https://localhost/health
+# Test HTTPS endpoints:
+curl -k https://localhost/health  # vLLM health check
+curl -k https://localhost/realms/stroma-ai/.well-known/openid-configuration  # Keycloak OIDC discovery
 ```
 
 ---
