@@ -234,14 +234,23 @@ main() {
         log_fatal "nginx configuration test failed. Check syntax or restore from backup."
     fi
     
-    # Reload nginx
-    log_info "Reloading nginx"
-    if systemctl reload nginx 2>&1; then
-        log_ok "nginx reloaded successfully"
+    # Start or reload nginx depending on current state
+    if systemctl is-active --quiet nginx; then
+        log_info "Reloading nginx"
+        if systemctl reload nginx 2>&1; then
+            log_ok "nginx reloaded successfully"
+        else
+            log_error "nginx reload failed. Try manual restart:"
+            log_error "  systemctl restart nginx"
+            exit 1
+        fi
     else
-        log_error "nginx reload failed. Service may need restart:"
-        log_error "  systemctl restart nginx"
-        exit 1
+        log_info "Starting nginx (service was not running)"
+        if systemctl enable --now nginx 2>&1; then
+            log_ok "nginx started and enabled"
+        else
+            log_fatal "Failed to start nginx. Check systemctl status nginx"
+        fi
     fi
     
     echo ""
