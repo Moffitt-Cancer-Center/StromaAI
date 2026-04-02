@@ -836,6 +836,22 @@ case "${SUBCMD}" in
             compose build gateway watcher
         fi
 
+        # Pre-flight: warn if model path is empty when inference profile is active.
+        # vllm exits immediately without model weights; the container will not restart
+        # (restart: "no") so this is the best time to catch it.
+        if [[ "${PROFILE_INFERENCE}" -eq 1 && "${DRY_RUN}" -eq 0 ]]; then
+            local model_path_val; model_path_val=$(read_env_var DEV_MODEL_PATH "${DEV_ENV}"); model_path_val="${model_path_val:-${MODELS_DIR}}"
+            if [[ ! -d "${model_path_val}" ]] || [[ -z "$(ls -A "${model_path_val}" 2>/dev/null)" ]]; then
+                log_warn "Model path '${model_path_val}' is empty or missing."
+                log_warn "vLLM will exit immediately. Populate the model directory first:"
+                log_warn "  rsync -a /path/to/weights/ ${model_path_val}/"
+                log_warn "Then re-run: ./dev.sh up --inference"
+                log_warn "Continuing without inference profile — use --inference once model is ready."
+                PROFILE_INFERENCE=0
+                PROFILE_WATCHER=0
+            fi
+        fi
+
         log_step "Starting containers"
         if [[ "${PROFILE_INFERENCE}" -eq 1 ]]; then
             log_info "Profiles: inference${PROFILE_WATCHER:+ watcher}"

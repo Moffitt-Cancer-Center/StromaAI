@@ -54,6 +54,10 @@ services:
       retries: 10
       start_period: 20s
     restart: unless-stopped
+    # Publish on all interfaces so keycloak can reach it via
+    # host.containers.internal (slirp4netns gateway) without CNI dnsname.
+    ports:
+      - "5432:5432"
     networks:
       stroma-dev:
         aliases:
@@ -77,7 +81,10 @@ services:
       --health-enabled=true
     environment:
       KC_DB:                       postgres
-      KC_DB_URL:                   jdbc:postgresql://postgres:5432/keycloak
+      # Use host.containers.internal (slirp4netns gateway) instead of the
+      # CNI bridge hostname 'postgres' — CNI dnsname requires podman-plugins
+      # which non-root users on RHEL 8 cannot install.
+      KC_DB_URL:                   jdbc:postgresql://host.containers.internal:5432/keycloak
       KC_DB_USERNAME:              keycloak
       KC_DB_PASSWORD:              ${KC_DB_PASSWORD:?}
 
@@ -106,6 +113,10 @@ services:
       timeout: 10s
       retries: 10
       start_period: 90s
+    # host.containers.internal routes to the host loopback via slirp4netns,
+    # where postgres publishes 5432:5432.
+    extra_hosts:
+      - "host.containers.internal:host-gateway"
     networks:
       - stroma-dev
 
@@ -123,10 +134,10 @@ services:
     image: ${IMAGE_GATEWAY:-stroma-ai-gateway:dev}
     container_name: dev-stroma-gateway
     environment:
-      # Fetch OIDC config from Keycloak via the bridge service name.
-      # Keycloak's KC_HOSTNAME (= DEV_HOST_IP) controls the issuer in tokens
-      # — consumers validate against that issuer regardless of fetch path.
-      OIDC_DISCOVERY_URL:   "http://keycloak:${KC_PORT:-8080}/realms/stroma-ai/.well-known/openid-configuration"
+      # Use host.containers.internal so gateway can reach Keycloak even
+      # when CNI dnsname is unavailable (rootless RHEL 8, no podman-plugins).
+      # Keycloak is published on KC_PORT on all interfaces.
+      OIDC_DISCOVERY_URL:   "http://host.containers.internal:${KC_PORT:-8080}/realms/stroma-ai/.well-known/openid-configuration"
       OIDC_AUDIENCE:        ${OIDC_AUDIENCE:-stroma-gateway}
       # vLLM is on the host network — reach via host.containers.internal
       VLLM_BACKEND_URL:     "http://host.containers.internal:${STROMA_VLLM_PORT:-8000}"
@@ -299,7 +310,11 @@ services:
     depends_on:
       ray-head:
         condition: service_healthy
-    restart: on-failure
+    # Retry limit: vllm exits immediately if model weights are missing or no
+    # GPU is available.  Without a cap, on-failure restarts indefinitely and
+    # fills logs.  After 3 failures the container stays stopped; re-run
+    # 'dev.sh up --inference' once the model path is populated.
+    restart: "no"
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:${STROMA_VLLM_PORT:-8000}/health || exit 1"]
       interval: 30s
