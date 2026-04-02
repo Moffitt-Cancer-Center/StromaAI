@@ -391,10 +391,15 @@ _deploy_nginx() {
     # Process nginx config template with envsubst to support flexible backend URLs
     log_info "Processing nginx config template with backend URLs from ${CONFIG_FILE}"
     if [[ "${STROMA_DRY_RUN}" == "0" ]]; then
-        # Read backend URL variables from config
+        # Read backend URL variables from config and strip http:// prefix for nginx upstream
         export VLLM_INTERNAL_URL="$(grep -E '^VLLM_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:8000')"
         export KC_INTERNAL_URL="$(grep -E '^KC_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:8080')"
         export OPENWEBUI_INTERNAL_URL="$(grep -E '^OPENWEBUI_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:3000')"
+        
+        # Strip http:// prefix for nginx upstream blocks (envsubst doesn't support parameter expansion)
+        export VLLM_INTERNAL_URL="${VLLM_INTERNAL_URL#http://}"
+        export KC_INTERNAL_URL="${KC_INTERNAL_URL#http://}"
+        export OPENWEBUI_INTERNAL_URL="${OPENWEBUI_INTERNAL_URL#http://}"
         
         envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
             < "${REPO_DIR}/deploy/nginx/stroma-ai.conf" \

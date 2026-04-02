@@ -667,6 +667,11 @@ The nginx config uses environment variable substitution to support flexible serv
 # Load backend URLs from config (defaults to localhost if not set):
 export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
 
+# Strip http:// prefix for nginx upstream blocks:
+export VLLM_INTERNAL_URL="${VLLM_INTERNAL_URL#http://}"
+export KC_INTERNAL_URL="${KC_INTERNAL_URL#http://}"
+export OPENWEBUI_INTERNAL_URL="${OPENWEBUI_INTERNAL_URL#http://}"
+
 # Process template and deploy:
 # RHEL/Rocky (conf.d layout):
 envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
@@ -709,6 +714,10 @@ After updating backend URLs, re-run envsubst and reload nginx:
 
 ```bash
 export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
+# Strip http:// prefix:
+export VLLM_INTERNAL_URL="${VLLM_INTERNAL_URL#http://}"
+export KC_INTERNAL_URL="${KC_INTERNAL_URL#http://}"
+export OPENWEBUI_INTERNAL_URL="${OPENWEBUI_INTERNAL_URL#http://}"
 envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
   < /path/to/StromaAI/deploy/nginx/stroma-ai.conf \
   > /etc/nginx/sites-available/stroma-ai
@@ -1048,6 +1057,10 @@ StromaAI's architecture supports distributing services across multiple hosts for
 2. **Regenerate nginx config:**
    ```bash
    export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
+   # Strip http:// prefix for nginx upstreams:
+   export VLLM_INTERNAL_URL="${VLLM_INTERNAL_URL#http://}"
+   export KC_INTERNAL_URL="${KC_INTERNAL_URL#http://}"
+   export OPENWEBUI_INTERNAL_URL="${OPENWEBUI_INTERNAL_URL#http://}"
    envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
      < /path/to/StromaAI/deploy/nginx/stroma-ai.conf \
      > /etc/nginx/sites-available/stroma-ai
@@ -1091,6 +1104,10 @@ KC_INTERNAL_URL=http://keycloak-host.example:8080
 
 # Regenerate nginx config (use conf.d for RHEL/Rocky, sites-available for Ubuntu):
 export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
+# Strip http:// prefix:
+export VLLM_INTERNAL_URL="${VLLM_INTERNAL_URL#http://}"
+export KC_INTERNAL_URL="${KC_INTERNAL_URL#http://}"
+export OPENWEBUI_INTERNAL_URL="${OPENWEBUI_INTERNAL_URL#http://}"
 # RHEL/Rocky:
 envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
   < /path/to/StromaAI/deploy/nginx/stroma-ai.conf \
@@ -1140,6 +1157,10 @@ OPENWEBUI_URL=https://stroma-ai.your-cluster.example/webui
 
 # Regenerate nginx config:
 export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
+# Strip http:// prefix:
+export VLLM_INTERNAL_URL="${VLLM_INTERNAL_URL#http://}"
+export KC_INTERNAL_URL="${KC_INTERNAL_URL#http://}"
+export OPENWEBUI_INTERNAL_URL="${OPENWEBUI_INTERNAL_URL#http://}"
 # Use conf.d for RHEL/Rocky, sites-available for Ubuntu
 envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
   < /path/to/StromaAI/deploy/nginx/stroma-ai.conf \
