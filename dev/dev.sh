@@ -1189,6 +1189,30 @@ case "${SUBCMD}" in
                 PROFILE_WATCHER=0
             else
                 log_ok "Model validated: ${_preflight_model_path}"
+                
+                # Check if quantization is configured but model isn't actually quantized
+                _quant_setting=$(read_env_var STROMA_VLLM_QUANTIZATION "${DEV_ENV}")
+                if [[ -n "${_quant_setting}" && -f "${_preflight_model_path}/config.json" ]]; then
+                    if ! grep -q "quantization_config" "${_preflight_model_path}/config.json" 2>/dev/null; then
+                        log_warn "═══════════════════════════════════════════════════════════"
+                        log_warn "  Quantization flag set but model may not be quantized"
+                        log_warn "═══════════════════════════════════════════════════════════"
+                        log_warn "STROMA_VLLM_QUANTIZATION = ${_quant_setting}"
+                        log_warn "Model config.json does not contain quantization_config"
+                        log_warn ""
+                        log_warn "This may cause vLLM to fail or fall back to fp16, which"
+                        log_warn "uses significantly more GPU memory (~18GB vs ~5GB for 7B)."
+                        log_warn ""
+                        log_warn "If you see GPU OOM errors, either:"
+                        log_warn "  1. Use an actually quantized model (AWQ/GPTQ)"
+                        log_warn "  2. Unset quantization: STROMA_VLLM_QUANTIZATION="
+                        log_warn "  3. Reduce memory usage:"
+                        log_warn "      STROMA_VLLM_GPU_MEMORY=0.70"
+                        log_warn "      STROMA_VLLM_MAX_MODEL_LEN=2048"
+                        log_warn "═══════════════════════════════════════════════════════════"
+                        echo ""
+                    fi
+                fi
             fi
         fi
 
