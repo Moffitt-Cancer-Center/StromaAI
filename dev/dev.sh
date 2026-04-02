@@ -840,11 +840,11 @@ case "${SUBCMD}" in
         # vllm exits immediately without model weights; the container will not restart
         # (restart: "no") so this is the best time to catch it.
         if [[ "${PROFILE_INFERENCE}" -eq 1 && "${DRY_RUN}" -eq 0 ]]; then
-            local model_path_val; model_path_val=$(read_env_var DEV_MODEL_PATH "${DEV_ENV}"); model_path_val="${model_path_val:-${MODELS_DIR}}"
-            if [[ ! -d "${model_path_val}" ]] || [[ -z "$(ls -A "${model_path_val}" 2>/dev/null)" ]]; then
-                log_warn "Model path '${model_path_val}' is empty or missing."
+            _preflight_model_path=$(read_env_var DEV_MODEL_PATH "${DEV_ENV}"); _preflight_model_path="${_preflight_model_path:-${MODELS_DIR}}"
+            if [[ ! -d "${_preflight_model_path}" ]] || [[ -z "$(ls -A "${_preflight_model_path}" 2>/dev/null)" ]]; then
+                log_warn "Model path '${_preflight_model_path}' is empty or missing."
                 log_warn "vLLM will exit immediately. Populate the model directory first:"
-                log_warn "  rsync -a /path/to/weights/ ${model_path_val}/"
+                log_warn "  rsync -a /path/to/weights/ ${_preflight_model_path}/"
                 log_warn "Then re-run: ./dev.sh up --inference"
                 log_warn "Continuing without inference profile — use --inference once model is ready."
                 PROFILE_INFERENCE=0
@@ -867,13 +867,12 @@ case "${SUBCMD}" in
         # exists from a prior run — Keycloak will fail with "password auth
         # failed".  Catch this before starting rather than after 120s of wait.
         if [[ "${_DEV_FRESH_DB_PASS}" -eq 1 && "${DRY_RUN}" -eq 0 ]]; then
-            local stale_vol
-            stale_vol=$(podman volume ls --format '{{.Name}}' 2>/dev/null \
+            _stale_vol=$(podman volume ls --format '{{.Name}}' 2>/dev/null \
                         | grep 'postgres_data$' | head -1 || true)
-            if [[ -n "${stale_vol}" ]]; then
+            if [[ -n "${_stale_vol}" ]]; then
                 echo
                 log_warn "dev/.env was missing — new secrets were generated."
-                log_warn "But postgres volume '${stale_vol}' already exists with a different password."
+                log_warn "But postgres volume '${_stale_vol}' already exists with a different password."
                 log_warn "Keycloak would fail with 'password authentication failed'."
                 echo
                 die "Stale database detected. Run:  ./dev.sh clean && ./dev.sh up"
@@ -891,13 +890,13 @@ case "${SUBCMD}" in
         # Timeout after 120s with a hint to check logs — avoids infinite hang
         # when KC is in a restart loop (e.g. password mismatch, bad realm JSON).
         if [[ "${DRY_RUN}" -eq 0 ]]; then
-            local kc_port; kc_port=$(read_env_var KC_PORT "${DEV_ENV}"); kc_port="${kc_port:-8080}"
-            log_info "Waiting for Keycloak on :${kc_port} (up to 120s)..."
-            local waited=0
-            until bash -c "</dev/tcp/127.0.0.1/${kc_port}" 2>/dev/null; do
-                sleep 5; waited=$((waited + 5))
+            _kc_port=$(read_env_var KC_PORT "${DEV_ENV}"); _kc_port="${_kc_port:-8080}"
+            log_info "Waiting for Keycloak on :${_kc_port} (up to 120s)..."
+            _kc_waited=0
+            until bash -c "</dev/tcp/127.0.0.1/${_kc_port}" 2>/dev/null; do
+                sleep 5; _kc_waited=$((_kc_waited + 5))
                 printf '.'
-                if (( waited >= 120 )); then
+                if (( _kc_waited >= 120 )); then
                     echo
                     log_warn "Keycloak didn't respond in 120s — it may be stuck."
                     log_warn "Check logs:  ./dev.sh logs keycloak"
@@ -906,7 +905,7 @@ case "${SUBCMD}" in
                 fi
             done
             echo
-            (( waited < 120 )) && log_ok "Keycloak is accepting connections"
+            (( _kc_waited < 120 )) && log_ok "Keycloak is accepting connections"
         fi
 
         print_summary
