@@ -29,6 +29,20 @@
 - `dev/docker-compose.yml` - Fixed vLLM command syntax
 - `dev/dev.sh` - Auto-detect model path, validate model files before starting
 
+### 3. Fixed vLLM GPU Out of Memory Issue
+
+**Problem**: vLLM loaded model successfully but crashed with `CUDA out of memory` when allocating KV cache
+
+**Solution**:
+- Added `--gpu-memory-utilization 0.75` flag (down from default 0.9) to leave more headroom
+- Added `--max-model-len 4096` flag to limit KV cache size
+- Added `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` environment variable
+- Both configurable via `.env`: `STROMA_VLLM_GPU_MEMORY` and `STROMA_VLLM_MAX_MODEL_LEN`
+
+**Files modified**:
+- `dev/docker-compose.yml` - Added memory management flags and environment variable
+- `dev/TROUBLESHOOTING.md` - Documented OOM troubleshooting and tuning options
+
 ---
 
 ## Quick Start (on your Linux system)
@@ -195,6 +209,80 @@ cd /path/to/StromaAI
 git pull origin main
 ./dev.sh clean
 ./dev.sh up --inference
+```
+
+### vLLM CUDA Out of Memory (OOM)
+
+**Symptom**: vLLM loads model successfully but crashes with:
+```
+ERROR CUDA out of memory. Tried to allocate X.XX GiB. GPU 0 has a total capacity of XX.XX GiB
+torch.OutOfMemoryError: CUDA out of memory
+```
+
+**Cause**: Model weights + KV cache + activation memory exceeds available GPU VRAM
+
+**Solutions** (in order of preference):
+
+1. **Reduce GPU memory utilization** (most common fix):
+   ```bash
+   # Add to dev/.env
+   echo "STROMA_VLLM_GPU_MEMORY=0.75" >> dev/.env  # Default is 0.9
+   
+   # Restart vLLM
+   cd dev
+   ./dev.sh down
+   ./dev.sh up --inference
+   ```
+
+2. **Limit maximum context length**:
+   ```bash
+   # Add to dev/.env
+   echo "STROMA_VLLM_MAX_MODEL_LEN=4096" >> dev/.env  # Or 2048 for smaller memory footprint
+   
+   # Restart
+   cd dev
+   ./dev.sh down
+   ./dev.sh up --inference
+   ```
+
+3. **Verify quantization is working** (if model should be quantized):
+   ```bash
+   # Check if model has quantization config
+   cat /path/to/model/config.json | grep -i quant
+   
+   # If no quantization config, remove the flag:
+   echo "STROMA_VLLM_QUANTIZATION=" >> dev/.env  # Empty disables quantization
+   
+   # Or use a smaller/quantized model
+   ```
+
+4. **Combine multiple fixes**:
+   ```bash
+   # For 24GB GPUs with large models
+   echo "STROMA_VLLM_GPU_MEMORY=0.70" >> dev/.env
+   echo "STROMA_VLLM_MAX_MODEL_LEN=2048" >> dev/.env
+   
+   cd dev
+   ./dev.sh down
+   ./dev.sh up --inference
+   ```
+
+5. **Use tensor parallelism** (if you have multiple GPUs):
+   ```bash
+   # Spread model across 2 GPUs
+   # Edit docker-compose.yml and change:
+   # --tensor-parallel-size 1  →  --tensor-parallel-size 2
+   ```
+
+**Memory requirements by model size** (approximate):
+- 7B parameters: ~14-18 GB VRAM (fp16), ~4-6 GB (AWQ/GPTQ)
+- 13B parameters: ~26-32 GB VRAM (fp16), ~7-10 GB (AWQ/GPTQ)
+- 70B parameters: 140+ GB VRAM (fp16), ~35-50 GB (AWQ/GPTQ)
+
+**Verify fix worked**:
+```bash
+podman logs dev-stroma-vllm | grep -i "available blocks"
+# Should see: "# GPU blocks: XXXX" instead of crash
 ```
 
 ---

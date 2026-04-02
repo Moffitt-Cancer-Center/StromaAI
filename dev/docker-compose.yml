@@ -294,6 +294,8 @@ services:
       --port ${STROMA_VLLM_PORT:-8000}
       --api-key ${STROMA_API_KEY:-}
       --trust-remote-code
+      --gpu-memory-utilization ${STROMA_VLLM_GPU_MEMORY:-0.75}
+      --max-model-len ${STROMA_VLLM_MAX_MODEL_LEN:-4096}
     environment:
       RAY_ADDRESS:               "localhost:${STROMA_RAY_PORT:-6380}"
       HF_HUB_OFFLINE:            "1"
@@ -301,6 +303,7 @@ services:
       VLLM_HOST_IP:              "127.0.0.1"
       GLOO_SOCKET_IFNAME:        lo
       NCCL_SOCKET_IFNAME:        lo
+      PYTORCH_CUDA_ALLOC_CONF:   "expandable_segments:True"
     volumes:
       - ${DEV_MODEL_PATH:-./dev-data/models}:${DEV_MODEL_PATH:-/dev-data/models}:ro
     network_mode: host
