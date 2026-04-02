@@ -169,7 +169,7 @@ services:
     image: vllm/vllm-openai:v0.7.2
     container_name: stroma-vllm
     command: >
-      vllm serve ${STROMA_MODEL_PATH:-}
+      --model ${STROMA_MODEL_PATH:-}
         --served-model-name ${STROMA_MODEL_NAME:-stroma-ai-coder}
         --quantization ${STROMA_VLLM_QUANTIZATION:-awq}
         --tensor-parallel-size 1
