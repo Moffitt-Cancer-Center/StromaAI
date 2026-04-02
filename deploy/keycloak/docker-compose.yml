@@ -61,8 +61,7 @@ services:
       # Hostname / TLS
       # In production, set KC_HOSTNAME to your FQDN and place a TLS-terminating
       # reverse proxy (nginx/traefik) in front. Use start (not start-dev) for prod.
-      # Set KC_PROXY_HEADERS=xforwarded when behind nginx with X-Forwarded-* headers.
-      # Switch command to "start --proxy=edge" for production.
+      # KC_PROXY_HEADERS=xforwarded tells Keycloak to trust X-Forwarded-* headers.
       KC_HOSTNAME: ${KC_HOSTNAME:-localhost}
       KC_HTTP_PORT: "8080"
       KC_HOSTNAME_STRICT: "false"
