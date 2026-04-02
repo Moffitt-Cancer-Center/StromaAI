@@ -153,9 +153,14 @@ services:
   # ===========================================================================
   # vllm — vLLM inference API server
   # ===========================================================================
-  # Runs vllm serve in Ray distributed mode: the head node coordinates
-  # scheduling but GPU inference is performed on Slurm worker nodes running
-  # the Apptainer SIF.  This container needs no GPU on the head VM.
+  # Runs vLLM in Ray distributed mode: the head node coordinates scheduling
+  # but GPU inference is performed on Slurm worker nodes running the Apptainer
+  # SIF. This container needs no GPU on the head VM.
+  #
+  # IMPORTANT: --device cpu is set because the head node is CPU-only. vLLM's
+  # coordinator process runs on CPU here, while actual GPU inference happens
+  # on Ray workers (Slurm nodes). At least one Slurm worker must be running
+  # and connected to Ray before vLLM can successfully initialize.
   #
   # Model weights are bind-mounted read-only from shared storage.  The path
   # inside the container is identical to the host path so that Ray worker
@@ -171,6 +176,7 @@ services:
     command: >
       --model ${STROMA_MODEL_PATH:-}
         --served-model-name ${STROMA_MODEL_NAME:-stroma-ai-coder}
+        --device cpu
         --quantization ${STROMA_VLLM_QUANTIZATION:-awq}
         --tensor-parallel-size 1
         --distributed-executor-backend ray
