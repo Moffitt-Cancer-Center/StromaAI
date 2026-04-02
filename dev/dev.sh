@@ -823,7 +823,37 @@ ensure_dot_env() {
     # in case they collide via host-network services (ray/vllm/watcher).
     # -------------------------------------------------------------------------
     local model_path; model_path=$(read_env_var DEV_MODEL_PATH "${DEV_ENV}")
-    [[ -z "${model_path}" ]] && model_path="${MODELS_DIR}"
+    
+    # Auto-detect model directory if not set
+    if [[ -z "${model_path}" ]]; then
+        model_path="${MODELS_DIR}"
+        
+        # If MODELS_DIR exists and contains exactly one subdirectory, use that
+        if [[ -d "${MODELS_DIR}" ]]; then
+            local model_dirs=("${MODELS_DIR}"/*)
+            local valid_models=()
+            
+            # Filter out .gitkeep and other non-directories
+            for d in "${model_dirs[@]}"; do
+                if [[ -d "${d}" && ! "${d}" =~ /\.gitkeep$ ]]; then
+                    valid_models+=("${d}")
+                fi
+            done
+            
+            if [[ ${#valid_models[@]} -eq 1 ]]; then
+                model_path="${valid_models[0]}"
+                log_ok "Auto-detected model: ${model_path}"
+            elif [[ ${#valid_models[@]} -gt 1 ]]; then
+                log_warn "Multiple models found in ${MODELS_DIR}:"
+                for m in "${valid_models[@]}"; do
+                    log_warn "  - $(basename "${m}")"
+                done
+                log_warn "Set DEV_MODEL_PATH to the specific model directory, e.g.:"
+                log_warn "  DEV_MODEL_PATH=${MODELS_DIR}/$(basename "${valid_models[0]}")"
+            fi
+        fi
+    fi
+    
     write_env_var DEV_MODEL_PATH     "${model_path}"      "${DEV_ENV}"
     write_env_var DEV_SHARED_ROOT    "${SHARED_DIR}"      "${DEV_ENV}"
 
@@ -1100,19 +1130,66 @@ case "${SUBCMD}" in
             compose build gateway watcher
         fi
 
-        # Pre-flight: warn if model path is empty when inference profile is active.
-        # vllm exits immediately without model weights; the container will not restart
-        # (restart: "no") so this is the best time to catch it.
+        # Pre-flight: validate model path when inference profile is active.
+        # vllm exits immediately without valid model weights; the container will not
+        # restart (restart: "no") so this is the best time to catch it.
         if [[ "${PROFILE_INFERENCE}" -eq 1 && "${DRY_RUN}" -eq 0 ]]; then
             _preflight_model_path=$(read_env_var DEV_MODEL_PATH "${DEV_ENV}"); _preflight_model_path="${_preflight_model_path:-${MODELS_DIR}}"
-            if [[ ! -d "${_preflight_model_path}" ]] || [[ -z "$(ls -A "${_preflight_model_path}" 2>/dev/null)" ]]; then
-                log_warn "Model path '${_preflight_model_path}' is empty or missing."
-                log_warn "vLLM will exit immediately. Populate the model directory first:"
-                log_warn "  rsync -a /path/to/weights/ ${_preflight_model_path}/"
-                log_warn "Then re-run: ./dev.sh up --inference"
-                log_warn "Continuing without inference profile — use --inference once model is ready."
+            
+            # Check if path exists and looks like a model directory
+            local model_valid=0
+            if [[ -d "${_preflight_model_path}" ]]; then
+                # Check for common model files (any one indicates a valid model)
+                if   [[ -f "${_preflight_model_path}/config.json" ]] \
+                  || [[ -f "${_preflight_model_path}/model.safetensors" ]] \
+                  || [[ -f "${_preflight_model_path}/model.safetensors.index.json" ]] \
+                  || [[ -f "${_preflight_model_path}/pytorch_model.bin" ]] \
+                  || ls "${_preflight_model_path}"/model-*.safetensors &>/dev/null \
+                  || ls "${_preflight_model_path}"/*.gguf &>/dev/null; then
+                    model_valid=1
+                fi
+            fi
+            
+            if [[ "${model_valid}" -eq 0 ]]; then
+                echo ""
+                log_warn "═══════════════════════════════════════════════════════════"
+                log_warn "  Model path does not contain a valid model"
+                log_warn "═══════════════════════════════════════════════════════════"
+                log_warn "Path: ${_preflight_model_path}"
+                if [[ ! -d "${_preflight_model_path}" ]]; then
+                    log_warn "  → Directory does not exist"
+                elif [[ -z "$(ls -A "${_preflight_model_path}" 2>/dev/null)" ]]; then
+                    log_warn "  → Directory is empty"
+                else
+                    log_warn "  → No model files found (config.json, *.safetensors, etc.)"
+                    log_warn "  → Contents: $(ls -1 "${_preflight_model_path}" 2>/dev/null | head -5 | tr '\n' ' ')"
+                fi
+                log_warn ""
+                log_warn "vLLM requires a valid model with at least:"
+                log_warn "  • config.json"
+                log_warn "  • tokenizer files"
+                log_warn "  • model weights (*.safetensors or *.bin)"
+                log_warn ""
+                log_warn "To fix:"
+                log_warn "  1. Download a model: hfw download meta-llama/Llama-3-8B"
+                log_warn "  2. Or symlink weights: ln -s /path/to/model ${MODELS_DIR}/mymodel"
+                log_warn "  3. Then set: DEV_MODEL_PATH=${MODELS_DIR}/mymodel"
+                log_warn "  4. Re-run: ./dev.sh up --inference"
+                log_warn "═══════════════════════════════════════════════════════════"
+                echo ""
+                
+                if [[ -t 0 && "${STROMA_YES:-0}" -ne 1 ]]; then
+                    read -r -p "$(echo -e "${YELLOW}Continue without inference? [Y/n]${RESET} ")" response
+                    if [[ "${response}" =~ ^[Nn]$ ]]; then
+                        die "Aborted. Set up model weights and try again."
+                    fi
+                fi
+                
+                log_warn "Continuing without inference profile (auth + UI only)."
                 PROFILE_INFERENCE=0
                 PROFILE_WATCHER=0
+            else
+                log_ok "Model validated: ${_preflight_model_path}"
             fi
         fi
 

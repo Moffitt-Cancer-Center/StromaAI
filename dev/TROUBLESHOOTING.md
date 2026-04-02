@@ -15,9 +15,59 @@
 - `dev/dev.sh` - Enhanced `check_slurm_binaries()` function
 - `dev/docker-compose.yml` - Updated watcher volume mounts with safe defaults
 
+### 2. Fixed vLLM Command Syntax Issue
+
+**Problem**: vLLM container failed with `api_server.py: error: unrecognized arguments: vllm serve`
+
+**Solution**:
+- Removed incorrect `vllm serve` command prefix
+- vLLM container expects direct API server arguments (starts with `--model`)
+- Added auto-detection of model directory (uses first model found if only one exists)
+- Added comprehensive model validation before starting vLLM
+
+**Files modified**:
+- `dev/docker-compose.yml` - Fixed vLLM command syntax
+- `dev/dev.sh` - Auto-detect model path, validate model files before starting
+
 ---
 
 ## Quick Start (on your Linux system)
+
+### Model Setup (Required for --inference)
+
+vLLM needs a valid model directory with:
+- `config.json`
+- Tokenizer files
+- Model weights (`*.safetensors` or `*.bin`)
+
+**If you have one model** (e.g., Qwen):
+```bash
+# dev.sh will auto-detect it
+cd /path/to/StromaAI/dev
+./dev.sh up --inference
+```
+
+**If you have multiple models**:
+```bash
+# Specify which one to use
+cd /path/to/StromaAI/dev
+DEV_MODEL_PATH=$PWD/dev-data/models/Qwen ./dev.sh up --inference
+# Or set in .env:
+echo "DEV_MODEL_PATH=$PWD/dev-data/models/Qwen" >> .env
+./dev.sh up --inference
+```
+
+**If you don't have a model yet**:
+```bash
+# Download one (requires internet)
+cd /path/to/StromaAI/dev
+source ../../venv/bin/activate  # If you have StromaAI venv
+hfw download Qwen/Qwen2.5-7B-Instruct --local-dir ./dev-data/models/Qwen
+
+# Or symlink from elsewhere
+ln -s /share/models/my-model ./dev-data/models/my-model
+echo "DEV_MODEL_PATH=$PWD/dev-data/models/my-model" >> .env
+```
 
 ### If you DON'T have Slurm installed:
 
@@ -85,6 +135,67 @@ podman logs -f dev-stroma-gateway
 
 4. **Missing API key**
    - Check `dev/.env` has `STROMA_API_KEY=<value>`
+
+---
+
+## Common vLLM Issues
+
+### vLLM Container Exits Immediately
+
+**Symptom**: `podman ps` shows vLLM missing, `podman ps -a` shows it exited
+
+**Check logs**: `podman logs dev-stroma-vllm`
+
+**Common causes**:
+
+1. **Model path not set correctly**
+   ```bash
+   # Check what path is configured
+   grep DEV_MODEL_PATH dev/.env
+   
+   # Make sure it points to the MODEL directory, not just models/
+   # WRONG: DEV_MODEL_PATH=/home/user/StromaAI/dev/dev-data/models
+   # RIGHT: DEV_MODEL_PATH=/home/user/StromaAI/dev/dev-data/models/Qwen
+   ```
+
+2. **Model directory empty or invalid**
+   ```bash
+   # Check model contents
+   ls -la /path/from/DEV_MODEL_PATH/
+   
+   # Should see: config.json, tokenizer files, *.safetensors or *.bin files
+   ```
+
+3. **No GPU available** (and trying to use quantization that requires GPU)
+   ```bash
+   # Check GPU
+   nvidia-smi
+   
+   # If no GPU, remove quantization flag or use CPU-compatible model
+   ```
+
+4. **Ray backend not ready**
+   ```bash
+   # Check ray-head is running
+   podman ps | grep ray-head
+   
+   # Check ray status
+   podman exec dev-stroma-ray-head ray status
+   ```
+
+### vLLM API Server Error: "unrecognized arguments"
+
+**Symptom**: Logs show `api_server.py: error: unrecognized arguments: vllm serve`
+
+**Cause**: Old command syntax in docker-compose.yml (pre-v0.7.2 format)
+
+**Fix**: Already fixed in latest version. If you still see this:
+```bash
+cd /path/to/StromaAI
+git pull origin main
+./dev.sh clean
+./dev.sh up --inference
+```
 
 ---
 

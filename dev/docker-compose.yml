@@ -284,16 +284,16 @@ services:
     profiles:
       - inference
     command: >
-      vllm serve ${DEV_MODEL_PATH:-/dev-data/models}
-        --served-model-name ${STROMA_MODEL_NAME:-stroma-ai-coder}
-        --quantization ${STROMA_VLLM_QUANTIZATION:-awq}
-        --tensor-parallel-size 1
-        --distributed-executor-backend ray
-        --disable-async-output-proc
-        --host 0.0.0.0
-        --port ${STROMA_VLLM_PORT:-8000}
-        --api-key ${STROMA_API_KEY:-}
-        --trust-remote-code
+      --model ${DEV_MODEL_PATH:-/dev-data/models}
+      --served-model-name ${STROMA_MODEL_NAME:-stroma-ai-coder}
+      --quantization ${STROMA_VLLM_QUANTIZATION:-awq}
+      --tensor-parallel-size 1
+      --distributed-executor-backend ray
+      --disable-async-output-proc
+      --host 0.0.0.0
+      --port ${STROMA_VLLM_PORT:-8000}
+      --api-key ${STROMA_API_KEY:-}
+      --trust-remote-code
     environment:
       RAY_ADDRESS:               "localhost:${STROMA_RAY_PORT:-6380}"
       HF_HUB_OFFLINE:            "1"
