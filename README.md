@@ -32,6 +32,9 @@ StromaAI resolves this by:
 ┌────────────────────────────────────────────────────────┐
 │  Clients: Researchers, OOD code-server, external apps  │
 │    Kilo Code / OpenWebUI ──HTTPS──► nginx TLS proxy    │
+│                                  /v1/* → vLLM          │
+│                                  /realms/* → Keycloak  │
+│                                  /webui/* → OpenWebUI  │
 └─────────────────────────┬──────────────────────────────┘
                           │ :443
          ┌────────────────▼───────────────────┐
@@ -81,7 +84,7 @@ StromaAI resolves this by:
 │  Identity Layer (optional, deploy/keycloak/ or external IdP)      │
 │                                                                   │
 │  Keycloak 26.x ─── issues OIDC tokens ──► Gateway JWT validation  │
-│  OpenWebUI  ──────── OIDC login ───────► serves chat UI on :3000  │
+│  OpenWebUI  ──────── OIDC login ───────► serves chat UI on :3000 (/webui/ via nginx) │
 │  stroma-cli ─────── platform management CLI (src/stroma_cli.py)   │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -108,6 +111,7 @@ StromaAI ships with a full OIDC authentication stack that can be deployed in min
 
 **OpenWebUI** (`deploy/openwebui/`):
 - Provides a polished chat UI served at `http://HEAD:3000` (or your configured port), wired to the StromaAI gateway
+- Proxied through nginx at `https://HEAD/webui/` for production deployments
 - Authenticates researchers via the same Keycloak OIDC flow — no separate password database
 - Setup script detects existing OIDC config from `config.env` and injects the correct provider URLs automatically
 
@@ -265,7 +269,7 @@ python3 src/stroma_cli.py idp --setup
 
 # Step 2c — OpenWebUI chat interface (optional):
 bash deploy/openwebui/setup-openwebui.sh
-# Starts chat UI at http://HEAD:3000 with OIDC login
+# Starts chat UI at http://HEAD:3000, proxied via nginx at /webui/
 ```
 
 ### 3. Validate hardware and platform state

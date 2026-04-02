@@ -142,10 +142,10 @@ install_base_deps() {
     log_step "Installing base dependencies"
     case "${OS_FAMILY}" in
         rhel)
-            pkg_install curl wget git openssl ca-certificates jq
+            pkg_install curl wget git openssl ca-certificates jq gettext
             ;;
         debian)
-            pkg_install curl wget git openssl ca-certificates jq
+            pkg_install curl wget git openssl ca-certificates jq gettext-base
             ;;
     esac
 }

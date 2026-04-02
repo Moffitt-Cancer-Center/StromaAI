@@ -306,10 +306,15 @@ STROMA_SHARED_ROOT=${STROMA_SHARED_ROOT}
 
 STROMA_HEAD_HOST=${STROMA_HEAD_HOST}
 STROMA_VLLM_PORT=${STROMA_VLLM_PORT}
+VLLM_INTERNAL_URL=http://127.0.0.1:${STROMA_VLLM_PORT}
 STROMA_HTTPS_PORT=${STROMA_HTTPS_PORT}
 STROMA_RAY_PORT=${STROMA_RAY_PORT}
 STROMA_RAY_DASHBOARD_PORT=${STROMA_RAY_DASHBOARD_PORT}
 STROMA_API_KEY=${STROMA_API_KEY}
+
+# Backend URLs for nginx reverse proxy (change when services move to separate hosts)
+KC_INTERNAL_URL=http://127.0.0.1:8080
+OPENWEBUI_INTERNAL_URL=http://127.0.0.1:3000
 
 STROMA_MODEL_PATH=${STROMA_MODEL_PATH}
 STROMA_MODEL_NAME=${STROMA_MODEL_NAME}
@@ -382,8 +387,26 @@ _deploy_nginx() {
     esac
 
     backup_file "${nginx_conf_path}" 2>/dev/null || true
-    run_cmd cp "${REPO_DIR}/deploy/nginx/stroma-ai.conf" "${nginx_conf_path}"
-    log_ok "nginx config installed at ${nginx_conf_path}"
+    
+    # Process nginx config template with envsubst to support flexible backend URLs
+    log_info "Processing nginx config template with backend URLs from ${CONFIG_FILE}"
+    if [[ "${STROMA_DRY_RUN}" == "0" ]]; then
+        # Read backend URL variables from config
+        export VLLM_INTERNAL_URL="$(grep -E '^VLLM_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:8000')"
+        export KC_INTERNAL_URL="$(grep -E '^KC_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:8080')"
+        export OPENWEBUI_INTERNAL_URL="$(grep -E '^OPENWEBUI_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:3000')"
+        
+        envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+            < "${REPO_DIR}/deploy/nginx/stroma-ai.conf" \
+            > "${nginx_conf_path}"
+        
+        log_ok "nginx config installed at ${nginx_conf_path}"
+        log_info "  vLLM backend:     ${VLLM_INTERNAL_URL}"
+        log_info "  Keycloak backend: ${KC_INTERNAL_URL}"
+        log_info "  OpenWebUI backend: ${OPENWEBUI_INTERNAL_URL}"
+    else
+        log_dry "Would process nginx template and write to ${nginx_conf_path}"
+    fi
 
     # Ubuntu: enable the site
     if [[ "${OS_FAMILY}" == "debian" ]]; then

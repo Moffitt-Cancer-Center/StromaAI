@@ -123,6 +123,11 @@ gen_secret() {
         || openssl rand -hex 32
 }
 
+read_config_var() {
+    local key="$1"
+    grep -E "^${key}=" "${CONFIG_ENV}" 2>/dev/null | cut -d= -f2- || true
+}
+
 write_or_update_config() {
     # Writes KEY=VALUE to CONFIG_ENV, replacing the line if the key already
     # exists. Creates the file (mode 640) if it does not exist.
@@ -177,21 +182,23 @@ configure_keycloak_realm_rest() {
     python3 - \
         "${kc_base_url}" "${admin_user}" "${admin_pass}" "${realm}" \
         "${GW_CLIENT_SECRET}" "${OWU_CLIENT_SECRET}" "${DEMO_USER_PASSWORD}" \
-        "${KC_HOSTNAME}" "${KC_PORT:-8080}" <<'PYEOF'
+        "${KC_HOSTNAME}" "${KC_PORT:-8080}" "${STROMA_HEAD_HOST}" "${OPENWEBUI_URL}" <<'PYEOF'
 import sys, json, time
 import urllib.request as urlreq
 import urllib.parse as urlparse
 import urllib.error as urlerr
 
-kc_url  = sys.argv[1]
-admin_u = sys.argv[2]
-admin_p = sys.argv[3]
-realm   = sys.argv[4]
-gw_sec  = sys.argv[5]
-owu_sec = sys.argv[6]
-demo_pw = sys.argv[7]
-host    = sys.argv[8]
-port    = sys.argv[9]
+kc_url     = sys.argv[1]
+admin_u    = sys.argv[2]
+admin_p    = sys.argv[3]
+realm      = sys.argv[4]
+gw_sec     = sys.argv[5]
+owu_sec    = sys.argv[6]
+demo_pw    = sys.argv[7]
+host       = sys.argv[8]
+port       = sys.argv[9]
+head_host  = sys.argv[10]
+owu_url    = sys.argv[11]
 
 def _http(method, path, data=None, token=None, form=False):
     url  = kc_url + path
@@ -284,10 +291,9 @@ _http('POST', f'/admin/realms/{realm}/clients', {
     'publicClient': False, 'standardFlowEnabled': True,
     'implicitFlowEnabled': False, 'directAccessGrantsEnabled': False,
     'clientAuthenticatorType': 'client-secret',
-    'secret': owu_sec,
-    'redirectUris': [
-        f'http://{host}:{port}/*',
-        f'https://{host}/*',
+    'secret': owu_sec,         # Dev: direct Keycloak access
+        f'https://{head_host}/*',          # Prod: nginx-proxied Keycloak
+        f'{owu_url}/*',                    # OpenWebUI callbacktps://{host}/*',
         'http://localhost:3000/*',
         '*',
     ],
@@ -460,6 +466,13 @@ EOF
 
     log_step "Installing Systemd Service"
     install_systemd_service "${SCRIPT_DIR}/stroma-ai-keycloak.service" "stroma-ai-keycloak"
+
+    # Read head hostname and OpenWebUI URL from config for redirect URIs
+    STROMA_HEAD_HOST="$(read_config_var STROMA_HEAD_HOST)"
+    STROMA_HEAD_HOST="${STROMA_HEAD_HOST:-localhost}"
+    OPENWEBUI_URL="$(read_config_var OPENWEBUI_URL)"
+    # Default to /webui path on the main HTTPS endpoint if OPENWEBUI_URL not set
+    OPENWEBUI_URL="${OPENWEBUI_URL:-https://${STROMA_HEAD_HOST}/webui}"
 
     KEYCLOAK_BASE_URL="http://${KC_HOSTNAME}:${KC_PORT}"
     KEYCLOAK_URL="${KEYCLOAK_BASE_URL}/realms/stroma-ai"

@@ -453,7 +453,13 @@ Verify:
 curl http://localhost:${OPENWEBUI_PORT:-3000}/health
 ```
 
-Researchers access the chat UI by browsing to `https://stroma-ai.your-cluster.example:3000` (or the port you configured), logging in with their institutional credentials, and chatting with the model directly.
+**Access:**
+- **Via nginx (recommended):** `https://stroma-ai.your-cluster.example/webui/`  
+  Proxied through nginx on the `/webui/` path. Requires Phase 4 nginx setup.
+- **Direct access (development):** `http://stroma-ai.your-cluster.example:3000`  
+  Requires firewall rule: `ufw allow 3000/tcp` or `firewall-cmd --add-port=3000/tcp`
+
+Researchers log in with institutional credentials and chat with the model directly.
 
 ### 2.5.6 Verify end-to-end authentication
 
@@ -530,6 +536,14 @@ chown stromaai:stromaai /opt/stroma-ai/config.env
 | `STROMA_SCALE_UP_THRESHOLD` | `5` | Queued requests before a burst worker is submitted |
 | `STROMA_SCALE_DOWN_IDLE_SECONDS` | `300` | Idle seconds before a burst worker is cancelled |
 | `STROMA_LOG_DIR` | `${STROMA_INSTALL_DIR}/logs` | Slurm job output log directory |
+
+**Backend service URLs for nginx reverse proxy** (change these when moving services to separate hosts):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VLLM_INTERNAL_URL` | `http://127.0.0.1:8000` | Internal URL nginx uses to reach vLLM backend |
+| `KC_INTERNAL_URL` | `http://127.0.0.1:8080` | Internal URL nginx uses to reach Keycloak backend |
+| `OPENWEBUI_INTERNAL_URL` | `http://127.0.0.1:3000` | Internal URL nginx uses to reach OpenWebUI backend |
 
 > **Identity layer variables** (written automatically by `setup-keycloak.sh` if you completed Phase 2.5): `OIDC_DISCOVERY_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `GATEWAY_ALLOWED_ROLE`, `KC_GATEWAY_CLIENT_ID`, `KC_GATEWAY_CLIENT_SECRET`, `JWKS_REFRESH_SECS`, `GATEWAY_PORT`, `OPENWEBUI_URL`, `OPENWEBUI_PORT`, `WEBUI_SECRET_KEY`. See `config/config.example.env` for full documentation of each.
 
@@ -623,9 +637,17 @@ The included config rotates Slurm job logs daily, retains 30 days, and uses `cop
 
 ## Phase 4: nginx TLS Reverse Proxy
 
+nginx proxies all services through a single HTTPS endpoint:
+- `/v1/*` → vLLM API (via gateway for OIDC validation)
+- `/realms/*`, `/admin/*` → Keycloak OIDC provider
+- `/webui/*` → OpenWebUI chat interface
+- `/health`, `/metrics` → vLLM monitoring endpoints
+
+### 4.1 Install nginx and generate TLS certificate
+
 ```bash
 # Install nginx:
-apt-get install -y nginx
+apt-get install -y nginx gettext-base  # gettext-base provides envsubst
 
 # Generate self-signed TLS certificate (valid 10 years for air-gapped use):
 mkdir -p /etc/ssl/stroma-ai
@@ -635,9 +657,23 @@ openssl req -x509 -nodes -days 3650 -newkey rsa:4096 \
   -subj "/CN=stroma-ai.your-cluster.example" \
   -addext "subjectAltName=DNS:stroma-ai.your-cluster.example"
 chmod 600 /etc/ssl/stroma-ai/server.key
+```
 
-# Deploy nginx config:
-cp deploy/nginx/stroma-ai.conf /etc/nginx/sites-available/stroma-ai
+### 4.2 Deploy nginx config with backend URL templating
+
+The nginx config uses environment variable substitution to support flexible service placement. Backend services can run on the same host (default) or on remote hosts.
+
+```bash
+# Load backend URLs from config (defaults to localhost if not set):
+export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
+
+# Process template and deploy:
+envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+  < deploy/nginx/stroma-ai.conf \
+  > /etc/nginx/sites-available/stroma-ai
+  
+ln -s /etc/nginx/sites-available/stroma-ai /etc/nginx/sites-enabled/stroma-ai
+rm -f /etc/nginx/sites-enabled/default
 ln -s /etc/nginx/sites-available/stroma-ai /etc/nginx/sites-enabled/stroma-ai
 rm -f /etc/nginx/sites-enabled/default
 
@@ -648,6 +684,38 @@ systemctl enable --now nginx
 # Test HTTPS endpoints:
 curl -k https://localhost/health  # vLLM health check
 curl -k https://localhost/realms/stroma-ai/.well-known/openid-configuration  # Keycloak OIDC discovery
+curl -k https://localhost/webui/  # OpenWebUI (should redirect to login)
+```
+
+### 4.3 Multi-host deployment (optional)
+
+To distribute services across multiple hosts, update backend URLs in `/opt/stroma-ai/config.env`:
+
+```bash
+# Example: Keycloak on dedicated host
+KC_INTERNAL_URL=http://keycloak-host.example:8080
+
+# Example: OpenWebUI on dedicated host
+OPENWEBUI_INTERNAL_URL=http://openwebui-host.example:3000
+
+# Example: vLLM on dedicated head node (already on localhost)
+VLLM_INTERNAL_URL=http://127.0.0.1:8000
+```
+
+After updating backend URLs, re-run envsubst and reload nginx:
+
+```bash
+export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
+envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+  < /path/to/StromaAI/deploy/nginx/stroma-ai.conf \
+  > /etc/nginx/sites-available/stroma-ai
+nginx -t && systemctl reload nginx
+```
+
+**Firewall considerations for multi-host:**
+- If Keycloak is remote: open port 8080 on the Keycloak host to allow nginx connections
+- If OpenWebUI is remote: open port 3000 on the OpenWebUI host to allow nginx connections
+- nginx host must be able to reach all backend services on their internal ports
 ```
 
 ---
@@ -958,6 +1026,134 @@ scripts/drain-and-restart.sh --drain-timeout 300 --start-timeout 600
 ```
 
 Use this instead of a raw `systemctl restart` during business hours.
+
+---
+
+## Appendix: Moving Services Between Hosts
+
+StromaAI's architecture supports distributing services across multiple hosts for scalability, isolation, or hardware constraints. This section covers moving Keycloak, OpenWebUI, or the nginx proxy to dedicated hosts.
+
+### Common pattern
+
+1. **Update backend URL in nginx host's config.env:**
+   ```bash
+   # On the nginx host, edit /opt/stroma-ai/config.env:
+   KC_INTERNAL_URL=http://keycloak-host.example:8080
+   OPENWEBUI_INTERNAL_URL=http://openwebui-host.example:3000
+   ```
+
+2. **Regenerate nginx config:**
+   ```bash
+   export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
+   envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+     < /path/to/StromaAI/deploy/nginx/stroma-ai.conf \
+     > /etc/nginx/sites-available/stroma-ai
+   nginx -t && systemctl reload nginx
+   ```
+
+3. **Update firewall on backend host:**
+   ```bash
+   # On the backend service host, allow nginx connections:
+   ufw allow from <nginx-host-ip> to any port 8080  # Keycloak
+   ufw allow from <nginx-host-ip> to any port 3000  # OpenWebUI
+   ```
+
+4. **Update Keycloak redirect URIs** (if moving Keycloak or OpenWebUI):
+   - Edit client configuration in Keycloak admin console
+   - Update `redirectUris` to match new OPENWEBUI_URL
+   - Or re-run `setup-keycloak.sh` with updated OPENWEBUI_URL in config.env
+
+### Example: Moving Keycloak to dedicated host
+
+**Step 1:** On the new Keycloak host:
+```bash
+# Copy docker-compose.yml and setup script:
+scp deploy/keycloak/{docker-compose.yml,setup-keycloak.sh,.env} keycloak-host:/opt/keycloak/
+
+# Copy global config (or create new with only KC_* variables):
+scp /opt/stroma-ai/config.env keycloak-host:/opt/stroma-ai/config.env
+
+# Start Keycloak:
+ssh keycloak-host
+cd /opt/keycloak && podman compose up -d
+
+# Open firewall for nginx connections:
+ufw allow from <nginx-host-ip> to any port 8080
+```
+
+**Step 2:** On the nginx host, update config:
+```bash
+# Edit /opt/stroma-ai/config.env:
+KC_INTERNAL_URL=http://keycloak-host.example:8080
+
+# Regenerate nginx config:
+export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
+envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+  < /path/to/StromaAI/deploy/nginx/stroma-ai.conf \
+  > /etc/nginx/sites-available/stroma-ai
+nginx -t && systemctl reload nginx
+```
+
+**Step 3:** Update gateway and OpenWebUI:
+```bash
+# Both services read OIDC_DISCOVERY_URL from config.env
+# Update to use the public HTTPS endpoint (nginx-proxied):
+sed -i 's|http://localhost:8080|https://stroma-ai.your-cluster.example|g' /opt/stroma-ai/config.env
+
+# Restart gateway and OpenWebUI:
+systemctl restart stroma-ai-gateway  # or use stroma_cli.py gateway --restart
+cd deploy/openwebui && podman compose restart
+```
+
+### Example: Moving OpenWebUI to dedicated host
+
+**Step 1:** On the new OpenWebUI host:
+```bash
+# Copy docker-compose.yml and dependencies:
+scp -r deploy/openwebui openwebui-host:/opt/openwebui/
+
+# Copy or create config with OIDC variables:
+scp /opt/stroma-ai/config.env openwebui-host:/opt/stroma-ai/config.env
+
+# Start OpenWebUI:
+ssh openwebui-host
+cd /opt/openwebui && bash setup-openwebui.sh
+
+# Open firewall for nginx connections:
+ufw allow from <nginx-host-ip> to any port 3000
+```
+
+**Step 2:** On the nginx host, update config:
+```bash
+# Edit /opt/stroma-ai/config.env:
+OPENWEBUI_INTERNAL_URL=http://openwebui-host.example:3000
+OPENWEBUI_URL=https://stroma-ai.your-cluster.example/webui
+
+# Regenerate nginx config (same process as above)
+```
+
+**Step 3:** Update Keycloak client redirect URIs:
+```bash
+# Log into Keycloak admin console at https://stroma-ai.your-cluster.example/admin
+# Navigate to: Clients → openwebui → Settings → Valid redirect URIs
+# Add: https://stroma-ai.your-cluster.example/webui/*
+```
+
+### Testing multi-host setup
+
+After moving services, verify connectivity:
+
+```bash
+# From nginx host, test backend reachability:
+curl http://keycloak-host.example:8080/realms/stroma-ai
+curl http://openwebui-host.example:3000/health
+curl http://127.0.0.1:8000/health  # vLLM (still local)
+
+# Test HTTPS endpoints externally:
+curl -k https://stroma-ai.your-cluster.example/realms/stroma-ai/.well-known/openid-configuration
+curl -k https://stroma-ai.your-cluster.example/webui/
+curl -k https://stroma-ai.your-cluster.example/health
+```
 
 ---
 
