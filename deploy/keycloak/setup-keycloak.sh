@@ -11,6 +11,19 @@
 #                 Shibboleth, etc.) by accepting an OIDC_DISCOVERY_URL and
 #                 writing the correct variables to the platform config.
 #
+# Environment modes (--env flag):
+#   • prod (default) — HTTPS URLs through nginx reverse proxy
+#     - OIDC_DISCOVERY_URL: https://${STROMA_HEAD_HOST}/realms/stroma-ai/...
+#     - KC_ADMIN_URL: https://${STROMA_HEAD_HOST}/admin
+#     - OPENWEBUI_URL: https://${STROMA_HEAD_HOST}/webui
+#     - Requires nginx to be deployed (sudo scripts/deploy-nginx.sh)
+#
+#   • dev — HTTP URLs for direct container access (no nginx required)
+#     - OIDC_DISCOVERY_URL: http://localhost:8080/realms/stroma-ai/...
+#     - KC_ADMIN_URL: http://localhost:8080/admin
+#     - OPENWEBUI_URL: http://localhost:3000
+#     - Useful for development/testing without TLS
+#
 # Output:
 #   /opt/stroma-ai/config.env  — updated with OIDC_* variables (merged, not
 #                                overwritten) so other components auto-pick-up.
@@ -20,6 +33,8 @@
 #   ./setup-keycloak.sh --mode=local             # non-interactive local deploy
 #   ./setup-keycloak.sh --mode=external          # non-interactive external IdP
 #   ./setup-keycloak.sh --config=/path/to/.env   # explicit config path
+#   ./setup-keycloak.sh --env=prod               # production HTTPS URLs (default)
+#   ./setup-keycloak.sh --env=dev                # development HTTP URLs
 #   ./setup-keycloak.sh --dry-run --yes          # print without executing
 #   ./setup-keycloak.sh -h | --help
 #
@@ -27,6 +42,9 @@
 #   --mode=local      Deploy Keycloak 26.x container non-interactively
 #   --mode=external   Configure an existing institutional IdP non-interactively
 #   --config=FILE     Path to platform config.env (default: /opt/stroma-ai/config.env)
+#   --env=prod|dev    Environment mode (default: prod)
+#                     prod: HTTPS URLs through nginx proxy
+#                     dev:  HTTP URLs for direct container access
 #   --dry-run         Print commands without executing them
 #   --yes             Non-interactive: auto-confirm all prompts
 #   -h, --help        Show this help message
@@ -68,13 +86,17 @@ Options:
   --mode=external   Configure an existing institutional IdP non-interactively
   --config=FILE     Path to platform config.env
                     (default: /opt/stroma-ai/config.env)
+  --env=prod|dev    Environment mode (default: prod)
+                    prod: HTTPS URLs through nginx proxy
+                    dev:  HTTP URLs for direct container access
   --dry-run         Print commands without executing them
   --yes             Non-interactive (auto-confirm all prompts)
   -h, --help        Show this help message
 
 Examples:
-  ./setup-keycloak.sh                     # interactive wizard
-  ./setup-keycloak.sh --mode=local --yes  # fully non-interactive
+  ./setup-keycloak.sh                          # interactive wizard (prod mode)
+  ./setup-keycloak.sh --mode=local --yes       # fully non-interactive (prod)
+  ./setup-keycloak.sh --mode=local --env=dev   # dev mode with HTTP URLs
   STROMA_CONFIG_ENV=/my/config.env ./setup-keycloak.sh --mode=local
 EOF
     exit 0
@@ -84,11 +106,14 @@ EOF
 # Argument parsing
 # ---------------------------------------------------------------------------
 MODE=""
+ENV_MODE="prod"  # Default to production (HTTPS through nginx)
 for _arg in "$@"; do
     case "${_arg}" in
         --mode=local)    MODE="local" ;;
         --mode=external) MODE="external" ;;
         --config=*)      CONFIG_ENV="${_arg#--config=}" ;;
+        --env=prod)      ENV_MODE="prod" ;;
+        --env=dev)       ENV_MODE="dev" ;;
         --dry-run)       export STROMA_DRY_RUN=1 ;;
         --yes)           export STROMA_YES=1 ;;
         -h|--help)       usage ;;
@@ -471,8 +496,6 @@ EOF
     STROMA_HEAD_HOST="$(read_config_var STROMA_HEAD_HOST)"
     STROMA_HEAD_HOST="${STROMA_HEAD_HOST:-localhost}"
     OPENWEBUI_URL="$(read_config_var OPENWEBUI_URL)"
-    # Default to /webui path on the main HTTPS endpoint if OPENWEBUI_URL not set
-    OPENWEBUI_URL="${OPENWEBUI_URL:-https://${STROMA_HEAD_HOST}/webui}"
 
     KEYCLOAK_BASE_URL="http://${KC_HOSTNAME}:${KC_PORT}"
     KEYCLOAK_URL="${KEYCLOAK_BASE_URL}/realms/stroma-ai"
@@ -484,10 +507,22 @@ EOF
         log_dry "Would wait for Keycloak and configure stroma-ai realm via REST API"
     fi
 
-    # Use HTTPS URL through nginx for OIDC discovery (production access pattern)
-    # Internal admin API uses http://localhost:8080, but clients use nginx-proxied HTTPS
-    OIDC_DISCOVERY_URL="https://${STROMA_HEAD_HOST}/realms/stroma-ai/.well-known/openid-configuration"
-    OIDC_ISSUER="https://${STROMA_HEAD_HOST}/realms/stroma-ai"
+    # Set URLs based on environment mode
+    if [[ "${ENV_MODE}" == "dev" ]]; then
+        log_info "Environment mode: dev (HTTP URLs for direct container access)"
+        # Dev mode: direct HTTP access to containers (no nginx)
+        OIDC_DISCOVERY_URL="http://${KC_HOSTNAME}:${KC_PORT}/realms/stroma-ai/.well-known/openid-configuration"
+        OIDC_ISSUER="http://${KC_HOSTNAME}:${KC_PORT}/realms/stroma-ai"
+        KC_ADMIN_URL="http://${KC_HOSTNAME}:${KC_PORT}/admin"
+        OPENWEBUI_URL="${OPENWEBUI_URL:-http://localhost:3000}"
+    else
+        log_info "Environment mode: prod (HTTPS URLs through nginx proxy)"
+        # Prod mode: HTTPS through nginx reverse proxy
+        OIDC_DISCOVERY_URL="https://${STROMA_HEAD_HOST}/realms/stroma-ai/.well-known/openid-configuration"
+        OIDC_ISSUER="https://${STROMA_HEAD_HOST}/realms/stroma-ai"
+        KC_ADMIN_URL="https://${STROMA_HEAD_HOST}/admin"
+        OPENWEBUI_URL="${OPENWEBUI_URL:-https://${STROMA_HEAD_HOST}/webui}"
+    fi
 
     # -------------------------------------------------------------------------
     # Write OIDC variables to platform config
@@ -499,21 +534,38 @@ EOF
     write_or_update_config "KC_GATEWAY_CLIENT_SECRET"   "${GW_CLIENT_SECRET}"
     write_or_update_config "KC_OPENWEBUI_CLIENT_ID"     "openwebui"
     write_or_update_config "KC_OPENWEBUI_CLIENT_SECRET" "${OWU_CLIENT_SECRET}"
-    write_or_update_config "KC_ADMIN_URL"               "https://${STROMA_HEAD_HOST}/admin"
+    write_or_update_config "KC_ADMIN_URL"               "${KC_ADMIN_URL}"
+    write_or_update_config "OPENWEBUI_URL"              "${OPENWEBUI_URL}"
 
     echo ""
     echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
     echo -e "${BOLD}║   Keycloak Local Deployment — Summary                 ║${RESET}"
     echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
     echo ""
-    echo "  Admin console : http://${KC_HOSTNAME}:${KC_PORT}/admin"
+    echo "  Environment   : ${ENV_MODE}"
+    if [[ "${ENV_MODE}" == "dev" ]]; then
+        echo "                  (HTTP URLs for direct container access)"
+    else
+        echo "                  (HTTPS URLs through nginx reverse proxy)"
+    fi
+    echo ""
+    echo "  Admin console : ${KC_ADMIN_URL}"
+    echo "  Internal URL  : http://${KC_HOSTNAME}:${KC_PORT}/admin (direct container access)"
     echo "  Admin user    : admin"
     echo -e "  Admin password: ${YELLOW}${KC_ADMIN_PASSWORD}${RESET}"
+    echo ""
     echo "  Demo user     : researcher-demo"
     echo -e "  Demo password : ${YELLOW}${DEMO_USER_PASSWORD}${RESET}"
     echo ""
+    echo "  OIDC Issuer   : ${OIDC_ISSUER}"
+    echo "  OpenWebUI URL : ${OPENWEBUI_URL}"
+    echo ""
     log_warn "Save these credentials — they will not be displayed again."
     log_warn "Demo user password is TEMPORARY — user must change on first login."
+    if [[ "${ENV_MODE}" == "prod" ]]; then
+        echo ""
+        log_info "Production mode requires nginx to be configured. Run: sudo scripts/deploy-nginx.sh"
+    fi
     echo ""
     echo "  Next: ./deploy/openwebui/setup-openwebui.sh"
     echo ""
