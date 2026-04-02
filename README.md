@@ -170,7 +170,7 @@ Researchers get a fully pre-configured AI coding assistant with zero manual setu
 - **Apptainer/Singularity container** — reproducible, portable GPU environment pinned to specific vLLM, Ray, and CUDA versions; builds once, runs on any HPC node
 - **Automated installer** — `install/install.sh` with interactive prompts, dry-run mode (`STROMA_DRY_RUN=1`), and automated mode (`STROMA_YES=1`) for Ansible/Puppet integration
 - **Preflight checks** — `install/preflight.sh` validates SELinux, NVIDIA drivers, kernel modules, Slurm accounts, firewall rules, and directory permissions before install
-- **Operational scripts** — `scripts/` contains helpers for status, key rotation, drain-and-restart, config validation, and debug bundle generation
+- **Operational scripts** — `scripts/` contains helpers for nginx deployment, status checks, key rotation, drain-and-restart, config validation, and debug bundle generation
 
 ### Bring any model — hardware-aware model selection
 StromaAI is not tied to any specific model. The `hfw` command (`hfmodel-check`, installed in the venv) discovers, evaluates, and downloads any Hugging Face model against your actual hardware before you commit to a download:

@@ -663,6 +663,23 @@ chmod 600 /etc/ssl/stroma-ai/server.key
 
 The nginx config uses environment variable substitution to support flexible service placement. Backend services can run on the same host (default) or on remote hosts.
 
+**Automated deployment (recommended):**
+
+```bash
+# Automated script handles OS detection, SSL cert creation, and config validation:
+cd /path/to/StromaAI
+sudo scripts/deploy-nginx.sh
+```
+
+The script automatically:
+- Detects OS family (RHEL/Rocky vs Ubuntu/Debian) and uses correct nginx paths
+- Loads backend URLs from `/opt/stroma-ai/config.env` with sensible defaults
+- Generates self-signed SSL certificates if missing
+- Backs up existing config before changes
+- Validates configuration before reloading
+
+**Manual deployment:**
+
 ```bash
 # Load backend URLs from config (defaults to localhost if not set):
 export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
@@ -684,6 +701,18 @@ envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
   > /etc/nginx/sites-available/stroma-ai
 ln -s /etc/nginx/sites-available/stroma-ai /etc/nginx/sites-enabled/stroma-ai
 rm -f /etc/nginx/sites-enabled/default
+
+# Create SSL certificates if not present:
+if [[ ! -f /etc/ssl/stroma-ai/server.crt ]]; then
+  mkdir -p /etc/ssl/stroma-ai
+  openssl req -x509 -nodes -days 3650 -newkey rsa:4096 \
+    -keyout /etc/ssl/stroma-ai/server.key \
+    -out /etc/ssl/stroma-ai/server.crt \
+    -subj "/CN=stroma-ai.your-cluster.example" \
+    -addext "subjectAltName=DNS:stroma-ai.your-cluster.example,DNS:localhost,IP:127.0.0.1"
+  chmod 600 /etc/ssl/stroma-ai/server.key
+  chmod 644 /etc/ssl/stroma-ai/server.crt
+fi
 
 # Verify and reload:
 nginx -t
@@ -710,9 +739,14 @@ OPENWEBUI_INTERNAL_URL=http://openwebui-host.example:3000
 VLLM_INTERNAL_URL=http://127.0.0.1:8000
 ```
 
-After updating backend URLs, re-run envsubst and reload nginx:
+After updating backend URLs, re-deploy nginx config:
 
 ```bash
+# Automated (recommended):
+cd /path/to/StromaAI
+sudo scripts/deploy-nginx.sh
+
+# Or manual:
 export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
 # Strip http:// prefix:
 export VLLM_INTERNAL_URL="${VLLM_INTERNAL_URL#http://}"
