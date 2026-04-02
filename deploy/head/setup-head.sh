@@ -5,16 +5,23 @@
 # Prepares the environment for running the StromaAI head node as a Podman
 # Compose stack (deploy/head/docker-compose.yml).
 #
+# Prerequisite
+# ------------
+#   Run deploy/keycloak/setup-keycloak.sh first to configure OIDC identity
+#   provider. This script reads OIDC_DISCOVERY_URL and KC_GATEWAY_CLIENT_SECRET
+#   from /opt/stroma-ai/config.env (set by setup-keycloak.sh).
+#
 # Responsibilities
 # ----------------
 #   1. Verify or detect the Compose command (podman compose / podman-compose).
-#   2. Locate or create the .env configuration file from config.example.env.
-#   3. Optionally generate a self-signed TLS certificate pair for nginx.
-#   4. Verify Slurm CLI binaries are accessible at bind-mount paths.
-#   5. Build the gateway and watcher container images.
-#   6. Pull pre-built images (nginx:1.27-alpine, rayproject/ray:2.40.0-py311,
+#   2. Read OIDC configuration from global config (or prompt if missing).
+#   3. Locate or create the .env configuration file from config.example.env.
+#   4. Optionally generate a self-signed TLS certificate pair for nginx.
+#   5. Verify Slurm CLI binaries are accessible at bind-mount paths.
+#   6. Build the gateway and watcher container images.
+#   7. Pull pre-built images (nginx:1.27-alpine, rayproject/ray:2.40.0-py311,
 #      vllm/vllm-openai:v0.7.2).
-#   7. Start the stack with `compose up -d`.
+#   8. Start the stack with `compose up -d`.
 #
 # Usage
 # -----
@@ -34,6 +41,9 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# Global config file path (shared by all StromaAI components)
+GLOBAL_CONFIG_ENV="${STROMA_CONFIG_ENV:-/opt/stroma-ai/config.env}"
 
 # ---------------------------------------------------------------------------
 # Colour helpers (inline — no lib dependency for a standalone setup script)
@@ -145,6 +155,14 @@ install_systemd_service() {
     systemctl daemon-reload
     systemctl enable --now "${name}"
     log_ok "Service ${name} enabled and started"
+}
+
+# ---------------------------------------------------------------------------
+# read_config_var — read KEY from global config file
+# ---------------------------------------------------------------------------
+read_config_var() {
+    local key="$1"
+    grep -E "^${key}=" "${GLOBAL_CONFIG_ENV}" 2>/dev/null | cut -d= -f2- || true
 }
 
 # ---------------------------------------------------------------------------
@@ -264,6 +282,39 @@ log_info "OS: ${OS_PRETTY:-unknown}"
 detect_compose
 
 # ---------------------------------------------------------------------------
+# Step 0: Verify OIDC configuration from setup-keycloak.sh
+# ---------------------------------------------------------------------------
+log_step "Verifying Keycloak/OIDC prerequisites"
+
+# Try to read OIDC variables from global config (set by setup-keycloak.sh)
+if [[ -f "${GLOBAL_CONFIG_ENV}" ]]; then
+    _oidc_discovery="$(read_config_var OIDC_DISCOVERY_URL)"
+    _kc_gw_secret="$(read_config_var KC_GATEWAY_CLIENT_SECRET)"
+    _kc_gw_client="$(read_config_var KC_GATEWAY_CLIENT_ID)"
+    
+    if [[ -n "${_oidc_discovery}" && -n "${_kc_gw_secret}" ]]; then
+        log_ok "OIDC configuration found in ${GLOBAL_CONFIG_ENV}"
+        log_ok "  OIDC_DISCOVERY_URL: ${_oidc_discovery}"
+        log_ok "  KC_GATEWAY_CLIENT_ID: ${_kc_gw_client:-stroma-gateway}"
+        
+        # Export for use later
+        export OIDC_DISCOVERY_URL="${_oidc_discovery}"
+        export KC_GATEWAY_CLIENT_SECRET="${_kc_gw_secret}"
+        export KC_GATEWAY_CLIENT_ID="${_kc_gw_client:-stroma-gateway}"
+        _has_oidc_from_global=1
+    else
+        log_warn "Global config exists but OIDC variables incomplete."
+        log_warn "Run deploy/keycloak/setup-keycloak.sh first to configure identity provider."
+        _has_oidc_from_global=0
+    fi
+else
+    log_warn "Global config not found: ${GLOBAL_CONFIG_ENV}"
+    log_warn "Run deploy/keycloak/setup-keycloak.sh first to configure identity provider."
+    log_warn "You will be prompted for OIDC values during configuration."
+    _has_oidc_from_global=0
+fi
+
+# ---------------------------------------------------------------------------
 # Step 1: Configuration file
 # ---------------------------------------------------------------------------
 log_step "Configuration"
@@ -277,7 +328,8 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
         log_ok "Copied to ${CONFIG_FILE}"
         log_warn "IMPORTANT: Edit ${CONFIG_FILE} and fill in all required values before continuing."
         log_warn "  Especially: STROMA_API_KEY, STROMA_MODEL_PATH, STROMA_HEAD_HOST,"
-        log_warn "              OIDC_DISCOVERY_URL, STROMA_SLURM_PARTITION"
+        log_warn \"              STROMA_SLURM_PARTITION\"
+        log_warn \"  Note: OIDC_DISCOVERY_URL should be set by deploy/keycloak/setup-keycloak.sh\"
         if [[ "${STROMA_YES:-0}" != "1" ]]; then
             confirm "Press Y when you have finished editing ${CONFIG_FILE}" || die "Aborted."
         fi
@@ -342,7 +394,11 @@ _prompt_var() {
 _prompt_var STROMA_HEAD_HOST      "Head node hostname or IP (e.g. hpctpa3pl0003.foobar.org)"
 _prompt_var STROMA_SLURM_PARTITION "Slurm partition name for GPU workers (e.g. gpu)"
 _prompt_var STROMA_MODEL_PATH     "Absolute path to model weights on shared storage (e.g. /share/models/Qwen2.5-Coder-32B-Instruct-AWQ)"
-_prompt_var OIDC_DISCOVERY_URL    "OIDC discovery URL from Keycloak (e.g. http://localhost:8080/realms/stroma-ai/.well-known/openid-configuration)"
+
+# Only prompt for OIDC_DISCOVERY_URL if not already loaded from global config
+if [[ "${_has_oidc_from_global:-0}" -eq 0 ]]; then
+    _prompt_var OIDC_DISCOVERY_URL "OIDC discovery URL from Keycloak (e.g. http://localhost:8080/realms/stroma-ai/.well-known/openid-configuration)"
+fi
 
 log_ok "Config validation passed"
 
