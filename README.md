@@ -84,7 +84,7 @@ StromaAI resolves this by:
 │  Identity Layer (optional, deploy/keycloak/ or external IdP)      │
 │                                                                   │
 │  Keycloak 26.x ─── issues OIDC tokens ──► Gateway JWT validation  │
-│  OpenWebUI  ──────── OIDC login ───────► serves chat UI on :3000 (/webui/ via nginx) │
+│  OpenWebUI  ───── OIDC ────► chat UI on :3000 (/webui/ via nginx) │
 │  stroma-cli ─────── platform management CLI (src/stroma_cli.py)   │
 └───────────────────────────────────────────────────────────────────┘
 ```
