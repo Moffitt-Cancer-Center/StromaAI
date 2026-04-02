@@ -822,74 +822,73 @@ ensure_dot_env() {
     # (GATEWAY_PORT is on the bridge network, not published) are also checked
     # in case they collide via host-network services (ray/vllm/watcher).
     # -------------------------------------------------------------------------
-    local model_path; model_path=$(read_env_var DEV_MODEL_PATH "${DEV_ENV}")
+    _model_path=$(read_env_var DEV_MODEL_PATH "${DEV_ENV}")
     
     # Auto-detect model directory if not set
-    if [[ -z "${model_path}" ]]; then
-        model_path="${MODELS_DIR}"
+    if [[ -z "${_model_path}" ]]; then
+        _model_path="${MODELS_DIR}"
         
         # If MODELS_DIR exists and contains exactly one subdirectory, use that
         if [[ -d "${MODELS_DIR}" ]]; then
-            local model_dirs=("${MODELS_DIR}"/*)
-            local valid_models=()
+            _model_dirs=("${MODELS_DIR}"/*)
+            _valid_models=()
             
             # Filter out .gitkeep and other non-directories
-            for d in "${model_dirs[@]}"; do
+            for d in "${_model_dirs[@]}"; do
                 if [[ -d "${d}" && ! "${d}" =~ /\.gitkeep$ ]]; then
-                    valid_models+=("${d}")
+                    _valid_models+=("${d}")
                 fi
             done
             
-            if [[ ${#valid_models[@]} -eq 1 ]]; then
-                model_path="${valid_models[0]}"
-                log_ok "Auto-detected model: ${model_path}"
-            elif [[ ${#valid_models[@]} -gt 1 ]]; then
+            if [[ ${#_valid_models[@]} -eq 1 ]]; then
+                _model_path="${_valid_models[0]}"
+                log_ok "Auto-detected model: ${_model_path}"
+            elif [[ ${#_valid_models[@]} -gt 1 ]]; then
                 log_warn "Multiple models found in ${MODELS_DIR}:"
-                for m in "${valid_models[@]}"; do
+                for m in "${_valid_models[@]}"; do
                     log_warn "  - $(basename "${m}")"
                 done
                 log_warn "Set DEV_MODEL_PATH to the specific model directory, e.g.:"
-                log_warn "  DEV_MODEL_PATH=${MODELS_DIR}/$(basename "${valid_models[0]}")"
+                log_warn "  DEV_MODEL_PATH=${MODELS_DIR}/$(basename "${_valid_models[0]}")"
             fi
         fi
     fi
     
-    write_env_var DEV_MODEL_PATH     "${model_path}"      "${DEV_ENV}"
+    write_env_var DEV_MODEL_PATH     "${_model_path}"      "${DEV_ENV}"
     write_env_var DEV_SHARED_ROOT    "${SHARED_DIR}"      "${DEV_ENV}"
 
     # HTTPS port (nginx TLS) — CLI override takes absolute precedence
-    local https_port
+    _https_port=""
     if [[ -n "${HTTPS_PORT_OVERRIDE}" ]]; then
-        https_port="${HTTPS_PORT_OVERRIDE}"
-        port_in_use "${https_port}" && log_warn "--port=${https_port} is already in use on this host"
+        _https_port="${HTTPS_PORT_OVERRIDE}"
+        port_in_use "${_https_port}" && log_warn "--port=${_https_port} is already in use on this host"
     else
-        https_port=$(resolve_port STROMA_HTTPS_PORT 443)
+        _https_port=$(resolve_port STROMA_HTTPS_PORT 443)
     fi
 
     # HTTP port (nginx plain, always HTTPS_PORT-1 twin but fixed at 80 by nginx config)
     # nginx listens on 80 inside the container; only the container runtime matters
     # for host binding — we don't publish 80 independently, it's always the nginx
     # container's port 80. We do need to verify 80 is free (nginx publishes 80:80).
-    if port_in_use 80 && [[ "${https_port}" != "80" ]]; then
-        log_warn "Port 80 is in use — HTTP-to-HTTPS redirect will not work (HTTPS still works on :${https_port})"
+    if port_in_use 80 && [[ "${_https_port}" != "80" ]]; then
+        log_warn "Port 80 is in use — HTTP-to-HTTPS redirect will not work (HTTPS still works on :${_https_port})"
         log_warn "To fix: free port 80 on the host or update nginx-dev.conf to listen on an alternate port."
     fi
 
-    local kc_port owu_port gw_port vllm_port ray_port ray_dash_port
-    kc_port=$(resolve_port   KC_PORT                 8080)
-    owu_port=$(resolve_port  OPENWEBUI_PORT          3000)
-    gw_port=$(resolve_port   GATEWAY_PORT            9000)
-    vllm_port=$(resolve_port STROMA_VLLM_PORT        8000)
-    ray_port=$(resolve_port  STROMA_RAY_PORT         6380)
-    ray_dash_port=$(resolve_port STROMA_RAY_DASHBOARD_PORT 8265)
+    _kc_port=$(resolve_port   KC_PORT                 8080)
+    _owu_port=$(resolve_port  OPENWEBUI_PORT          3000)
+    _gw_port=$(resolve_port   GATEWAY_PORT            9000)
+    _vllm_port=$(resolve_port STROMA_VLLM_PORT        8000)
+    _ray_port=$(resolve_port  STROMA_RAY_PORT         6380)
+    _ray_dash_port=$(resolve_port STROMA_RAY_DASHBOARD_PORT 8265)
 
-    write_env_var STROMA_HTTPS_PORT           "${https_port}"   "${DEV_ENV}"
-    write_env_var KC_PORT                     "${kc_port}"      "${DEV_ENV}"
-    write_env_var OPENWEBUI_PORT              "${owu_port}"     "${DEV_ENV}"
-    write_env_var GATEWAY_PORT                "${gw_port}"      "${DEV_ENV}"
-    write_env_var STROMA_VLLM_PORT            "${vllm_port}"    "${DEV_ENV}"
-    write_env_var STROMA_RAY_PORT             "${ray_port}"     "${DEV_ENV}"
-    write_env_var STROMA_RAY_DASHBOARD_PORT   "${ray_dash_port}" "${DEV_ENV}"
+    write_env_var STROMA_HTTPS_PORT           "${_https_port}"   "${DEV_ENV}"
+    write_env_var KC_PORT                     "${_kc_port}"      "${DEV_ENV}"
+    write_env_var OPENWEBUI_PORT              "${_owu_port}"     "${DEV_ENV}"
+    write_env_var GATEWAY_PORT                "${_gw_port}"      "${DEV_ENV}"
+    write_env_var STROMA_VLLM_PORT            "${_vllm_port}"    "${DEV_ENV}"
+    write_env_var STROMA_RAY_PORT             "${_ray_port}"     "${DEV_ENV}"
+    write_env_var STROMA_RAY_DASHBOARD_PORT   "${_ray_dash_port}" "${DEV_ENV}"
     write_env_var WEBUI_NAME                  "StromaAI Dev"    "${DEV_ENV}"
 
     chmod 600 "${DEV_ENV}"
@@ -1137,7 +1136,7 @@ case "${SUBCMD}" in
             _preflight_model_path=$(read_env_var DEV_MODEL_PATH "${DEV_ENV}"); _preflight_model_path="${_preflight_model_path:-${MODELS_DIR}}"
             
             # Check if path exists and looks like a model directory
-            local model_valid=0
+            _model_valid=0
             if [[ -d "${_preflight_model_path}" ]]; then
                 # Check for common model files (any one indicates a valid model)
                 if   [[ -f "${_preflight_model_path}/config.json" ]] \
@@ -1146,11 +1145,11 @@ case "${SUBCMD}" in
                   || [[ -f "${_preflight_model_path}/pytorch_model.bin" ]] \
                   || ls "${_preflight_model_path}"/model-*.safetensors &>/dev/null \
                   || ls "${_preflight_model_path}"/*.gguf &>/dev/null; then
-                    model_valid=1
+                    _model_valid=1
                 fi
             fi
             
-            if [[ "${model_valid}" -eq 0 ]]; then
+            if [[ "${_model_valid}" -eq 0 ]]; then
                 echo ""
                 log_warn "═══════════════════════════════════════════════════════════"
                 log_warn "  Model path does not contain a valid model"
