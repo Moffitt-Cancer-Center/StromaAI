@@ -8,9 +8,6 @@
 #   cp ../../config/config.example.env .env  # then fill in secrets
 #   podman compose up -d
 #
-# The stroma-ai realm is imported automatically on first start from:
-#   ./realm-export.json
-#
 # Admin console: http://<KC_HOSTNAME>:<KC_PORT>/admin
 # OIDC discovery: http://<KC_HOSTNAME>:<KC_PORT>/realms/stroma-ai/.well-known/openid-configuration
 # =============================================================================
@@ -45,7 +42,6 @@ services:
     image: quay.io/keycloak/keycloak:26.0
     command: >
       start-dev
-      --import-realm
       --features=token-exchange,admin-fine-grained-authz
       --health-enabled=true
     environment:
@@ -70,11 +66,7 @@ services:
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
 
-      # Logging — import package at DEBUG so realm-import failures show the
-      # actual exception rather than the generic "Failed to run import" message.
-      KC_LOG_LEVEL: INFO,org.keycloak.exportimport:DEBUG
-    volumes:
-      - ./realm-import.json:/opt/keycloak/data/import/stroma-ai-realm.json:ro
+      KC_LOG_LEVEL: INFO
     ports:
       - "${KC_PORT:-8080}:8080"
     depends_on:

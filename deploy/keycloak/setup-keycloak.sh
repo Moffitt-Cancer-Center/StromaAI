@@ -141,11 +141,12 @@ write_or_update_config() {
 
 wait_for_keycloak() {
     local url="$1" max_wait=120 waited=0
-    log_info "Waiting for Keycloak at ${url} ..."
-    # Probe the OIDC discovery document on the main port (8080).
-    # The /health/ready endpoint is on the management port (9000) which is
-    # not published to the host — so we use the realm endpoint instead.
-    while ! curl -sf --max-time 3 "${url}/.well-known/openid-configuration" &>/dev/null; do
+    # Poll /realms/master (always present as soon as KC is up).
+    # stroma-ai realm does not exist yet at this point — it is created via
+    # the admin REST API by configure_keycloak_realm_rest after this returns.
+    local master_url="${url%/realms/stroma-ai}/realms/master"
+    log_info "Waiting for Keycloak at ${master_url} ..."
+    while ! curl -sf --max-time 3 "${master_url}" &>/dev/null; do
         sleep 5
         waited=$((waited + 5))
         if (( waited >= max_wait )); then
@@ -158,7 +159,161 @@ wait_for_keycloak() {
 }
 
 # ---------------------------------------------------------------------------
-# Banner
+# configure_keycloak_realm_rest — idempotent KC26 realm setup via admin API.
+# Uses python3 stdlib (urllib) — no extra dependencies.
+# Skips all configuration if the stroma-ai realm already exists.
+# ---------------------------------------------------------------------------
+configure_keycloak_realm_rest() {
+    local kc_base_url="$1"   # http://hostname:port
+    local admin_user="$2"
+    local admin_pass="$3"
+    local realm="stroma-ai"
+    # These are set in the outer LOCAL mode block before this is called
+    # (GW_CLIENT_SECRET, OWU_CLIENT_SECRET, DEMO_USER_PASSWORD, KC_HOSTNAME,
+    #  KC_PORT — all already in scope as shell variables).
+
+    log_step "Configuring Keycloak realm (stroma-ai) via admin REST API"
+
+    python3 - \
+        "${kc_base_url}" "${admin_user}" "${admin_pass}" "${realm}" \
+        "${GW_CLIENT_SECRET}" "${OWU_CLIENT_SECRET}" "${DEMO_USER_PASSWORD}" \
+        "${KC_HOSTNAME}" "${KC_PORT:-8080}" <<'PYEOF'
+import sys, json, time
+import urllib.request as urlreq
+import urllib.parse as urlparse
+import urllib.error as urlerr
+
+kc_url  = sys.argv[1]
+admin_u = sys.argv[2]
+admin_p = sys.argv[3]
+realm   = sys.argv[4]
+gw_sec  = sys.argv[5]
+owu_sec = sys.argv[6]
+demo_pw = sys.argv[7]
+host    = sys.argv[8]
+port    = sys.argv[9]
+
+def _http(method, path, data=None, token=None, form=False):
+    url  = kc_url + path
+    body = ctype = None
+    if form and data:
+        body  = urlparse.urlencode(data).encode()
+        ctype = 'application/x-www-form-urlencoded'
+    elif data is not None:
+        body  = json.dumps(data).encode()
+        ctype = 'application/json'
+    hdrs = {}
+    if ctype:  hdrs['Content-Type']  = ctype
+    if token:  hdrs['Authorization'] = 'Bearer ' + token
+    req = urlreq.Request(url, data=body, headers=hdrs, method=method)
+    try:
+        with urlreq.urlopen(req) as r:
+            raw = r.read()
+            return r.status, (json.loads(raw) if raw else None)
+    except urlerr.HTTPError as e:
+        raw = e.read()
+        return e.code, (json.loads(raw) if raw else None)
+
+def get_token(retries=24, interval=5):
+    for attempt in range(retries):
+        try:
+            st, resp = _http('POST',
+                '/realms/master/protocol/openid-connect/token',
+                {'grant_type': 'password', 'client_id': 'admin-cli',
+                 'username': admin_u, 'password': admin_p},
+                form=True)
+            if st == 200 and resp and 'access_token' in resp:
+                return resp['access_token']
+        except Exception:
+            pass
+        if attempt < retries - 1:
+            sys.stdout.write('.')
+            sys.stdout.flush()
+            time.sleep(interval)
+    raise SystemExit('\nERROR: KC admin API not ready after 2 minutes')
+
+sys.stdout.write('[KC]  Waiting for admin API ready')
+sys.stdout.flush()
+token = get_token()
+print(' OK')
+
+st, realms = _http('GET', '/admin/realms', token=token)
+if st == 200 and any(r.get('realm') == realm for r in (realms or [])):
+    print(f'[KC]  Realm {realm!r} already configured — skipping')
+    sys.exit(0)
+
+print('[KC]  Creating realm: ' + realm)
+st, _ = _http('POST', '/admin/realms', {
+    'id': realm, 'realm': realm, 'enabled': True,
+    'displayName': 'StromaAI Research Platform',
+    'sslRequired': 'external',
+    'registrationAllowed': False,
+    'loginWithEmailAllowed': True,
+    'resetPasswordAllowed': True,
+    'bruteForceProtected': True,
+    'accessTokenLifespan': 900,
+}, token=token)
+if st not in (201, 409):
+    raise SystemExit(f'ERROR: create realm: HTTP {st}')
+
+for rname, rdesc in [
+    ('stroma_researcher', 'Grants access to StromaAI inference endpoints.'),
+    ('stroma_admin',      'Administrative access to StromaAI management.'),
+]:
+    _http('POST', f'/admin/realms/{realm}/roles',
+          {'name': rname, 'description': rdesc, 'clientRole': False},
+          token=token)
+print('[KC]  Roles created')
+
+_, rr = _http('GET', f'/admin/realms/{realm}/roles/stroma_researcher', token=token)
+researcher_role = {'id': rr['id'], 'name': rr['name']}
+
+_http('POST', f'/admin/realms/{realm}/clients', {
+    'clientId': 'stroma-gateway', 'name': 'StromaAI Gateway',
+    'enabled': True, 'protocol': 'openid-connect',
+    'publicClient': False, 'serviceAccountsEnabled': True,
+    'standardFlowEnabled': False, 'implicitFlowEnabled': False,
+    'directAccessGrantsEnabled': False,
+    'clientAuthenticatorType': 'client-secret',
+    'secret': gw_sec,
+}, token=token)
+
+_http('POST', f'/admin/realms/{realm}/clients', {
+    'clientId': 'openwebui', 'name': 'Open WebUI',
+    'enabled': True, 'protocol': 'openid-connect',
+    'publicClient': False, 'standardFlowEnabled': True,
+    'implicitFlowEnabled': False, 'directAccessGrantsEnabled': False,
+    'clientAuthenticatorType': 'client-secret',
+    'secret': owu_sec,
+    'redirectUris': [
+        f'http://{host}:{port}/*',
+        f'https://{host}/*',
+        'http://localhost:3000/*',
+        '*',
+    ],
+    'webOrigins': ['+'],
+    'attributes': {'pkce.code.challenge.method': 'S256'},
+}, token=token)
+print('[KC]  Clients created')
+
+_http('POST', f'/admin/realms/{realm}/users', {
+    'username': 'researcher-demo', 'email': 'researcher@example.com',
+    'firstName': 'Demo', 'lastName': 'Researcher',
+    'enabled': True, 'emailVerified': True,
+}, token=token)
+_, users = _http('GET',
+    f'/admin/realms/{realm}/users?username=researcher-demo', token=token)
+if not users:
+    raise SystemExit('ERROR: demo user not found after creation')
+uid = users[0]['id']
+_http('PUT', f'/admin/realms/{realm}/users/{uid}/reset-password',
+      {'type': 'password', 'value': demo_pw, 'temporary': True}, token=token)
+_http('POST', f'/admin/realms/{realm}/users/{uid}/role-mappings/realm',
+      [researcher_role], token=token)
+print('[KC]  Demo user created (temporary password set)')
+print('[KC]  Realm configuration complete')
+PYEOF
+}
 # ---------------------------------------------------------------------------
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
@@ -224,6 +379,7 @@ if [[ "${MODE}" == "local" ]]; then
     # PostgreSQL ignores POSTGRES_PASSWORD after the data directory is
     # initialised, so regenerating the password on re-runs causes auth
     # failures against an existing postgres_data volume.
+    _fresh_db_pass=0
     KC_DB_PASSWORD=""
     if [[ -f "${COMPOSE_ENV}" ]]; then
         KC_DB_PASSWORD="$(grep '^KC_DB_PASSWORD=' "${COMPOSE_ENV}" \
@@ -231,6 +387,7 @@ if [[ "${MODE}" == "local" ]]; then
     fi
     if [[ -z "${KC_DB_PASSWORD}" ]]; then
         KC_DB_PASSWORD="$(gen_secret)"
+        _fresh_db_pass=1
         log_info "Generated new KC_DB_PASSWORD (first run or .env absent)"
     else
         log_info "Reusing existing KC_DB_PASSWORD from ${COMPOSE_ENV}"
@@ -272,61 +429,29 @@ EOF
     fi
 
     # -------------------------------------------------------------------------
-    # Generate realm-import.json with substituted secrets
-    # realm-export.json is the committed template — never modified.
-    # realm-import.json is the runtime file mounted into Keycloak.
-    # -------------------------------------------------------------------------
-    log_step "Generating realm-import.json with substituted secrets"
-    REALM_TEMPLATE="${SCRIPT_DIR}/realm-export.json"
-    REALM_IMPORT="${SCRIPT_DIR}/realm-import.json"
-
-    if [[ "${STROMA_DRY_RUN:-0}" != "1" ]]; then
-        python3 - <<PYEOF
-import json, sys
-
-with open("${REALM_TEMPLATE}") as f:
-    realm = json.load(f)
-
-for client in realm.get("clients", []):
-    if client["clientId"] == "stroma-gateway":
-        client["secret"] = "${GW_CLIENT_SECRET}"
-    elif client["clientId"] == "openwebui":
-        client["secret"] = "${OWU_CLIENT_SECRET}"
-        client["redirectUris"] = [
-            "http://${KC_HOSTNAME}:3000/*",
-            "http://localhost:3000/*",
-        ]
-
-for user in realm.get("users", []):
-    for cred in user.get("credentials", []):
-        if cred["type"] == "password":
-            cred["value"] = "${DEMO_USER_PASSWORD}"
-
-with open("${REALM_IMPORT}", "w") as f:
-    json.dump(realm, f, indent=2)
-PYEOF
-        # 644: Keycloak container user (UID 1000) must be able to read this file.
-        # 600 would deny access to the container, causing AccessDeniedException.
-        chmod 644 "${REALM_IMPORT}"
-        log_ok "realm-import.json generated"
-    else
-        log_dry "Would generate ${REALM_IMPORT} with substituted client secrets"
-    fi
-
-    # -------------------------------------------------------------------------
     # Start services
     # -------------------------------------------------------------------------
     log_step "Starting Keycloak + PostgreSQL via Podman Compose"
-    # Verify the processed realm JSON exists before starting — if it's missing,
-    # Keycloak will get the raw template with REPLACE_WITH_* placeholders and
-    # fail silently in a restart loop. This should never happen when running
-    # via setup-keycloak.sh, but guard against direct podman-compose invocations.
-    if [[ "${STROMA_DRY_RUN:-0}" != "1" && ! -f "${SCRIPT_DIR}/realm-import.json" ]]; then
-        die "realm-import.json not found. Run ./setup-keycloak.sh to generate it before starting."
+
+    # Stale volume detection: if we just generated a fresh KC_DB_PASSWORD
+    # (no existing .env) but a postgres_data volume already exists, Keycloak
+    # will immediately fail with 'password authentication failed'.  Catch this
+    # before starting and give the user the exact command to fix it.
+    if [[ "${_fresh_db_pass}" -eq 1 && "${STROMA_DRY_RUN:-0}" != "1" ]]; then
+        _stale_vol=$(podman volume ls --format '{{.Name}}' 2>/dev/null \
+            | grep 'postgres_data$' | head -1 || true)
+        if [[ -n "${_stale_vol}" ]]; then
+            echo
+            log_warn "A new KC_DB_PASSWORD was generated (${COMPOSE_ENV} was absent)."
+            log_warn "PostgreSQL volume '${_stale_vol}' already exists with a different password."
+            log_warn "Keycloak will fail immediately with 'password authentication failed'."
+            echo
+            die "Stale database detected. Remove it first, then re-run:\n  podman volume rm ${_stale_vol}\n  ./setup-keycloak.sh"
+        fi
     fi
-    # Always stop existing containers before starting so that any changed volume
-    # mounts (e.g. realm-import.json replacing realm-export.json) take effect.
-    # Named volumes (postgres_data) are preserved; only containers are removed.
+
+    # Always stop existing containers before starting so compose config
+    # changes (env vars, ports) take effect without leftover containers.
     run_cmd ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" down 2>/dev/null || true
     run_cmd ${COMPOSE_CMD} -f "${SCRIPT_DIR}/docker-compose.yml" up -d
 
@@ -336,12 +461,14 @@ PYEOF
     log_step "Installing Systemd Service"
     install_systemd_service "${SCRIPT_DIR}/stroma-ai-keycloak.service" "stroma-ai-keycloak"
 
-    KEYCLOAK_URL="http://${KC_HOSTNAME}:${KC_PORT}/realms/stroma-ai"
+    KEYCLOAK_BASE_URL="http://${KC_HOSTNAME}:${KC_PORT}"
+    KEYCLOAK_URL="${KEYCLOAK_BASE_URL}/realms/stroma-ai"
 
     if [[ "${STROMA_DRY_RUN:-0}" != "1" ]]; then
         wait_for_keycloak "${KEYCLOAK_URL}"
+        configure_keycloak_realm_rest "${KEYCLOAK_BASE_URL}" "admin" "${KC_ADMIN_PASSWORD}"
     else
-        log_dry "Would wait for Keycloak at ${KEYCLOAK_URL}/.well-known/openid-configuration"
+        log_dry "Would wait for Keycloak and configure stroma-ai realm via REST API"
     fi
 
     OIDC_DISCOVERY_URL="${KEYCLOAK_URL}/.well-known/openid-configuration"
