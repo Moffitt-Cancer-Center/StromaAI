@@ -951,20 +951,105 @@ print_summary() {
 }
 
 # ---------------------------------------------------------------------------
-# check_slurm_binaries — warn if Slurm binaries are missing (watcher profile)
+# check_slurm_binaries — detect and configure Slurm binary paths (watcher profile)
 # ---------------------------------------------------------------------------
 check_slurm_binaries() {
+    log_info "Detecting Slurm binaries..."
+    
     local missing=0
-    for b in sbatch squeue scancel sinfo; do
-        if ! command -v "${b}" &>/dev/null; then
-            log_warn "Slurm binary not found: ${b}"
+    local search_paths=(
+        "/usr/bin"
+        "/usr/local/bin"
+        "/opt/slurm/bin"
+        "/cm/shared/apps/slurm/current/bin"
+    )
+    
+    # Try to load Slurm via modules if available
+    if command -v modulecmd &>/dev/null || command -v module &>/dev/null; then
+        # Try common Slurm module names
+        for mod in slurm Slurm slurm/current; do
+            if module load "${mod}" 2>/dev/null; then
+                log_ok "Loaded Slurm via module: ${mod}"
+                break
+            fi
+        done
+    fi
+    
+    # Detect each Slurm binary
+    for binary in sbatch squeue scancel sinfo; do
+        local found_path=""
+        
+        # First check if it's in PATH
+        if command -v "${binary}" &>/dev/null; then
+            found_path=$(command -v "${binary}")
+        else
+            # Search common locations
+            for dir in "${search_paths[@]}"; do
+                if [[ -x "${dir}/${binary}" ]]; then
+                    found_path="${dir}/${binary}"
+                    break
+                fi
+            done
+        fi
+        
+        if [[ -n "${found_path}" ]]; then
+            local var_name="SLURM_${binary^^}_BIN"  # Convert to uppercase
+            write_env_var "${var_name}" "${found_path}" "${DEV_ENV}"
+            log_ok "  ${binary}: ${found_path}"
+        else
+            # Use /bin/true as a stub so the mount doesn't fail
+            # The watcher will fail at runtime if it tries to use these
+            local var_name="SLURM_${binary^^}_BIN"
+            write_env_var "${var_name}" "/bin/true" "${DEV_ENV}"
+            log_warn "  ${binary}: not found (using stub)"
             missing=1
         fi
     done
+    
+    # Detect Slurm config and munge directories
+    if [[ -d "/etc/slurm" ]]; then
+        write_env_var "SLURM_CONF_PATH" "/etc/slurm" "${DEV_ENV}"
+    elif [[ -d "/etc/slurm-llnl" ]]; then
+        write_env_var "SLURM_CONF_PATH" "/etc/slurm-llnl" "${DEV_ENV}"
+    else
+        # Create stub directory so mount doesn't fail
+        local stub_dir="${SCRIPT_DIR}/dev-data/slurm-stub"
+        mkdir -p "${stub_dir}"
+        write_env_var "SLURM_CONF_PATH" "${stub_dir}" "${DEV_ENV}"
+        log_warn "  slurm config: not found (using stub)"
+    fi
+    
+    if [[ -d "/var/run/munge" ]]; then
+        write_env_var "SLURM_MUNGE_SOCKET_DIR" "/var/run/munge" "${DEV_ENV}"
+    elif [[ -d "/run/munge" ]]; then
+        write_env_var "SLURM_MUNGE_SOCKET_DIR" "/run/munge" "${DEV_ENV}"
+    else
+        # Create stub directory so mount doesn't fail
+        local stub_dir="${SCRIPT_DIR}/dev-data/munge-stub"
+        mkdir -p "${stub_dir}"
+        write_env_var "SLURM_MUNGE_SOCKET_DIR" "${stub_dir}" "${DEV_ENV}"
+        log_warn "  munge socket: not found (using stub)"
+    fi
+    
     if [[ "${missing}" -eq 1 ]]; then
-        log_warn "Watcher service requires Slurm client binaries on this host."
-        log_warn "The watcher container will fail to start without them."
-        log_warn "To skip the watcher, use:  ./dev.sh up --inference"
+        echo ""
+        log_warn "═══════════════════════════════════════════════════════════"
+        log_warn "  Slurm binaries not found — watcher WILL NOT WORK"
+        log_warn "═══════════════════════════════════════════════════════════"
+        log_warn "The watcher container will start but will fail when trying"
+        log_warn "to submit jobs. This is OK for testing other components."
+        log_warn ""
+        log_warn "To fix:"
+        log_warn "  • Load Slurm: module load slurm (then re-run dev.sh)"
+        log_warn "  • Or skip watcher: ./dev.sh up --inference"
+        log_warn "═══════════════════════════════════════════════════════════"
+        echo ""
+        if [[ -t 0 && "${STROMA_YES:-0}" -ne 1 ]]; then
+            read -r -p "$(echo -e "${YELLOW}Continue anyway? [y/N]${RESET} ")" response
+            if [[ ! "${response}" =~ ^[Yy]$ ]]; then
+                die "Aborted. Load Slurm or use --inference without --watcher."
+            fi
+        fi
     fi
 }
 

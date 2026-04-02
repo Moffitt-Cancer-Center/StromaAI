@@ -352,12 +352,17 @@ services:
       STROMA_LOG_DIR:                ${DEV_SHARED_ROOT:-./dev-data/shared}/logs
     volumes:
       - watcher_state:/var/lib/stroma-ai
-      - ${SLURM_SBATCH_BIN:-/usr/bin/sbatch}:/usr/bin/sbatch:ro
-      - ${SLURM_SQUEUE_BIN:-/usr/bin/squeue}:/usr/bin/squeue:ro
-      - ${SLURM_SCANCEL_BIN:-/usr/bin/scancel}:/usr/bin/scancel:ro
-      - ${SLURM_SINFO_BIN:-/usr/bin/sinfo}:/usr/bin/sinfo:ro
-      - ${SLURM_CONF_PATH:-/etc/slurm}:/etc/slurm:ro
-      - ${SLURM_MUNGE_SOCKET_DIR:-/var/run/munge}:/var/run/munge:ro
+      # Slurm CLI binaries — dev.sh detects these and sets SLURM_*_BIN vars.
+      # If a binary is not found, dev.sh sets the var to /bin/true as a stub.
+      # The watcher will fail at runtime if it actually tries to use them.
+      - ${SLURM_SBATCH_BIN:-/bin/true}:/usr/bin/sbatch:ro
+      - ${SLURM_SQUEUE_BIN:-/bin/true}:/usr/bin/squeue:ro
+      - ${SLURM_SCANCEL_BIN:-/bin/true}:/usr/bin/scancel:ro
+      - ${SLURM_SINFO_BIN:-/bin/true}:/usr/bin/sinfo:ro
+      # Slurm config and munge — may not exist in dev environments
+      # dev.sh creates stub directories if not found
+      - ${SLURM_CONF_PATH:-./dev-data/slurm-stub}:/etc/slurm:ro
+      - ${SLURM_MUNGE_SOCKET_DIR:-./dev-data/munge-stub}:/var/run/munge:ro
       - ${DEV_SHARED_ROOT:-./dev-data/shared}:${DEV_SHARED_ROOT:-/dev-data/shared}
     network_mode: host
     depends_on:
