@@ -668,12 +668,15 @@ The nginx config uses environment variable substitution to support flexible serv
 export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
 
 # Process template and deploy:
+# RHEL/Rocky (conf.d layout):
+envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+  < deploy/nginx/stroma-ai.conf \
+  > /etc/nginx/conf.d/stroma-ai.conf
+
+# OR Ubuntu/Debian (sites-available layout):
 envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
   < deploy/nginx/stroma-ai.conf \
   > /etc/nginx/sites-available/stroma-ai
-  
-ln -s /etc/nginx/sites-available/stroma-ai /etc/nginx/sites-enabled/stroma-ai
-rm -f /etc/nginx/sites-enabled/default
 ln -s /etc/nginx/sites-available/stroma-ai /etc/nginx/sites-enabled/stroma-ai
 rm -f /etc/nginx/sites-enabled/default
 
@@ -1086,11 +1089,17 @@ ufw allow from <nginx-host-ip> to any port 8080
 # Edit /opt/stroma-ai/config.env:
 KC_INTERNAL_URL=http://keycloak-host.example:8080
 
-# Regenerate nginx config:
+# Regenerate nginx config (use conf.d for RHEL/Rocky, sites-available for Ubuntu):
 export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
+# RHEL/Rocky:
+envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+  < /path/to/StromaAI/deploy/nginx/stroma-ai.conf \
+  > /etc/nginx/conf.d/stroma-ai.conf
+# Ubuntu/Debian:
 envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
   < /path/to/StromaAI/deploy/nginx/stroma-ai.conf \
   > /etc/nginx/sites-available/stroma-ai
+
 nginx -t && systemctl reload nginx
 ```
 
@@ -1129,7 +1138,13 @@ ufw allow from <nginx-host-ip> to any port 3000
 OPENWEBUI_INTERNAL_URL=http://openwebui-host.example:3000
 OPENWEBUI_URL=https://stroma-ai.your-cluster.example/webui
 
-# Regenerate nginx config (same process as above)
+# Regenerate nginx config:
+export $(grep -E '^(VLLM|KC|OPENWEBUI)_INTERNAL_URL=' /opt/stroma-ai/config.env | xargs)
+# Use conf.d for RHEL/Rocky, sites-available for Ubuntu
+envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+  < /path/to/StromaAI/deploy/nginx/stroma-ai.conf \
+  > /etc/nginx/conf.d/stroma-ai.conf  # or sites-available/stroma-ai on Ubuntu
+nginx -t && systemctl reload nginx
 ```
 
 **Step 3:** Update Keycloak client redirect URIs:
