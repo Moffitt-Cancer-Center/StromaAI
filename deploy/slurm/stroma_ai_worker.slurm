@@ -10,7 +10,8 @@
 #   --nodes=1 --exclusive — entire node dedicated to this single GPU job
 #   --cpus-per-task=64    — matches typical HPC GPU node core count; tune per site
 #   --mem=900G            — leaves ~100G OS overhead from 1TB; tune per site
-#   --time set at submit time by the Watcher (STROMA_SLURM_WALLTIME)
+#   --time=24:00:00       — default walltime; overridden by Watcher's CLI --time flag
+#                           (STROMA_SLURM_WALLTIME in config.env)
 #
 # Environment variables passed by Watcher via --export:
 #   STROMA_HEAD_HOST  — hostname of Proxmox VM Ray head node
@@ -33,16 +34,19 @@
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
 #SBATCH --exclusive
+#SBATCH --time=24:00:00
 # NOTE: --output and --error paths are passed by the Watcher via sbatch CLI
 # flags using STROMA_LOG_DIR from config.env. The paths below are fallbacks
 # for manual sbatch runs only. Run 'mkdir -p ${STROMA_INSTALL_DIR}/logs' on
 # the head node before first use, matching your STROMA_LOG_DIR setting.
 #SBATCH --output=/opt/stroma-ai/logs/slurm-%j.out
 #SBATCH --error=/opt/stroma-ai/logs/slurm-%j.err
-# NOTE: --partition, --account, --time, --cpus-per-task, and --mem are all
-# passed by the Watcher at submit time via sbatch CLI flags. Do NOT set them
-# here to avoid conflicts. Tune STROMA_SLURM_CPUS and STROMA_SLURM_MEM
-# in config.env to match your worker node hardware.
+# NOTE: --partition, --account, --cpus-per-task, and --mem are passed by the
+# Watcher at submit time via sbatch CLI flags and will override the defaults
+# above. The --time directive is required by some queuing systems and serves
+# as a fallback; the Watcher's CLI --time flag takes precedence.
+# Tune STROMA_SLURM_WALLTIME, STROMA_SLURM_CPUS, and STROMA_SLURM_MEM
+# in config.env to match your worker node hardware and QOS limits.
 
 set -euo pipefail
 
