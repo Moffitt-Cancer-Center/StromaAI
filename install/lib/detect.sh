@@ -61,25 +61,58 @@ detect_os() {
 }
 
 # ---------------------------------------------------------------------------
-# detect_python311 — find a Python 3.11+ executable
+# detect_python311 — find a Python 3.11+ executable with SSL support
 # Sets PYTHON311 to the executable path, or dies if none found.
+# Prefers system Python (/usr/bin/) over custom builds for reliability.
 # ---------------------------------------------------------------------------
 detect_python311() {
+    # First pass: check system Python locations (/usr/bin/)
     local candidates=(python3.12 python3.11 python3)
     for py in "${candidates[@]}"; do
+        local py_path="/usr/bin/${py}"
+        if [[ -x "${py_path}" ]]; then
+            local ver
+            ver=$("${py_path}" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
+            if version_ge "${ver}" "3.11"; then
+                # Check for SSL support (critical for pip)
+                if "${py_path}" -c "import ssl" 2>/dev/null; then
+                    PYTHON311="${py_path}"
+                    export PYTHON311
+                    log_ok "Found Python ${ver} at: ${py_path}"
+                    return 0
+                else
+                    log_warn "Python ${ver} at ${py_path} lacks SSL support (unusable for pip)"
+                fi
+            fi
+        fi
+    done
+    
+    # Second pass: check PATH (may find custom builds)
+    for py in "${candidates[@]}"; do
         if check_cmd "${py}"; then
+            local py_path
+            py_path="$(command -v "${py}")"
+            # Skip if we already checked this in first pass
+            [[ "${py_path}" == /usr/bin/* ]] && continue
+            
             local ver
             ver=$("${py}" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
             if version_ge "${ver}" "3.11"; then
-                PYTHON311="${py}"
-                export PYTHON311
-                log_ok "Found Python ${ver} at: $(command -v "${py}")"
-                return 0
+                # Check for SSL support (critical for pip)
+                if "${py}" -c "import ssl" 2>/dev/null; then
+                    PYTHON311="${py}"
+                    export PYTHON311
+                    log_ok "Found Python ${ver} at: ${py_path}"
+                    log_warn "Using non-system Python - if issues occur, install system python3.11"
+                    return 0
+                else
+                    log_warn "Python ${ver} at ${py_path} lacks SSL support (unusable for pip)"
+                fi
             fi
         fi
     done
 
-    log_warn "No Python 3.11+ found in PATH. The installer will install python3.11."
+    log_warn "No Python 3.11+ with SSL support found. The installer will install python3.11."
     PYTHON311=""
     export PYTHON311
     return 1

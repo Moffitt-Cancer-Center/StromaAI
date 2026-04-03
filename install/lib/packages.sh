@@ -116,6 +116,9 @@ install_python311() {
     log_step "Installing Python 3.11"
     case "${OS_FAMILY}" in
         rhel)
+            # Install OpenSSL development libs first (ensures SSL module availability)
+            run_cmd dnf install -y openssl-devel || log_warn "openssl-devel install failed (may already be present)"
+            
             # Both RHEL 8 AppStream and Rocky 9 AppStream carry python3.11
             run_cmd dnf install -y python3.11 python3.11-devel python3.11-pip || {
                 # Fallback: try without devel (may not be needed for venv)
@@ -131,7 +134,7 @@ install_python311() {
                 run_cmd apt-get update -y
             fi
             run_cmd env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-                python3.11 python3.11-venv python3.11-dev python3-pip
+                python3.11 python3.11-venv python3.11-dev python3-pip libssl-dev
             PYTHON311="python3.11"
             ;;
     esac
