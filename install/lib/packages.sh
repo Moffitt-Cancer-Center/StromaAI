@@ -187,10 +187,34 @@ install_nginx() {
 install_head_python_deps() {
     log_step "Installing Python packages into ${STROMA_VENV}"
 
+    # Ensure OpenSSL development headers are present (critical for SSL module in venv)
+    if [[ "${OS_FAMILY}" == "rhel" ]]; then
+        if ! pkg_installed openssl-devel; then
+            log_info "Installing openssl-devel (required for SSL support in Python venv)..."
+            run_cmd dnf install -y openssl-devel
+        fi
+    elif [[ "${OS_FAMILY}" == "debian" ]]; then
+        if ! pkg_installed libssl-dev; then
+            log_info "Installing libssl-dev (required for SSL support in Python venv)..."
+            run_cmd apt-get install -y libssl-dev
+        fi
+    fi
+
+            log_warn "Removing and recreating with ${PYTHON311}..."
+            run_cmd rm -rf "${STROMA_VENV}"
+        fi
+    fi
+
     # Ensure venv exists
     if [[ ! -d "${STROMA_VENV}" ]]; then
         log_info "Creating Python virtual environment at ${STROMA_VENV}"
         run_cmd "${PYTHON311}" -m venv "${STROMA_VENV}"
+        
+        # Verify the new venv has SSL support
+        if ! "${STROMA_VENV}/bin/python" -c "import ssl" 2>/dev/null; then
+            die "CRITICAL: Newly created venv still lacks SSL support. Install openssl-devel and python3.11-devel, then re-run."
+        fi
+        log_ok "Virtual environment created with SSL support"
     fi
 
     # Upgrade pip first
