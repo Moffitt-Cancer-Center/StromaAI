@@ -567,9 +567,43 @@ install_worker() {
     confirm "This will install Apptainer, NVIDIA Container Toolkit, and configure security settings. Continue?" \
         || die "Installation cancelled."
 
-    pkg_update
-    install_base_deps
-    install_worker_build_deps
+    # Check for environment modules BEFORE refreshing package metadata
+    # If modules provide what we need, skip expensive dnf/apt operations
+    local need_packages=0
+    
+    # Check if Apptainer/Singularity is available via modules
+    if ! check_cmd apptainer && ! check_cmd singularity; then
+        if command -v module &>/dev/null; then
+            log_info "Container runtime not in PATH, checking environment modules..."
+            if ! (module load apptainer 2>/dev/null || module load singularity 2>/dev/null); then
+                need_packages=1
+            fi
+        else
+            need_packages=1
+        fi
+    fi
+    
+    # Check if NVIDIA drivers are available via modules
+    if ! check_cmd nvidia-smi; then
+        if command -v module &>/dev/null; then
+            log_info "nvidia-smi not in PATH, checking CUDA/NVIDIA modules..."
+            if ! (module load cuda 2>/dev/null || module load nvidia 2>/dev/null || module load nvidia-driver 2>/dev/null); then
+                need_packages=1
+            fi
+        else
+            need_packages=1
+        fi
+    fi
+    
+    # Only refresh package metadata if we actually need to install packages
+    if [[ "${need_packages}" -eq 1 ]]; then
+        pkg_update
+        install_base_deps
+        install_worker_build_deps
+    else
+        log_ok "Required software available via environment modules - skipping package installation"
+    fi
+    
     install_apptainer
     configure_apptainer
     verify_nvidia_gpu || log_warn "GPU verification failed — proceeding anyway."
