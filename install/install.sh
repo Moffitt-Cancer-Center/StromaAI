@@ -402,7 +402,7 @@ EOF
                     echo "${key}=${value}" >> "${target_file}"
                     log_info "Preserved custom variable: ${key}"
                 fi
-            done < <(grep -E '^[^#]' "${STROMA_INSTALL_DIR}/config.env.bak."* 2>/dev/null | tail -1 || true)
+            done < <(grep -h -E '^[^#]' "${STROMA_INSTALL_DIR}/config.env.bak."* 2>/dev/null | tail -1 || true)
             
             mv "${target_file}" "${STROMA_INSTALL_DIR}/config.env"
             log_ok "Config merged: updated defaults + preserved custom variables"
