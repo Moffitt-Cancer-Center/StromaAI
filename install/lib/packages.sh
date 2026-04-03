@@ -200,6 +200,12 @@ install_head_python_deps() {
         fi
     fi
 
+    # Check if existing venv has SSL support; recreate if broken
+    if [[ -d "${STROMA_VENV}" ]]; then
+        if "${STROMA_VENV}/bin/python" -c "import ssl" 2>/dev/null; then
+            log_info "Existing venv at ${STROMA_VENV} has SSL support — reusing."
+        else
+            log_warn "Existing venv at ${STROMA_VENV} lacks SSL support (created with broken Python)."
             log_warn "Removing and recreating with ${PYTHON311}..."
             run_cmd rm -rf "${STROMA_VENV}"
         fi
