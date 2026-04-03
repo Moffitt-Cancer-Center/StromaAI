@@ -26,10 +26,12 @@ source "${SCRIPT_DIR}/lib/detect.sh"
 # ---------------------------------------------------------------------------
 MODE="all"
 CHECK_PERMS=0
+FIX_PERMS=0
 for arg in "$@"; do
     case "${arg}" in
         --mode=*) MODE="${arg#*=}" ;;
         --check-permissions) CHECK_PERMS=1 ;;
+        --fix) CHECK_PERMS=1; FIX_PERMS=1 ;;
         --help|-h) _show_usage; exit 0 ;;
         *) log_warn "Unknown argument: ${arg}" ;;
     esac
@@ -37,7 +39,7 @@ done
 
 _show_usage() {
     cat <<EOF
-Usage: sudo $0 [--mode=head|worker|ood] [--check-permissions]
+Usage: sudo $0 [--mode=head|worker|ood] [--check-permissions] [--fix]
 
 Modes:
   head    Check head node prerequisites (Python, nginx, ports, TLS)
@@ -47,6 +49,7 @@ Modes:
 
 Options:
   --check-permissions  Verify file ownership and permissions for all StromaAI components
+  --fix                Automatically fix permission issues (implies --check-permissions)
 EOF
 }
 
@@ -317,6 +320,10 @@ check_ood() {
 # ---------------------------------------------------------------------------
 check_permissions() {
     log_step "Permissions verification"
+    
+    if [[ "${FIX_PERMS}" -eq 1 ]]; then
+        log_info "Fix mode enabled — will attempt to correct permission issues"
+    fi
 
     local install_dir="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
     local config_file="${install_dir}/config.env"
@@ -339,7 +346,13 @@ check_permissions() {
         if [[ "${owner}" == "stromaai:stromaai" ]]; then
             check_pass "${install_dir} ownership: ${owner}"
         else
-            check_fail "${install_dir} ownership: ${owner} (expected stromaai:stromaai)"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${install_dir} ownership: ${owner} → stromaai:stromaai"
+                chown -R stromaai:stromaai "${install_dir}"
+                check_pass "${install_dir} ownership: FIXED"
+            else
+                check_fail "${install_dir} ownership: ${owner} (expected stromaai:stromaai)"
+            fi
         fi
         check_pass "${install_dir} permissions: ${perms}"
     else
@@ -353,12 +366,24 @@ check_permissions() {
         if [[ "${owner}" == "stromaai:stromaai" ]]; then
             check_pass "${config_file} ownership: ${owner}"
         else
-            check_fail "${config_file} ownership: ${owner} (expected stromaai:stromaai)"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${config_file} ownership: ${owner} → stromaai:stromaai"
+                chown stromaai:stromaai "${config_file}"
+                check_pass "${config_file} ownership: FIXED"
+            else
+                check_fail "${config_file} ownership: ${owner} (expected stromaai:stromaai)"
+            fi
         fi
         if [[ "${perms}" == "640" || "${perms}" == "0640" ]]; then
             check_pass "${config_file} permissions: ${perms}"
         else
-            check_fail "${config_file} permissions: ${perms} (expected 640 — contains secrets)"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${config_file} permissions: ${perms} → 640"
+                chmod 640 "${config_file}"
+                check_pass "${config_file} permissions: FIXED"
+            else
+                check_fail "${config_file} permissions: ${perms} (expected 640 — contains secrets)"
+            fi
         fi
     else
         check_warn "${config_file} does not exist"
@@ -373,12 +398,24 @@ check_permissions() {
             if [[ "${owner}" == "root:root" ]]; then
                 check_pass "${svc_path} ownership: ${owner}"
             else
-                check_fail "${svc_path} ownership: ${owner} (expected root:root)"
+                if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                    log_info "Fixing ${svc_path} ownership: ${owner} → root:root"
+                    chown root:root "${svc_path}"
+                    check_pass "${svc_path} ownership: FIXED"
+                else
+                    check_fail "${svc_path} ownership: ${owner} (expected root:root)"
+                fi
             fi
             if [[ "${perms}" == "644" || "${perms}" == "0644" ]]; then
                 check_pass "${svc_path} permissions: ${perms}"
             else
-                check_warn "${svc_path} permissions: ${perms} (expected 644)"
+                if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                    log_info "Fixing ${svc_path} permissions: ${perms} → 644"
+                    chmod 644 "${svc_path}"
+                    check_pass "${svc_path} permissions: FIXED"
+                else
+                    check_warn "${svc_path} permissions: ${perms} (expected 644)"
+                fi
             fi
         else
             check_warn "${svc_path} not found — service not installed"
@@ -392,14 +429,27 @@ check_permissions() {
         if [[ "${owner}" == "stromaai:stromaai" ]]; then
             check_pass "${venv_dir} ownership: ${owner}"
         else
-            check_fail "${venv_dir} ownership: ${owner} (expected stromaai:stromaai)"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${venv_dir} ownership: ${owner} → stromaai:stromaai"
+                chown -R stromaai:stromaai "${venv_dir}"
+                check_pass "${venv_dir} ownership: FIXED"
+            else
+                check_fail "${venv_dir} ownership: ${owner} (expected stromaai:stromaai)"
+            fi
         fi
         
         # Test write access by stromaai user
         if sudo -u stromaai test -w "${venv_dir}"; then
             check_pass "${venv_dir} writable by stromaai user"
         else
-            check_fail "${venv_dir} NOT writable by stromaai user"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${venv_dir} write access"
+                chown -R stromaai:stromaai "${venv_dir}"
+                chmod -R u+w "${venv_dir}"
+                check_pass "${venv_dir} write access: FIXED"
+            else
+                check_fail "${venv_dir} NOT writable by stromaai user"
+            fi
         fi
     else
         check_warn "${venv_dir} does not exist"
@@ -412,7 +462,14 @@ check_permissions() {
             if sudo -u stromaai test -r "${file_path}"; then
                 check_pass "${file_path} readable by stromaai user"
             else
-                check_fail "${file_path} NOT readable by stromaai user"
+                if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                    log_info "Fixing ${file_path} read access"
+                    chown stromaai:stromaai "${file_path}"
+                    chmod u+r "${file_path}"
+                    check_pass "${file_path} read access: FIXED"
+                else
+                    check_fail "${file_path} NOT readable by stromaai user"
+                fi
             fi
         fi
     done
@@ -423,16 +480,37 @@ check_permissions() {
         if [[ "${owner}" == "stromaai:stromaai" || "${owner}" =~ ^stromaai: ]]; then
             check_pass "${log_dir} ownership: ${owner}"
         else
-            check_warn "${log_dir} ownership: ${owner} (expected stromaai:stromaai)"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${log_dir} ownership: ${owner} → stromaai:stromaai"
+                chown -R stromaai:stromaai "${log_dir}"
+                check_pass "${log_dir} ownership: FIXED"
+            else
+                check_warn "${log_dir} ownership: ${owner} (expected stromaai:stromaai)"
+            fi
         fi
         
         if sudo -u stromaai test -w "${log_dir}"; then
             check_pass "${log_dir} writable by stromaai user"
         else
-            check_fail "${log_dir} NOT writable by stromaai user — Slurm job logs will fail"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${log_dir} write access"
+                chown -R stromaai:stromaai "${log_dir}"
+                chmod -R u+w "${log_dir}"
+                check_pass "${log_dir} write access: FIXED"
+            else
+                check_fail "${log_dir} NOT writable by stromaai user — Slurm job logs will fail"
+            fi
         fi
     else
-        check_warn "${log_dir} does not exist — will be created on first Slurm job"
+        if [[ "${FIX_PERMS}" -eq 1 ]]; then
+            log_info "Creating ${log_dir}"
+            mkdir -p "${log_dir}"
+            chown stromaai:stromaai "${log_dir}"
+            chmod 755 "${log_dir}"
+            check_pass "${log_dir}: CREATED"
+        else
+            check_warn "${log_dir} does not exist — will be created on first Slurm job"
+        fi
     fi
     
     # 7. State directory (watcher persistence)
@@ -440,10 +518,25 @@ check_permissions() {
         if sudo -u stromaai test -w "${state_dir}"; then
             check_pass "${state_dir} writable by stromaai user"
         else
-            check_fail "${state_dir} NOT writable by stromaai user — watcher state persistence will fail"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${state_dir} write access"
+                chown -R stromaai:stromaai "${state_dir}"
+                chmod -R u+w "${state_dir}"
+                check_pass "${state_dir} write access: FIXED"
+            else
+                check_fail "${state_dir} NOT writable by stromaai user — watcher state persistence will fail"
+            fi
         fi
     else
-        check_warn "${state_dir} does not exist — will be created on first watcher run"
+        if [[ "${FIX_PERMS}" -eq 1 ]]; then
+            log_info "Creating ${state_dir}"
+            mkdir -p "${state_dir}"
+            chown stromaai:stromaai "${state_dir}"
+            chmod 755 "${state_dir}"
+            check_pass "${state_dir}: CREATED"
+        else
+            check_warn "${state_dir} does not exist — will be created on first watcher run"
+        fi
     fi
     
     # 8. Model weights (read access required)
@@ -451,7 +544,13 @@ check_permissions() {
         if sudo -u stromaai test -r "${model_path}"; then
             check_pass "${model_path} readable by stromaai user"
         else
-            check_fail "${model_path} NOT readable by stromaai user — vLLM will fail to load model"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${model_path} read access"
+                chmod -R o+rX "${model_path}"
+                check_pass "${model_path} read access: FIXED"
+            else
+                check_fail "${model_path} NOT readable by stromaai user — vLLM will fail to load model"
+            fi
         fi
         
         # Check specific model files
@@ -461,7 +560,13 @@ check_permissions() {
                 if sudo -u stromaai test -r "${model_path}/${cfg}"; then
                     have_config=1
                 else
-                    check_fail "${model_path}/${cfg} NOT readable by stromaai user"
+                    if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                        log_info "Fixing ${model_path}/${cfg} read access"
+                        chmod o+r "${model_path}/${cfg}"
+                        have_config=1
+                    else
+                        check_fail "${model_path}/${cfg} NOT readable by stromaai user"
+                    fi
                 fi
             fi
         done
@@ -475,7 +580,13 @@ check_permissions() {
         if sudo -u stromaai test -r "${container_path}"; then
             check_pass "${container_path} readable by stromaai user"
         else
-            check_fail "${container_path} NOT readable by stromaai user — Slurm jobs will fail"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${container_path} read access"
+                chmod o+r "${container_path}"
+                check_pass "${container_path} read access: FIXED"
+            else
+                check_fail "${container_path} NOT readable by stromaai user — Slurm jobs will fail"
+            fi
         fi
     else
         check_warn "${container_path} does not exist — build container before submitting Slurm jobs"
@@ -486,7 +597,7 @@ check_permissions() {
         if sudo -u stromaai test -r "${shared_root}"; then
             check_pass "${shared_root} readable by stromaai user"
         else
-            check_fail "${shared_root} NOT readable by stromaai user — shared storage may not be mounted"
+            check_warn "${shared_root} NOT readable by stromaai user — shared storage may not be mounted (cannot fix mount issues)"
         fi
     else
         check_warn "${shared_root} does not exist — verify NFS/GPFS mount"
@@ -499,13 +610,26 @@ check_permissions() {
         if [[ "${owner}" =~ ^stromaai: ]]; then
             check_pass "${ray_tmp} ownership: ${owner}"
         else
-            check_warn "${ray_tmp} ownership: ${owner} (expected stromaai:stromaai)"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${ray_tmp} ownership: ${owner} → stromaai:stromaai"
+                chown -R stromaai:stromaai "${ray_tmp}"
+                check_pass "${ray_tmp} ownership: FIXED"
+            else
+                check_warn "${ray_tmp} ownership: ${owner} (expected stromaai:stromaai)"
+            fi
         fi
         
         if sudo -u stromaai test -w "${ray_tmp}"; then
             check_pass "${ray_tmp} writable by stromaai user"
         else
-            check_fail "${ray_tmp} NOT writable by stromaai user — Ray will fail to start"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${ray_tmp} write access"
+                chown -R stromaai:stromaai "${ray_tmp}"
+                chmod -R u+w "${ray_tmp}"
+                check_pass "${ray_tmp} write access: FIXED"
+            else
+                check_fail "${ray_tmp} NOT writable by stromaai user — Ray will fail to start"
+            fi
         fi
     else
         check_warn "${ray_tmp} does not exist — will be created on first Ray start"
@@ -519,7 +643,13 @@ check_permissions() {
         if [[ "${key_perms}" == "600" || "${key_perms}" == "0600" ]]; then
             check_pass "${tls_key} permissions: ${key_perms} (secure)"
         else
-            check_warn "${tls_key} permissions: ${key_perms} (recommend 600 for private key)"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${tls_key} permissions: ${key_perms} → 600"
+                chmod 600 "${tls_key}"
+                check_pass "${tls_key} permissions: FIXED"
+            else
+                check_warn "${tls_key} permissions: ${key_perms} (recommend 600 for private key)"
+            fi
         fi
         check_pass "${tls_cert} exists and readable"
     else
@@ -531,7 +661,13 @@ check_permissions() {
         if groups stromaai 2>/dev/null | grep -q docker; then
             check_pass "stromaai user is in 'docker' group"
         else
-            check_warn "stromaai user NOT in 'docker' group — docker compose may require sudo"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Adding stromaai user to 'docker' group"
+                usermod -aG docker stromaai
+                check_pass "stromaai user: ADDED to docker group (logout/login required)"
+            else
+                check_warn "stromaai user NOT in 'docker' group — docker compose may require sudo"
+            fi
         fi
     fi
     
@@ -541,10 +677,20 @@ check_permissions() {
         if sudo -u stromaai test -r "${slurm_script}"; then
             check_pass "${slurm_script} readable by stromaai user"
         else
-            check_fail "${slurm_script} NOT readable by stromaai user — watcher cannot submit jobs"
+            if [[ "${FIX_PERMS}" -eq 1 ]]; then
+                log_info "Fixing ${slurm_script} read access"
+                chmod o+r "${slurm_script}"
+                check_pass "${slurm_script} read access: FIXED"
+            else
+                check_fail "${slurm_script} NOT readable by stromaai user — watcher cannot submit jobs"
+            fi
         fi
     else
         check_warn "${slurm_script} does not exist"
+    fi
+    
+    if [[ "${FIX_PERMS}" -eq 1 ]]; then
+        log_info "Fixes complete — verify services with: systemctl status ray-head stroma-ai-vllm stroma-ai-watcher"
     fi
 }
 
