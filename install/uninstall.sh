@@ -74,6 +74,13 @@ _detect_install_dir() {
 
 _detect_install_dir
 
+# Show what was detected
+if [[ -d "${STROMA_INSTALL_DIR}" ]]; then
+    log_info "Target installation: ${STROMA_INSTALL_DIR}"
+else
+    log_warn "Installation directory not found: ${STROMA_INSTALL_DIR}"
+fi
+
 # ---------------------------------------------------------------------------
 # Parse arguments
 # ---------------------------------------------------------------------------

@@ -107,14 +107,12 @@ detect_os
 _detect_install_dir() {
     # 1. Environment variable override
     if [[ -n "${STROMA_INSTALL_DIR:-}" ]]; then
-        log_info "Using STROMA_INSTALL_DIR from environment: ${STROMA_INSTALL_DIR}"
         return 0
     fi
     
     # 2. Check if running from installed directory (repo used as install dir)
     if [[ -f "${REPO_DIR}/config.env" ]]; then
         STROMA_INSTALL_DIR="${REPO_DIR}"
-        log_info "Detected in-place installation at: ${STROMA_INSTALL_DIR}"
         return 0
     fi
     
@@ -130,17 +128,22 @@ _detect_install_dir() {
     for path in "${common_paths[@]}"; do
         if [[ -f "${path}/config.env" ]]; then
             STROMA_INSTALL_DIR="${path}"
-            log_info "Found existing installation at: ${STROMA_INSTALL_DIR}"
             return 0
         fi
     done
     
     # 4. Default to /opt/stroma-ai for new installations
     STROMA_INSTALL_DIR="/opt/stroma-ai"
-    log_info "No existing installation found — will use default: ${STROMA_INSTALL_DIR}"
 }
 
 _detect_install_dir
+
+# Show what was detected (helps with debugging)
+if [[ -f "${STROMA_INSTALL_DIR}/config.env" ]]; then
+    log_info "Detected existing installation: ${STROMA_INSTALL_DIR}"
+else
+    log_info "Installation directory (new): ${STROMA_INSTALL_DIR}"
+fi
 
 # ---------------------------------------------------------------------------
 # Configuration loading / interactive setup

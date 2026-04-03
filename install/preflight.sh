@@ -92,6 +92,13 @@ _detect_install_dir() {
 
 _detect_install_dir
 
+# Show what was detected (helps with debugging)
+if [[ -f "${STROMA_INSTALL_DIR}/config.env" ]]; then
+    log_info "Detected installation: ${STROMA_INSTALL_DIR}"
+else
+    log_info "Installation directory (default): ${STROMA_INSTALL_DIR}"
+fi
+
 # ---------------------------------------------------------------------------
 # Check tracking
 # ---------------------------------------------------------------------------
@@ -134,15 +141,16 @@ check_common() {
         check_warn "No internet connectivity — ensure packages are available via local mirror or pre-downloaded."
     fi
 
-    # Disk space on /opt
-    local opt_free_gb
-    opt_free_gb=$(df -BG /opt 2>/dev/null | awk 'NR==2 {gsub(/G/,""); print $4}')
-    if [[ "${opt_free_gb:-0}" -ge 50 ]]; then
-        check_pass "/opt free space: ${opt_free_gb} GB"
-    elif [[ "${opt_free_gb:-0}" -ge 20 ]]; then
-        check_warn "/opt free space: ${opt_free_gb} GB (recommend 50+ GB for vLLM venv)"
+    # Disk space on installation parent directory (not hardcoded /opt)
+    local install_parent=$(dirname "${STROMA_INSTALL_DIR}")
+    local parent_free_gb
+    parent_free_gb=$(df -BG "${install_parent}" 2>/dev/null | awk 'NR==2 {gsub(/G/,""); print $4}')
+    if [[ "${parent_free_gb:-0}" -ge 50 ]]; then
+        check_pass "${install_parent} free space: ${parent_free_gb} GB"
+    elif [[ "${parent_free_gb:-0}" -ge 20 ]]; then
+        check_warn "${install_parent} free space: ${parent_free_gb} GB (recommend 50+ GB for vLLM venv)"
     else
-        check_fail "/opt free space: ${opt_free_gb} GB — vLLM install may fail (need 50+ GB)"
+        check_fail "${install_parent} free space: ${parent_free_gb} GB — vLLM install may fail (need 50+ GB)"
     fi
 }
 
