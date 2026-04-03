@@ -24,19 +24,6 @@ source "${SCRIPT_DIR}/lib/detect.sh"
 # ---------------------------------------------------------------------------
 # Parse arguments
 # ---------------------------------------------------------------------------
-MODE="all"
-CHECK_PERMS=0
-FIX_PERMS=0
-for arg in "$@"; do
-    case "${arg}" in
-        --mode=*) MODE="${arg#*=}" ;;
-        --check-permissions) CHECK_PERMS=1 ;;
-        --fix) CHECK_PERMS=1; FIX_PERMS=1 ;;
-        --help|-h) _show_usage; exit 0 ;;
-        *) log_warn "Unknown argument: ${arg}" ;;
-    esac
-done
-
 _show_usage() {
     cat <<EOF
 Usage: sudo $0 [--mode=head|worker|ood] [--check-permissions] [--fix]
@@ -52,6 +39,19 @@ Options:
   --fix                Automatically fix permission issues (implies --check-permissions)
 EOF
 }
+
+MODE="all"
+CHECK_PERMS=0
+FIX_PERMS=0
+for arg in "$@"; do
+    case "${arg}" in
+        --mode=*) MODE="${arg#*=}" ;;
+        --check-permissions) CHECK_PERMS=1 ;;
+        --fix) CHECK_PERMS=1; FIX_PERMS=1 ;;
+        --help|-h) _show_usage; exit 0 ;;
+        *) log_warn "Unknown argument: ${arg}" ;;
+    esac
+done
 
 # ---------------------------------------------------------------------------
 # Detect installation directory
@@ -751,7 +751,11 @@ main() {
     echo "Mode: ${MODE}"
     echo ""
 
-    # Load config if exists to get custom paths
+    # Load config if exists to get custom paths.
+    # Preserve the filesystem-detected STROMA_INSTALL_DIR: sourcing config.env with
+    # set -a exports all variables, which would overwrite a correctly-detected
+    # STROMA_INSTALL_DIR with a stale value if the repo was moved.
+    local _detected_install_dir="${STROMA_INSTALL_DIR}"
     local config="${STROMA_INSTALL_DIR}/config.env"
     if [[ -f "${config}" ]]; then
         log_info "Loading config from ${config}"
@@ -759,6 +763,9 @@ main() {
         set -a
         source "${config}" 2>/dev/null || true
         set +a
+        # Restore the path we detected from the filesystem; don't let a stale
+        # STROMA_INSTALL_DIR inside config.env override it.
+        export STROMA_INSTALL_DIR="${_detected_install_dir}"
     fi
 
     check_common
