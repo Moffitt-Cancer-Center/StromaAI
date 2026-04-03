@@ -35,7 +35,7 @@ ReadWritePaths=/opt/stroma-ai /tmp
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
-ProtectHostname=true
+# ProtectHostname requires systemd >= 243 (RHEL 8 ships 239 — omitted)
 RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
