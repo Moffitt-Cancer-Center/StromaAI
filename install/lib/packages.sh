@@ -52,25 +52,30 @@ enable_epel() {
     [[ "${OS_FAMILY}" == "rhel" ]] || return 0
 
     if pkg_installed epel-release; then
-        log_info "EPEL already enabled."
-        return 0
+        log_info "EPEL already installed."
+    else
+        log_step "Enabling EPEL repository"
+        case "${OS_ID}" in
+            rhel)
+                # RHEL needs subscription-manager or EPEL RPM directly
+                run_cmd dnf install -y \
+                    "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${OS_VERSION_MAJOR}.noarch.rpm" \
+                    || run_cmd dnf install -y epel-release
+                ;;
+            rocky|almalinux|ol)
+                run_cmd dnf install -y epel-release
+                ;;
+            centos)
+                run_cmd dnf install -y epel-release
+                ;;
+        esac
     fi
-
-    log_step "Enabling EPEL repository"
-    case "${OS_ID}" in
-        rhel)
-            # RHEL needs subscription-manager or EPEL RPM directly
-            run_cmd dnf install -y \
-                "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${OS_VERSION_MAJOR}.noarch.rpm" \
-                || run_cmd dnf install -y epel-release
-            ;;
-        rocky|almalinux|ol)
-            run_cmd dnf install -y epel-release
-            ;;
-        centos)
-            run_cmd dnf install -y epel-release
-            ;;
-    esac
+    
+    # Ensure EPEL repos are actually enabled (they can be disabled even when installed)
+    if [[ "${OS_ID}" == "rhel" ]]; then
+        run_cmd dnf config-manager --set-enabled epel 2>/dev/null || log_warn "Could not enable EPEL repo"
+    fi
+    
     run_cmd dnf makecache -y
 }
 
@@ -142,7 +147,9 @@ install_base_deps() {
     log_step "Installing base dependencies"
     case "${OS_FAMILY}" in
         rhel)
-            pkg_install curl wget git openssl ca-certificates jq gettext
+            # jq is in EPEL - install separately with error handling
+            pkg_install curl wget git openssl ca-certificates gettext
+            pkg_install jq || log_warn "jq not available (optional - used by some scripts)"
             ;;
         debian)
             pkg_install curl wget git openssl ca-certificates jq gettext-base

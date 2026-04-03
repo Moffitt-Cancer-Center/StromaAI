@@ -277,6 +277,7 @@ _create_directories() {
 
 _install_head_packages() {
     log_step "Installing system packages"
+    enable_epel
     pkg_update
     install_base_deps
     install_python311
@@ -597,6 +598,7 @@ install_worker() {
     
     # Only refresh package metadata if we actually need to install packages
     if [[ "${need_packages}" -eq 1 ]]; then
+        enable_epel
         pkg_update
         install_base_deps
         install_worker_build_deps
