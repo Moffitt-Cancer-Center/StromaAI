@@ -113,7 +113,15 @@ load_or_prompt_config() {
         source "${CONFIG_FILE}"
     elif [[ -f ${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env ]]; then
         log_info "Existing config found at ${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env — loading."
-        source "${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env"
+        # Trap errors when sourcing potentially corrupted config files
+        if ! source "${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env" 2>/dev/null; then
+            log_warn "Failed to load existing config.env (possibly corrupted)."
+            log_info "Backing up and continuing with interactive setup..."
+            local backup="${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env.corrupted.$(date +%Y%m%d%H%M%S)"
+            mv "${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env" "${backup}"
+            log_info "Corrupted config backed up to: ${backup}"
+            _interactive_config
+        fi
     else
         log_info "No config file found — running interactive setup."
         _interactive_config
