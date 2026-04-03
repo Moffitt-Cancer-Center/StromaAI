@@ -1,6 +1,6 @@
 [Unit]
 Description=StromaAI — vLLM Inference API Server
-Documentation=https://github.com/your-org/stroma-ai
+Documentation=https://github.com/Moffitt-Cancer-Center/StromaAI
 After=network-online.target ray-head.service
 Wants=network-online.target
 Requires=ray-head.service

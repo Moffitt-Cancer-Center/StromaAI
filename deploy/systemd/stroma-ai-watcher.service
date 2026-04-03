@@ -1,6 +1,6 @@
 [Unit]
 Description=StromaAI — vLLM Watcher (Dynamic Slurm Burst Scaling)
-Documentation=https://github.com/your-org/stroma-ai
+Documentation=https://github.com/Moffitt-Cancer-Center/StromaAI
 After=network-online.target stroma-ai-vllm.service
 Wants=network-online.target
 Requires=stroma-ai-vllm.service

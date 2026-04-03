@@ -1,6 +1,6 @@
 [Unit]
 Description=StromaAI — Ray Head Node
-Documentation=https://github.com/your-org/stroma-ai
+Documentation=https://github.com/Moffitt-Cancer-Center/StromaAI
 After=network-online.target
 Wants=network-online.target
 
