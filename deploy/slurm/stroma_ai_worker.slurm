@@ -58,6 +58,20 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 STROMA_CONTAINER="${STROMA_CONTAINER:-/share/containers/stroma-ai-vllm.sif}"
 
+# ---------------------------------------------------------------------------
+# Load environment modules if available (common in HPC environments)
+# Try loading CUDA/NVIDIA drivers if they're module-managed
+# ---------------------------------------------------------------------------
+if command -v module &>/dev/null; then
+    # Try loading CUDA/NVIDIA modules (required for GPU access)
+    for mod in cuda nvidia nvidia-driver; do
+        if module load "${mod}" &>/dev/null 2>&1; then
+            echo "Loaded module: ${mod}"
+            break
+        fi
+    done
+fi
+
 # Detect container runtime (apptainer preferred; fall back to singularity)
 if [[ -z "${CONTAINER_CMD:-}" ]]; then
     if command -v apptainer &>/dev/null; then
@@ -66,13 +80,16 @@ if [[ -z "${CONTAINER_CMD:-}" ]]; then
         CONTAINER_CMD="singularity"
     else
         # Try loading a module — common on HPC systems
-        module load apptainer 2>/dev/null || module load singularity 2>/dev/null || true
+        if command -v module &>/dev/null; then
+            module load apptainer 2>/dev/null || module load singularity 2>/dev/null || true
+        fi
         if command -v apptainer &>/dev/null; then
             CONTAINER_CMD="apptainer"
         elif command -v singularity &>/dev/null; then
             CONTAINER_CMD="singularity"
         else
             echo "ERROR: Neither apptainer nor singularity found in PATH" >&2
+            echo "ERROR: If using environment modules, ensure apptainer/singularity module is available" >&2
             exit 1
         fi
     fi

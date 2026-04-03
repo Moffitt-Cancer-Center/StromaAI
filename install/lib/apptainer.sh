@@ -21,6 +21,36 @@ set -euo pipefail
 APPTAINER_VERSION="${APPTAINER_VERSION:-1.3.6}"
 
 # ---------------------------------------------------------------------------
+# try_load_module — attempt to load a module if module system is available
+# ---------------------------------------------------------------------------
+try_load_module() {
+    local module_names=("$@")
+    
+    # Check if module command exists
+    if ! command -v module &>/dev/null; then
+        return 1
+    fi
+    
+    # Try each module name in order
+    for mod in "${module_names[@]}"; do
+        log_info "Checking for environment module: ${mod}"
+        
+        # Try to load the module silently
+        if module load "${mod}" &>/dev/null; then
+            log_ok "Loaded module: ${mod}"
+            return 0
+        fi
+        
+        # Check if module is available but not loaded
+        if module avail "${mod}" 2>&1 | grep -q "${mod}"; then
+            log_info "Module '${mod}' exists but failed to load."
+        fi
+    done
+    
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # install_apptainer — dispatch to distro-specific installers
 # ---------------------------------------------------------------------------
 install_apptainer() {
@@ -39,8 +69,19 @@ install_apptainer() {
         log_warn "Singularity ${installed_ver} found instead of Apptainer. Will use Singularity."
         return 0
     fi
+    
+    # Try loading from environment modules (common in HPC environments)
+    log_step "Checking for Apptainer/Singularity environment modules"
+    if try_load_module apptainer singularity; then
+        # Verify it's now available
+        if check_cmd apptainer || check_cmd singularity; then
+            log_ok "Container runtime available via environment module."
+            log_info "Add 'module load apptainer' (or singularity) to worker job scripts if needed."
+            return 0
+        fi
+    fi
 
-    log_step "Installing Apptainer ${APPTAINER_VERSION}"
+    log_step "Installing Apptainer ${APPTAINER_VERSION} from packages"
     case "${OS_FAMILY}" in
         rhel)  _install_apptainer_rhel  ;;
         debian) _install_apptainer_ubuntu ;;

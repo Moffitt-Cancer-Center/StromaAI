@@ -23,10 +23,27 @@ readonly _STROMA_NVIDIA_LOADED=1
 verify_nvidia_gpu() {
     log_step "Verifying NVIDIA GPU and driver"
 
+    # First check if nvidia-smi is already in PATH
     if ! check_cmd nvidia-smi; then
-        log_error "nvidia-smi not found. Install NVIDIA drivers before running this step."
-        log_error "Driver installation is site-specific — consult your HPC team."
-        return 1
+        log_info "nvidia-smi not in PATH, checking for CUDA/NVIDIA environment modules"
+        
+        # Try loading common NVIDIA-related modules
+        if command -v module &>/dev/null; then
+            for mod in cuda nvidia nvidia-driver; do
+                if module load "${mod}" &>/dev/null 2>&1; then
+                    log_ok "Loaded module: ${mod}"
+                    break
+                fi
+            done
+        fi
+        
+        # Check again after module loading
+        if ! check_cmd nvidia-smi; then
+            log_error "nvidia-smi not found. Install NVIDIA drivers before running this step."
+            log_error "Driver installation is site-specific — consult your HPC team."
+            log_info "If drivers are managed via modules, load them manually before running this installer."
+            return 1
+        fi
     fi
 
     local driver_ver gpu_name
