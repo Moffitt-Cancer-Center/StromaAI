@@ -135,7 +135,7 @@ class ClusterManager:
             partition    = os.environ.get("STROMA_SLURM_PARTITION", "stroma-ai-gpu"),
             account      = os.environ.get("STROMA_SLURM_ACCOUNT",   "stroma-ai-service"),
             slurm_script = os.environ.get("STROMA_SLURM_SCRIPT",    "/share/slurm/stroma_ai_worker.slurm"),
-            walltime     = os.environ.get("STROMA_SLURM_WALLTIME",  "24:00:00"),
+            walltime     = os.environ.get("STROMA_SLURM_WALLTIME",  "12:00:00"),
             cpus         = os.environ.get("STROMA_SLURM_CPUS",      "64"),
             mem          = os.environ.get("STROMA_SLURM_MEM",       "900G"),
             log_dir      = os.environ.get("STROMA_LOG_DIR",         f"{install_dir}/logs"),

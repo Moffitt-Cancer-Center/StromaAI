@@ -10,8 +10,9 @@
 #   --nodes=1 --exclusive — entire node dedicated to this single GPU job
 #   --cpus-per-task=64    — matches typical HPC GPU node core count; tune per site
 #   --mem=900G            — leaves ~100G OS overhead from 1TB; tune per site
-#   --time=24:00:00       — default walltime; overridden by Watcher's CLI --time flag
+#   --time=12:00:00       — default walltime; overridden by Watcher's CLI --time flag
 #                           (STROMA_SLURM_WALLTIME in config.env)
+#                           CRITICAL: Must fit within your default QOS MaxWall limit
 #
 # Environment variables passed by Watcher via --export:
 #   STROMA_HEAD_HOST  — hostname of Proxmox VM Ray head node
@@ -34,7 +35,7 @@
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
 #SBATCH --exclusive
-#SBATCH --time=24:00:00
+#SBATCH --time=12:00:00
 # NOTE: --output and --error paths are passed by the Watcher via sbatch CLI
 # flags using STROMA_LOG_DIR from config.env. The paths below are fallbacks
 # for manual sbatch runs only. Run 'mkdir -p ${STROMA_INSTALL_DIR}/logs' on
