@@ -25,9 +25,11 @@ source "${SCRIPT_DIR}/lib/detect.sh"
 # Parse arguments
 # ---------------------------------------------------------------------------
 MODE="all"
+CHECK_PERMS=0
 for arg in "$@"; do
     case "${arg}" in
         --mode=*) MODE="${arg#*=}" ;;
+        --check-permissions) CHECK_PERMS=1 ;;
         --help|-h) _show_usage; exit 0 ;;
         *) log_warn "Unknown argument: ${arg}" ;;
     esac
@@ -35,13 +37,16 @@ done
 
 _show_usage() {
     cat <<EOF
-Usage: sudo $0 [--mode=head|worker|ood]
+Usage: sudo $0 [--mode=head|worker|ood] [--check-permissions]
 
 Modes:
   head    Check head node prerequisites (Python, nginx, ports, TLS)
   worker  Check Slurm worker prerequisites (GPU, Apptainer, shared FS)
   ood     Check Open OnDemand node prerequisites
   all     Run all checks (default)
+
+Options:
+  --check-permissions  Verify file ownership and permissions for all StromaAI components
 EOF
 }
 
@@ -308,6 +313,242 @@ check_ood() {
 }
 
 # ---------------------------------------------------------------------------
+# Permissions checks (post-install verification)
+# ---------------------------------------------------------------------------
+check_permissions() {
+    log_step "Permissions verification"
+
+    local install_dir="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
+    local config_file="${install_dir}/config.env"
+    local shared_root="${STROMA_SHARED_ROOT:-/share}"
+    local model_path="${STROMA_MODEL_PATH:-${shared_root}/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
+    local container_path="${STROMA_CONTAINER:-${shared_root}/containers/stroma-ai-vllm.sif}"
+    local log_dir="${STROMA_LOG_DIR:-${install_dir}/logs}"
+    local state_dir="${install_dir}/state"
+    
+    # Check stromaai user exists
+    if ! id stromaai &>/dev/null; then
+        check_fail "User 'stromaai' does not exist — run install.sh first"
+        return
+    fi
+    
+    # 1. Installation directory
+    if [[ -d "${install_dir}" ]]; then
+        local owner=$(stat -c '%U:%G' "${install_dir}" 2>/dev/null || stat -f '%Su:%Sg' "${install_dir}" 2>/dev/null)
+        local perms=$(stat -c '%a' "${install_dir}" 2>/dev/null || stat -f '%A' "${install_dir}" 2>/dev/null | tail -c 4)
+        if [[ "${owner}" == "stromaai:stromaai" ]]; then
+            check_pass "${install_dir} ownership: ${owner}"
+        else
+            check_fail "${install_dir} ownership: ${owner} (expected stromaai:stromaai)"
+        fi
+        check_pass "${install_dir} permissions: ${perms}"
+    else
+        check_warn "${install_dir} does not exist — run install.sh"
+    fi
+    
+    # 2. Config file (sensitive: 640)
+    if [[ -f "${config_file}" ]]; then
+        local owner=$(stat -c '%U:%G' "${config_file}" 2>/dev/null || stat -f '%Su:%Sg' "${config_file}" 2>/dev/null)
+        local perms=$(stat -c '%a' "${config_file}" 2>/dev/null || stat -f '%A' "${config_file}" 2>/dev/null | tail -c 4)
+        if [[ "${owner}" == "stromaai:stromaai" ]]; then
+            check_pass "${config_file} ownership: ${owner}"
+        else
+            check_fail "${config_file} ownership: ${owner} (expected stromaai:stromaai)"
+        fi
+        if [[ "${perms}" == "640" || "${perms}" == "0640" ]]; then
+            check_pass "${config_file} permissions: ${perms}"
+        else
+            check_fail "${config_file} permissions: ${perms} (expected 640 — contains secrets)"
+        fi
+    else
+        check_warn "${config_file} does not exist"
+    fi
+    
+    # 3. Systemd service files (must be root-owned, world-readable)
+    for svc in ray-head.service stroma-ai-vllm.service stroma-ai-watcher.service; do
+        local svc_path="/etc/systemd/system/${svc}"
+        if [[ -f "${svc_path}" ]]; then
+            local owner=$(stat -c '%U:%G' "${svc_path}" 2>/dev/null || stat -f '%Su:%Sg' "${svc_path}" 2>/dev/null)
+            local perms=$(stat -c '%a' "${svc_path}" 2>/dev/null || stat -f '%A' "${svc_path}" 2>/dev/null | tail -c 4)
+            if [[ "${owner}" == "root:root" ]]; then
+                check_pass "${svc_path} ownership: ${owner}"
+            else
+                check_fail "${svc_path} ownership: ${owner} (expected root:root)"
+            fi
+            if [[ "${perms}" == "644" || "${perms}" == "0644" ]]; then
+                check_pass "${svc_path} permissions: ${perms}"
+            else
+                check_warn "${svc_path} permissions: ${perms} (expected 644)"
+            fi
+        else
+            check_warn "${svc_path} not found — service not installed"
+        fi
+    done
+    
+    # 4. Venv directory (stromaai needs write access for pip)
+    local venv_dir="${install_dir}/venv"
+    if [[ -d "${venv_dir}" ]]; then
+        local owner=$(stat -c '%U:%G' "${venv_dir}" 2>/dev/null || stat -f '%Su:%Sg' "${venv_dir}" 2>/dev/null)
+        if [[ "${owner}" == "stromaai:stromaai" ]]; then
+            check_pass "${venv_dir} ownership: ${owner}"
+        else
+            check_fail "${venv_dir} ownership: ${owner} (expected stromaai:stromaai)"
+        fi
+        
+        # Test write access by stromaai user
+        if sudo -u stromaai test -w "${venv_dir}"; then
+            check_pass "${venv_dir} writable by stromaai user"
+        else
+            check_fail "${venv_dir} NOT writable by stromaai user"
+        fi
+    else
+        check_warn "${venv_dir} does not exist"
+    fi
+    
+    # 5. Source files
+    for src_file in src/gateway.py src/vllm_watcher.py src/cluster_manager.py src/stroma_cli.py; do
+        local file_path="${install_dir}/${src_file}"
+        if [[ -f "${file_path}" ]]; then
+            if sudo -u stromaai test -r "${file_path}"; then
+                check_pass "${file_path} readable by stromaai user"
+            else
+                check_fail "${file_path} NOT readable by stromaai user"
+            fi
+        fi
+    done
+    
+    # 6. Log directory (stromaai needs write access)
+    if [[ -d "${log_dir}" ]]; then
+        local owner=$(stat -c '%U:%G' "${log_dir}" 2>/dev/null || stat -f '%Su:%Sg' "${log_dir}" 2>/dev/null)
+        if [[ "${owner}" == "stromaai:stromaai" || "${owner}" =~ ^stromaai: ]]; then
+            check_pass "${log_dir} ownership: ${owner}"
+        else
+            check_warn "${log_dir} ownership: ${owner} (expected stromaai:stromaai)"
+        fi
+        
+        if sudo -u stromaai test -w "${log_dir}"; then
+            check_pass "${log_dir} writable by stromaai user"
+        else
+            check_fail "${log_dir} NOT writable by stromaai user — Slurm job logs will fail"
+        fi
+    else
+        check_warn "${log_dir} does not exist — will be created on first Slurm job"
+    fi
+    
+    # 7. State directory (watcher persistence)
+    if [[ -d "${state_dir}" ]]; then
+        if sudo -u stromaai test -w "${state_dir}"; then
+            check_pass "${state_dir} writable by stromaai user"
+        else
+            check_fail "${state_dir} NOT writable by stromaai user — watcher state persistence will fail"
+        fi
+    else
+        check_warn "${state_dir} does not exist — will be created on first watcher run"
+    fi
+    
+    # 8. Model weights (read access required)
+    if [[ -d "${model_path}" ]]; then
+        if sudo -u stromaai test -r "${model_path}"; then
+            check_pass "${model_path} readable by stromaai user"
+        else
+            check_fail "${model_path} NOT readable by stromaai user — vLLM will fail to load model"
+        fi
+        
+        # Check specific model files
+        local have_config=0
+        for cfg in config.json model.safetensors.index.json; do
+            if [[ -f "${model_path}/${cfg}" ]]; then
+                if sudo -u stromaai test -r "${model_path}/${cfg}"; then
+                    have_config=1
+                else
+                    check_fail "${model_path}/${cfg} NOT readable by stromaai user"
+                fi
+            fi
+        done
+        [[ "${have_config}" -eq 1 ]] && check_pass "${model_path} contains readable model config files"
+    else
+        check_warn "${model_path} does not exist — download model before starting vLLM"
+    fi
+    
+    # 9. Container image (read access required)
+    if [[ -f "${container_path}" ]]; then
+        if sudo -u stromaai test -r "${container_path}"; then
+            check_pass "${container_path} readable by stromaai user"
+        else
+            check_fail "${container_path} NOT readable by stromaai user — Slurm jobs will fail"
+        fi
+    else
+        check_warn "${container_path} does not exist — build container before submitting Slurm jobs"
+    fi
+    
+    # 10. Shared storage mount point (general access)
+    if [[ -d "${shared_root}" ]]; then
+        if sudo -u stromaai test -r "${shared_root}"; then
+            check_pass "${shared_root} readable by stromaai user"
+        else
+            check_fail "${shared_root} NOT readable by stromaai user — shared storage may not be mounted"
+        fi
+    else
+        check_warn "${shared_root} does not exist — verify NFS/GPFS mount"
+    fi
+    
+    # 11. Ray temp directories (/tmp/ray must be writable)
+    local ray_tmp="/tmp/ray"
+    if [[ -d "${ray_tmp}" ]]; then
+        local owner=$(stat -c '%U:%G' "${ray_tmp}" 2>/dev/null || stat -f '%Su:%Sg' "${ray_tmp}" 2>/dev/null)
+        if [[ "${owner}" =~ ^stromaai: ]]; then
+            check_pass "${ray_tmp} ownership: ${owner}"
+        else
+            check_warn "${ray_tmp} ownership: ${owner} (expected stromaai:stromaai)"
+        fi
+        
+        if sudo -u stromaai test -w "${ray_tmp}"; then
+            check_pass "${ray_tmp} writable by stromaai user"
+        else
+            check_fail "${ray_tmp} NOT writable by stromaai user — Ray will fail to start"
+        fi
+    else
+        check_warn "${ray_tmp} does not exist — will be created on first Ray start"
+    fi
+    
+    # 12. TLS certificates (nginx needs read access, but runs as root)
+    local tls_cert="/etc/ssl/stroma-ai/server.crt"
+    local tls_key="/etc/ssl/stroma-ai/server.key"
+    if [[ -f "${tls_cert}" && -f "${tls_key}" ]]; then
+        local key_perms=$(stat -c '%a' "${tls_key}" 2>/dev/null || stat -f '%A' "${tls_key}" 2>/dev/null | tail -c 4)
+        if [[ "${key_perms}" == "600" || "${key_perms}" == "0600" ]]; then
+            check_pass "${tls_key} permissions: ${key_perms} (secure)"
+        else
+            check_warn "${tls_key} permissions: ${key_perms} (recommend 600 for private key)"
+        fi
+        check_pass "${tls_cert} exists and readable"
+    else
+        check_warn "TLS certificate not found at /etc/ssl/stroma-ai/"
+    fi
+    
+    # 13. Docker/Podman socket (for compose on head node)
+    if [[ -S /var/run/docker.sock ]]; then
+        if groups stromaai 2>/dev/null | grep -q docker; then
+            check_pass "stromaai user is in 'docker' group"
+        else
+            check_warn "stromaai user NOT in 'docker' group — docker compose may require sudo"
+        fi
+    fi
+    
+    # 14. Slurm batch script
+    local slurm_script="${install_dir}/deploy/slurm/stroma_ai_worker.slurm"
+    if [[ -f "${slurm_script}" ]]; then
+        if sudo -u stromaai test -r "${slurm_script}"; then
+            check_pass "${slurm_script} readable by stromaai user"
+        else
+            check_fail "${slurm_script} NOT readable by stromaai user — watcher cannot submit jobs"
+        fi
+    else
+        check_warn "${slurm_script} does not exist"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
@@ -317,7 +558,22 @@ main() {
     echo "Mode: ${MODE}"
     echo ""
 
+    # Load config if exists to get custom paths
+    local config="${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env"
+    if [[ -f "${config}" ]]; then
+        log_info "Loading config from ${config}"
+        # shellcheck disable=SC1090
+        set -a
+        source "${config}" 2>/dev/null || true
+        set +a
+    fi
+
     check_common
+
+    # Permissions check (can run standalone or with mode checks)
+    if [[ "${CHECK_PERMS}" -eq 1 ]]; then
+        check_permissions
+    fi
 
     case "${MODE}" in
         head)   check_head ;;
