@@ -101,6 +101,48 @@ fi
 detect_os
 
 # ---------------------------------------------------------------------------
+# Detect installation directory
+# ---------------------------------------------------------------------------
+# Smart detection: checks multiple locations to find existing installation
+_detect_install_dir() {
+    # 1. Environment variable override
+    if [[ -n "${STROMA_INSTALL_DIR:-}" ]]; then
+        log_info "Using STROMA_INSTALL_DIR from environment: ${STROMA_INSTALL_DIR}"
+        return 0
+    fi
+    
+    # 2. Check if running from installed directory (repo used as install dir)
+    if [[ -f "${REPO_DIR}/config.env" ]]; then
+        STROMA_INSTALL_DIR="${REPO_DIR}"
+        log_info "Detected in-place installation at: ${STROMA_INSTALL_DIR}"
+        return 0
+    fi
+    
+    # 3. Look for config.env in common installation locations
+    local common_paths=(
+        "/opt/stroma-ai"
+        "/cm/shared/apps/stroma-ai"
+        "/opt/apps/stroma-ai"
+        "/usr/local/stroma-ai"
+        "${HOME}/stroma-ai"
+    )
+    
+    for path in "${common_paths[@]}"; do
+        if [[ -f "${path}/config.env" ]]; then
+            STROMA_INSTALL_DIR="${path}"
+            log_info "Found existing installation at: ${STROMA_INSTALL_DIR}"
+            return 0
+        fi
+    done
+    
+    # 4. Default to /opt/stroma-ai for new installations
+    STROMA_INSTALL_DIR="/opt/stroma-ai"
+    log_info "No existing installation found — will use default: ${STROMA_INSTALL_DIR}"
+}
+
+_detect_install_dir
+
+# ---------------------------------------------------------------------------
 # Configuration loading / interactive setup
 # ---------------------------------------------------------------------------
 load_or_prompt_config() {
@@ -111,14 +153,14 @@ load_or_prompt_config() {
         log_info "Loading configuration from: ${CONFIG_FILE}"
         # shellcheck source=/dev/null
         source "${CONFIG_FILE}"
-    elif [[ -f ${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env ]]; then
-        log_info "Existing config found at ${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env — loading."
+    elif [[ -f "${STROMA_INSTALL_DIR}/config.env" ]]; then
+        log_info "Existing config found at ${STROMA_INSTALL_DIR}/config.env — loading."
         # Trap errors when sourcing potentially corrupted config files
-        if ! source "${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env" 2>/dev/null; then
+        if ! source "${STROMA_INSTALL_DIR}/config.env" 2>/dev/null; then
             log_warn "Failed to load existing config.env (possibly corrupted)."
             log_info "Backing up and continuing with interactive setup..."
-            local backup="${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env.corrupted.$(date +%Y%m%d%H%M%S)"
-            mv "${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env" "${backup}"
+            local backup="${STROMA_INSTALL_DIR}/config.env.corrupted.$(date +%Y%m%d%H%M%S)"
+            mv "${STROMA_INSTALL_DIR}/config.env" "${backup}"
             log_info "Corrupted config backed up to: ${backup}"
             _interactive_config
         fi
@@ -127,8 +169,7 @@ load_or_prompt_config() {
         _interactive_config
     fi
 
-    # Apply defaults for any unset values
-    STROMA_INSTALL_DIR="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
+    # Apply defaults for any unset values (STROMA_INSTALL_DIR already set by _detect_install_dir)
     STROMA_SHARED_ROOT="${STROMA_SHARED_ROOT:-/share}"
     STROMA_HEAD_HOST="${STROMA_HEAD_HOST:-stroma-ai.$(hostname -d 2>/dev/null || echo 'cluster.local')}"
     STROMA_VLLM_PORT="${STROMA_VLLM_PORT:-8000}"

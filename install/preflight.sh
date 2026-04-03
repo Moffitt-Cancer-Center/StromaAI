@@ -54,6 +54,45 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# Detect installation directory
+# ---------------------------------------------------------------------------
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+_detect_install_dir() {
+    # 1. Environment variable override
+    if [[ -n "${STROMA_INSTALL_DIR:-}" ]]; then
+        return 0
+    fi
+    
+    # 2. Check if running from installed directory (repo used as install dir)
+    if [[ -f "${REPO_DIR}/config.env" ]]; then
+        export STROMA_INSTALL_DIR="${REPO_DIR}"
+        return 0
+    fi
+    
+    # 3. Look for config.env in common installation locations
+    local common_paths=(
+        "/opt/stroma-ai"
+        "/cm/shared/apps/stroma-ai"
+        "/opt/apps/stroma-ai"
+        "/usr/local/stroma-ai"
+        "${HOME}/stroma-ai"
+    )
+    
+    for path in "${common_paths[@]}"; do
+        if [[ -f "${path}/config.env" ]]; then
+            export STROMA_INSTALL_DIR="${path}"
+            return 0
+        fi
+    done
+    
+    # 4. Default to /opt/stroma-ai for new installations
+    export STROMA_INSTALL_DIR="/opt/stroma-ai"
+}
+
+_detect_install_dir
+
+# ---------------------------------------------------------------------------
 # Check tracking
 # ---------------------------------------------------------------------------
 PASS_COUNT=0
@@ -175,7 +214,7 @@ check_head() {
     fi
 
     # Install directory
-    local install_dir="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
+    local install_dir="${STROMA_INSTALL_DIR}"
     if [[ -d "${install_dir}" ]]; then
         check_pass "${install_dir} directory exists"
     else
@@ -325,7 +364,7 @@ check_permissions() {
         log_info "Fix mode enabled — will attempt to correct permission issues"
     fi
 
-    local install_dir="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
+    local install_dir="${STROMA_INSTALL_DIR}"
     local config_file="${install_dir}/config.env"
     local shared_root="${STROMA_SHARED_ROOT:-/share}"
     local model_path="${STROMA_MODEL_PATH:-${shared_root}/models/Qwen2.5-Coder-32B-Instruct-AWQ}"
@@ -705,7 +744,7 @@ main() {
     echo ""
 
     # Load config if exists to get custom paths
-    local config="${STROMA_INSTALL_DIR:-/opt/stroma-ai}/config.env"
+    local config="${STROMA_INSTALL_DIR}/config.env"
     if [[ -f "${config}" ]]; then
         log_info "Loading config from ${config}"
         # shellcheck disable=SC1090

@@ -35,6 +35,48 @@ source "${SCRIPT_DIR}/lib/detect.sh"
 require_root
 detect_os
 
+# ---------------------------------------------------------------------------
+# Detect installation directory
+# ---------------------------------------------------------------------------
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+_detect_install_dir() {
+    # 1. Environment variable override
+    if [[ -n "${STROMA_INSTALL_DIR:-}" ]]; then
+        return 0
+    fi
+    
+    # 2. Check if running from installed directory (repo used as install dir)
+    if [[ -f "${REPO_DIR}/config.env" ]]; then
+        STROMA_INSTALL_DIR="${REPO_DIR}"
+        return 0
+    fi
+    
+    # 3. Look for config.env in common installation locations
+    local common_paths=(
+        "/opt/stroma-ai"
+        "/cm/shared/apps/stroma-ai"
+        "/opt/apps/stroma-ai"
+        "/usr/local/stroma-ai"
+        "${HOME}/stroma-ai"
+    )
+    
+    for path in "${common_paths[@]}"; do
+        if [[ -f "${path}/config.env" ]]; then
+            STROMA_INSTALL_DIR="${path}"
+            return 0
+        fi
+    done
+    
+    # 4. Default to /opt/stroma-ai
+    STROMA_INSTALL_DIR="/opt/stroma-ai"
+}
+
+_detect_install_dir
+
+# ---------------------------------------------------------------------------
+# Parse arguments
+# ---------------------------------------------------------------------------
 for arg in "$@"; do
     case "${arg}" in
         --yes)    STROMA_YES=1 ;;
@@ -179,7 +221,7 @@ echo ""
 echo "Remaining (not removed — your data):"
 echo "  /share/containers/  — container images"
 echo "  /share/models/      — model weights"
-echo "  ${STROMA_INSTALL_DIR:-/opt/stroma-ai}/logs — audit logs"
+echo "  ${STROMA_INSTALL_DIR}/logs — audit logs"
 echo ""
 echo "System packages NOT removed: nginx, python3.11, nvidia-container-toolkit"
 echo "Remove manually if no longer needed."
