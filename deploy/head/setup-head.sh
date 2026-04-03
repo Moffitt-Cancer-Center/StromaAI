@@ -42,8 +42,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-# Global config file path (shared by all StromaAI components)
-GLOBAL_CONFIG_ENV="${STROMA_CONFIG_ENV:-/opt/stroma-ai/config.env}"
+# Global config file path — resolved dynamically below after helpers are defined
+GLOBAL_CONFIG_ENV=""
 
 # ---------------------------------------------------------------------------
 # Colour helpers (inline — no lib dependency for a standalone setup script)
@@ -152,6 +152,13 @@ install_systemd_service() {
     log_info "Installing systemd unit: ${dest}"
     cp -p "${src}" "${dest}"
     chmod 644 "${dest}"
+    # Patch template placeholder so the unit works for any install location
+    local _install_dir
+    _install_dir="$(dirname "$(dirname "${GLOBAL_CONFIG_ENV:-/opt/stroma-ai/config.env}")")" 
+    if [[ "${_install_dir}" != "/opt/stroma-ai" ]]; then
+        sed -i "s|/opt/stroma-ai|${_install_dir}|g" "${dest}"
+        log_info "Patched ${dest}: /opt/stroma-ai → ${_install_dir}"
+    fi
     systemctl daemon-reload
     systemctl enable --now "${name}"
     log_ok "Service ${name} enabled and started"
@@ -201,6 +208,65 @@ PYEOF
 # Source detect.sh for detect_os() — log_warn/die must be defined first (above)
 # shellcheck source=install/lib/detect.sh
 source "${REPO_ROOT}/install/lib/detect.sh"
+
+# ---------------------------------------------------------------------------
+# _resolve_global_config — locate the StromaAI config.env at runtime
+# ---------------------------------------------------------------------------
+# Resolution order:
+#   1. STROMA_CONFIG_ENV env var (explicit override)
+#   2. STROMA_INSTALL_DIR env var → $STROMA_INSTALL_DIR/config.env
+#   3. Repo root (script lives in deploy/head/ — two levels up)
+#   4. Well-known HPC / system paths searched for config.env
+#   5. Interactive prompt (or die if STROMA_YES=1)
+# ---------------------------------------------------------------------------
+_resolve_global_config() {
+    # 1. Explicit env var
+    if [[ -n "${STROMA_CONFIG_ENV:-}" ]]; then
+        GLOBAL_CONFIG_ENV="${STROMA_CONFIG_ENV}"
+        return 0
+    fi
+
+    # 2. STROMA_INSTALL_DIR set explicitly in environment
+    if [[ -n "${STROMA_INSTALL_DIR:-}" && -f "${STROMA_INSTALL_DIR}/config.env" ]]; then
+        GLOBAL_CONFIG_ENV="${STROMA_INSTALL_DIR}/config.env"
+        return 0
+    fi
+
+    # 3. Repo root
+    if [[ -f "${REPO_ROOT}/config.env" ]]; then
+        GLOBAL_CONFIG_ENV="${REPO_ROOT}/config.env"
+        return 0
+    fi
+
+    # 4. Well-known HPC / system paths
+    local _search_paths=(
+        "/cm/shared/apps/stroma-ai"
+        "/opt/stroma-ai"
+        "/opt/apps/stroma-ai"
+        "/usr/local/stroma-ai"
+        "${HOME}/stroma-ai"
+    )
+    local _p
+    for _p in "${_search_paths[@]}"; do
+        if [[ -f "${_p}/config.env" ]]; then
+            GLOBAL_CONFIG_ENV="${_p}/config.env"
+            return 0
+        fi
+    done
+
+    # 5. Not found — prompt or die
+    if [[ "${STROMA_YES:-0}" == "1" ]]; then
+        die "config.env not found. Set STROMA_CONFIG_ENV or STROMA_INSTALL_DIR before running."
+    fi
+    log_warn "config.env not found in standard locations."
+    echo -en "${BOLD}Path to StromaAI config.env [/opt/stroma-ai/config.env]: ${RESET}"
+    local _input
+    read -r _input
+    GLOBAL_CONFIG_ENV="${_input:-/opt/stroma-ai/config.env}"
+}
+
+_resolve_global_config
+log_info "Using config: ${GLOBAL_CONFIG_ENV}"
 
 # ---------------------------------------------------------------------------
 # Usage

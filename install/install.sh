@@ -103,40 +103,9 @@ detect_os
 # ---------------------------------------------------------------------------
 # Detect installation directory
 # ---------------------------------------------------------------------------
-# Smart detection: checks multiple locations to find existing installation
-_detect_install_dir() {
-    # 1. Environment variable override
-    if [[ -n "${STROMA_INSTALL_DIR:-}" ]]; then
-        return 0
-    fi
-    
-    # 2. Check if running from installed directory (repo used as install dir)
-    if [[ -f "${REPO_DIR}/config.env" ]]; then
-        STROMA_INSTALL_DIR="${REPO_DIR}"
-        return 0
-    fi
-    
-    # 3. Look for config.env in common installation locations
-    local common_paths=(
-        "/opt/stroma-ai"
-        "/cm/shared/apps/stroma-ai"
-        "/opt/apps/stroma-ai"
-        "/usr/local/stroma-ai"
-        "${HOME}/stroma-ai"
-    )
-    
-    for path in "${common_paths[@]}"; do
-        if [[ -f "${path}/config.env" ]]; then
-            STROMA_INSTALL_DIR="${path}"
-            return 0
-        fi
-    done
-    
-    # 4. Default to /opt/stroma-ai for new installations
-    STROMA_INSTALL_DIR="/opt/stroma-ai"
-}
-
-_detect_install_dir
+# Delegates to _resolve_install_dir from install/lib/common.sh which searches
+# the environment, the repo root, and well-known paths before prompting.
+_resolve_install_dir
 
 # Show what was detected (helps with debugging)
 if [[ -f "${STROMA_INSTALL_DIR}/config.env" ]]; then
@@ -245,8 +214,8 @@ EOF
     local default_host
     default_host="stroma-ai.$(hostname -d 2>/dev/null || echo 'cluster.local')"
 
-    echo -en "Install directory [/opt/stroma-ai]: "
-    read -r input; STROMA_INSTALL_DIR="${input:-/opt/stroma-ai}"
+    echo -en "Install directory [${STROMA_INSTALL_DIR:-/opt/stroma-ai}]: "
+    read -r input; STROMA_INSTALL_DIR="${input:-${STROMA_INSTALL_DIR:-/opt/stroma-ai}}"
 
     echo -en "Shared filesystem root [/share]: "
     read -r input; STROMA_SHARED_ROOT="${input:-/share}"

@@ -50,7 +50,9 @@ source "${REPO_ROOT}/install/lib/detect.sh"
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-CONFIG_ENV="${STROMA_CONFIG_ENV:-/opt/stroma-ai/config.env}"
+# CONFIG_ENV starts empty; resolved after argument parsing so --config=FILE
+# takes precedence, otherwise falls back to _resolve_install_dir detection.
+CONFIG_ENV=""
 COMPOSE_ENV="${SCRIPT_DIR}/.env"
 
 # ---------------------------------------------------------------------------
@@ -64,7 +66,7 @@ Options:
   --mode=local      Deploy OpenWebUI container on this host non-interactively
   --mode=external   Register an existing OpenWebUI instance non-interactively
   --config=FILE     Path to platform config.env
-                    (default: /opt/stroma-ai/config.env)
+                    (default: auto-detected from STROMA_INSTALL_DIR or standard paths)
   --dry-run         Print commands without executing them
   --yes             Non-interactive (auto-confirm all prompts)
   -h, --help        Show this help message
@@ -90,6 +92,13 @@ for _arg in "$@"; do
     esac
 done
 unset _arg
+
+# Resolve CONFIG_ENV if not set by --config= argument.
+if [[ -z "${CONFIG_ENV}" ]]; then
+    _resolve_install_dir
+    CONFIG_ENV="${STROMA_INSTALL_DIR}/config.env"
+fi
+log_info "Using config: ${CONFIG_ENV}"
 
 # ---------------------------------------------------------------------------
 # Detect Podman Compose

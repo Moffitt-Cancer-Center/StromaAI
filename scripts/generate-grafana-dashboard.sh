@@ -43,7 +43,24 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
-CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
+_resolve_config_file() {
+    [[ -n "${CONFIG_FILE:-}" ]] && return 0
+    local _paths=(
+        "${STROMA_INSTALL_DIR:+${STROMA_INSTALL_DIR}/config.env}"
+        "/cm/shared/apps/stroma-ai/config.env"
+        "/opt/stroma-ai/config.env"
+        "/opt/apps/stroma-ai/config.env"
+        "/usr/local/stroma-ai/config.env"
+        "${HOME}/stroma-ai/config.env"
+    )
+    local _p
+    for _p in "${_paths[@]}"; do
+        [[ -z "${_p}" ]] && continue
+        if [[ -f "${_p}" ]]; then CONFIG_FILE="${_p}"; return 0; fi
+    done
+}
+
+CONFIG_FILE="${STROMA_CONFIG:-}"
 OUTPUT_FILE=""
 DATASOURCE_NAME="Prometheus"
 
@@ -63,12 +80,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Resolve CONFIG_FILE after arg parsing (--config may have set it already)
+_resolve_config_file
+
 # ---------------------------------------------------------------------------
 # Load config
 # ---------------------------------------------------------------------------
-if [[ ! -f "${CONFIG_FILE}" ]]; then
-    echo "ERROR: Config file not found: ${CONFIG_FILE}" >&2
-    echo "       Use --config to specify a path, or copy config/config.example.env first." >&2
+if [[ -z "${CONFIG_FILE:-}" || ! -f "${CONFIG_FILE}" ]]; then
+    echo "ERROR: Config file not found${CONFIG_FILE:+: ${CONFIG_FILE}}." >&2
+    echo "       Use --config to specify a path, or set STROMA_INSTALL_DIR." >&2
     exit 2
 fi
 

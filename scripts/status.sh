@@ -19,8 +19,26 @@
 
 set -euo pipefail
 
-CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
-STATE_FILE="${STROMA_STATE_FILE:-/opt/stroma-ai/watcher_state.json}"
+_resolve_config_file() {
+    [[ -n "${CONFIG_FILE:-}" ]] && return 0
+    local _paths=(
+        "${STROMA_INSTALL_DIR:+${STROMA_INSTALL_DIR}/config.env}"
+        "/cm/shared/apps/stroma-ai/config.env"
+        "/opt/stroma-ai/config.env"
+        "/opt/apps/stroma-ai/config.env"
+        "/usr/local/stroma-ai/config.env"
+        "${HOME}/stroma-ai/config.env"
+    )
+    local _p
+    for _p in "${_paths[@]}"; do
+        [[ -z "${_p}" ]] && continue
+        if [[ -f "${_p}" ]]; then CONFIG_FILE="${_p}"; return 0; fi
+    done
+}
+
+CONFIG_FILE="${STROMA_CONFIG:-}"
+_resolve_config_file
+STATE_FILE="${STROMA_STATE_FILE:-$(dirname "${CONFIG_FILE:-/opt/stroma-ai/config.env}")/state/watcher_state.json}"
 SLURM_PARTITION="${STROMA_SLURM_PARTITION:-stroma-ai-gpu}"
 LOG_LINES="${STROMA_STATUS_LOG_LINES:-20}"
 

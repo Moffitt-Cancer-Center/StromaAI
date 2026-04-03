@@ -40,39 +40,9 @@ detect_os
 # ---------------------------------------------------------------------------
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-_detect_install_dir() {
-    # 1. Environment variable override
-    if [[ -n "${STROMA_INSTALL_DIR:-}" ]]; then
-        return 0
-    fi
-    
-    # 2. Check if running from installed directory (repo used as install dir)
-    if [[ -f "${REPO_DIR}/config.env" ]]; then
-        STROMA_INSTALL_DIR="${REPO_DIR}"
-        return 0
-    fi
-    
-    # 3. Look for config.env in common installation locations
-    local common_paths=(
-        "/opt/stroma-ai"
-        "/cm/shared/apps/stroma-ai"
-        "/opt/apps/stroma-ai"
-        "/usr/local/stroma-ai"
-        "${HOME}/stroma-ai"
-    )
-    
-    for path in "${common_paths[@]}"; do
-        if [[ -f "${path}/config.env" ]]; then
-            STROMA_INSTALL_DIR="${path}"
-            return 0
-        fi
-    done
-    
-    # 4. Default to /opt/stroma-ai
-    STROMA_INSTALL_DIR="/opt/stroma-ai"
-}
-
-_detect_install_dir
+# Delegates to _resolve_install_dir from install/lib/common.sh which searches
+# the environment, the repo root, and well-known paths before prompting.
+_resolve_install_dir
 
 # Show what was detected
 if [[ -d "${STROMA_INSTALL_DIR}" ]]; then

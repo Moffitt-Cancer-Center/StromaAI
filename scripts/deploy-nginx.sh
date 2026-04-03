@@ -39,7 +39,32 @@ set -euo pipefail
 # Configuration
 # =============================================================================
 
-CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
+# Resolve config file path:
+#   1. STROMA_CONFIG env var
+#   2. --config argument (parsed below, may override)
+#   3. STROMA_INSTALL_DIR/config.env
+#   4. Search well-known HPC / system paths
+_resolve_config_file() {
+    [[ -n "${CONFIG_FILE:-}" ]] && return 0
+    local _paths=(
+        "${STROMA_INSTALL_DIR:+${STROMA_INSTALL_DIR}/config.env}"
+        "/cm/shared/apps/stroma-ai/config.env"
+        "/opt/stroma-ai/config.env"
+        "/opt/apps/stroma-ai/config.env"
+        "/usr/local/stroma-ai/config.env"
+        "${HOME}/stroma-ai/config.env"
+    )
+    local _p
+    for _p in "${_paths[@]}"; do
+        [[ -z "${_p}" ]] && continue
+        if [[ -f "${_p}" ]]; then
+            CONFIG_FILE="${_p}"
+            return 0
+        fi
+    done
+}
+
+CONFIG_FILE="${STROMA_CONFIG:-}"
 REPO_DIR="${STROMA_REPO_DIR:-}"
 SSL_CERT_DIR="${TLS_CERT_PATH:-/etc/ssl/stroma-ai}"
 SSL_CERT_PATH="${SSL_CERT_DIR}/server.crt"
@@ -340,6 +365,14 @@ main() {
     if [[ -z "${REPO_DIR}" ]]; then
         REPO_DIR=$(detect_repo_dir)
     fi
+
+    # Resolve CONFIG_FILE after arg parsing so explicit --config-like overrides take effect,
+    # but REPO_DIR is now known so we can also search the repo root.
+    if [[ -z "${CONFIG_FILE}" && -f "${REPO_DIR}/config.env" ]]; then
+        CONFIG_FILE="${REPO_DIR}/config.env"
+    fi
+    _resolve_config_file
+    [[ -n "${CONFIG_FILE}" ]] && log_info "Using config: ${CONFIG_FILE}"
     
     log_info "Using StromaAI repository: ${REPO_DIR}"
     

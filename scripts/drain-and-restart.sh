@@ -27,7 +27,24 @@
 
 set -euo pipefail
 
-CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
+_resolve_config_file() {
+    [[ -n "${CONFIG_FILE:-}" ]] && return 0
+    local _paths=(
+        "${STROMA_INSTALL_DIR:+${STROMA_INSTALL_DIR}/config.env}"
+        "/cm/shared/apps/stroma-ai/config.env"
+        "/opt/stroma-ai/config.env"
+        "/opt/apps/stroma-ai/config.env"
+        "/usr/local/stroma-ai/config.env"
+        "${HOME}/stroma-ai/config.env"
+    )
+    local _p
+    for _p in "${_paths[@]}"; do
+        [[ -z "${_p}" ]] && continue
+        if [[ -f "${_p}" ]]; then CONFIG_FILE="${_p}"; return 0; fi
+    done
+}
+
+CONFIG_FILE="${STROMA_CONFIG:-}"
 DRAIN_TIMEOUT=300
 START_TIMEOUT=300
 DRY_RUN=false
@@ -45,10 +62,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+_resolve_config_file
 # shellcheck source=/dev/null
-[[ -f "${CONFIG_FILE}" ]] && source "${CONFIG_FILE}" || true
+[[ -f "${CONFIG_FILE:-}" ]] && source "${CONFIG_FILE}" || true
 
-HEAD="${STROMA_HEAD_HOST:-localhost}"
+HEAD_HOST="${STROMA_HEAD_HOST:-localhost}"
 VLLM_PORT="${STROMA_VLLM_PORT:-8000}"
 API_KEY="${STROMA_API_KEY:-}"
 AUTH_HDR=()

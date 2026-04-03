@@ -30,13 +30,26 @@ HTTPS_PORT="${2:-${STROMA_HTTPS_PORT:-443}}"
 API_KEY="${3:-${STROMA_API_KEY:-}}"
 
 if [[ -z "${HEAD_HOST}" ]]; then
-    # Try loading from installed config
-    if [[ -f /opt/stroma-ai/config.env ]]; then
-        # shellcheck source=/dev/null
-        source /opt/stroma-ai/config.env
-        HEAD_HOST="${STROMA_HEAD_HOST:-}"
-        API_KEY="${STROMA_API_KEY:-}"
-    fi
+    # Try loading from installed config — search well-known paths
+    local _search_paths=(
+        "${STROMA_INSTALL_DIR:-}"
+        "/cm/shared/apps/stroma-ai"
+        "/opt/stroma-ai"
+        "/opt/apps/stroma-ai"
+        "/usr/local/stroma-ai"
+        "${HOME}/stroma-ai"
+    )
+    for _p in "${_search_paths[@]}"; do
+        [[ -z "${_p}" ]] && continue
+        if [[ -f "${_p}/config.env" ]]; then
+            # shellcheck source=/dev/null
+            source "${_p}/config.env"
+            HEAD_HOST="${STROMA_HEAD_HOST:-}"
+            API_KEY="${STROMA_API_KEY:-}"
+            break
+        fi
+    done
+    unset _p _search_paths
 fi
 
 [[ -n "${HEAD_HOST}" ]] || { echo "ERROR: HEAD_HOST not set. Pass as arg or set STROMA_HEAD_HOST."; exit 1; }

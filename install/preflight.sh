@@ -58,39 +58,9 @@ done
 # ---------------------------------------------------------------------------
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-_detect_install_dir() {
-    # 1. Environment variable override
-    if [[ -n "${STROMA_INSTALL_DIR:-}" ]]; then
-        return 0
-    fi
-    
-    # 2. Check if running from installed directory (repo used as install dir)
-    if [[ -f "${REPO_DIR}/config.env" ]]; then
-        export STROMA_INSTALL_DIR="${REPO_DIR}"
-        return 0
-    fi
-    
-    # 3. Look for config.env in common installation locations
-    local common_paths=(
-        "/opt/stroma-ai"
-        "/cm/shared/apps/stroma-ai"
-        "/opt/apps/stroma-ai"
-        "/usr/local/stroma-ai"
-        "${HOME}/stroma-ai"
-    )
-    
-    for path in "${common_paths[@]}"; do
-        if [[ -f "${path}/config.env" ]]; then
-            export STROMA_INSTALL_DIR="${path}"
-            return 0
-        fi
-    done
-    
-    # 4. Default to /opt/stroma-ai for new installations
-    export STROMA_INSTALL_DIR="/opt/stroma-ai"
-}
-
-_detect_install_dir
+# Delegates to _resolve_install_dir from install/lib/common.sh.
+# Sets STROMA_INSTALL_DIR, STROMA_VENV, STROMA_LOG_DIR, etc.
+_resolve_install_dir
 
 # Show what was detected (helps with debugging)
 if [[ -f "${STROMA_INSTALL_DIR}/config.env" ]]; then
@@ -751,21 +721,20 @@ main() {
     echo "Mode: ${MODE}"
     echo ""
 
-    # Load config if exists to get custom paths.
-    # Preserve the filesystem-detected STROMA_INSTALL_DIR: sourcing config.env with
-    # set -a exports all variables, which would overwrite a correctly-detected
-    # STROMA_INSTALL_DIR with a stale value if the repo was moved.
-    local _detected_install_dir="${STROMA_INSTALL_DIR}"
+    # Load remaining config vars (STROMA_INSTALL_DIR already locked in by
+    # _resolve_install_dir above and cannot be overwritten by a stale value
+    # inside config.env because _resolve_install_dir sets the guard variable
+    # _STROMA_INSTALL_DIR_RESOLVED, preventing a second call).
     local config="${STROMA_INSTALL_DIR}/config.env"
     if [[ -f "${config}" ]]; then
         log_info "Loading config from ${config}"
+        local _saved_install_dir="${STROMA_INSTALL_DIR}"
         # shellcheck disable=SC1090
         set -a
         source "${config}" 2>/dev/null || true
         set +a
-        # Restore the path we detected from the filesystem; don't let a stale
-        # STROMA_INSTALL_DIR inside config.env override it.
-        export STROMA_INSTALL_DIR="${_detected_install_dir}"
+        # Restore: never let config.env clobber the detected install dir
+        export STROMA_INSTALL_DIR="${_saved_install_dir}"
     fi
 
     check_common

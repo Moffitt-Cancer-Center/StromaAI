@@ -161,29 +161,109 @@ installed_version() {
 }
 
 # ---------------------------------------------------------------------------
-# StromaAI installation directories
-# STROMA_INSTALL_DIR may be set by the caller before sourcing this file to
-# install into a non-default location (e.g. /opt/stroma-ai-dev).
+# StromaAI installation directory resolution
 # ---------------------------------------------------------------------------
-STROMA_INSTALL_DIR="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
-# STROMA_LOG_DIR must NOT be readonly — it is overridden by STROMA_SHARED_ROOT
-# or STROMA_LOG_DIR from config.env. The value here is the fallback only.
-STROMA_LOG_DIR="${STROMA_LOG_DIR:-${STROMA_INSTALL_DIR}/logs}"
-# shellcheck disable=SC2034  # used by install.sh (sourced at runtime)
-readonly STROMA_STATE_DIR="${STROMA_INSTALL_DIR}/state"
-# shellcheck disable=SC2034  # used by install.sh (sourced at runtime)
-readonly STROMA_SYSTEMD_DIR="/etc/systemd/system"
+# STROMA_INSTALL_DIR is NOT set here at source time.  Call
+# _resolve_install_dir early in each script so that all derived paths
+# (STROMA_VENV, STROMA_PIP, etc.) are computed from the real location.
+# ---------------------------------------------------------------------------
+
+# shellcheck disable=SC2034  # used by install.sh / packages.sh
+STROMA_SYSTEMD_DIR="/etc/systemd/system"
 
 # ---------------------------------------------------------------------------
-# stroma_ai_venv — path to the Python virtual environment
-# (computed after STROMA_INSTALL_DIR is finalised)
+# _resolve_install_dir — detect, source, or prompt for STROMA_INSTALL_DIR
 # ---------------------------------------------------------------------------
-# shellcheck disable=SC2034  # used by packages.sh (sourced at runtime)
-readonly STROMA_VENV="${STROMA_INSTALL_DIR}/venv"
-# shellcheck disable=SC2034  # unused directly; kept for external sourcing
-readonly STROMA_PYTHON="${STROMA_VENV}/bin/python3"
-# shellcheck disable=SC2034  # used by packages.sh (sourced at runtime)
-readonly STROMA_PIP="${STROMA_VENV}/bin/pip"
+# Resolution order:
+#   1. STROMA_INSTALL_DIR already in environment (set by caller before sudo)
+#   2. REPO_DIR or REPO_ROOT sibling contains config.env (in-place install)
+#   3. config.env found in well-known HPC / system paths
+#   4. Interactive prompt (or die if STROMA_YES=1 / non-interactive)
+#
+# After resolving, sets derived path variables:
+#   STROMA_LOG_DIR, STROMA_STATE_DIR, STROMA_VENV, STROMA_PYTHON, STROMA_PIP
+# ---------------------------------------------------------------------------
+_resolve_install_dir() {
+    # Guard: don't run twice in the same shell session
+    [[ -n "${_STROMA_INSTALL_DIR_RESOLVED:-}" ]] && return 0
+
+    local _candidate=""
+
+    # 1. Explicit environment variable (set by caller before sudo)
+    if [[ -n "${STROMA_INSTALL_DIR:-}" ]]; then
+        _candidate="${STROMA_INSTALL_DIR}"
+    fi
+
+    # 2. Repo root sibling: script is running from an in-place install directory
+    if [[ -z "${_candidate}" ]]; then
+        local _repo_root="${REPO_ROOT:-${REPO_DIR:-}}"
+        if [[ -n "${_repo_root}" && -f "${_repo_root}/config.env" ]]; then
+            _candidate="${_repo_root}"
+        fi
+    fi
+
+    # 3. Search well-known paths — /cm/shared/apps first for HPC deployments
+    if [[ -z "${_candidate}" ]]; then
+        local _search_paths=(
+            "/cm/shared/apps/stroma-ai"
+            "/opt/stroma-ai"
+            "/opt/apps/stroma-ai"
+            "/usr/local/stroma-ai"
+            "${HOME}/stroma-ai"
+        )
+        local _p
+        for _p in "${_search_paths[@]}"; do
+            if [[ -f "${_p}/config.env" ]]; then
+                # Source the config to pick up any STROMA_INSTALL_DIR override,
+                # then validate: if it points to a real dir with a config.env,
+                # use it; otherwise fall back to the path we found on disk.
+                local _sourced_id=""
+                set -a
+                # shellcheck source=/dev/null
+                source "${_p}/config.env" 2>/dev/null || true
+                set +a
+                _sourced_id="${STROMA_INSTALL_DIR:-}"
+                if [[ -n "${_sourced_id}" && -d "${_sourced_id}" && \
+                      -f "${_sourced_id}/config.env" ]]; then
+                    _candidate="${_sourced_id}"
+                else
+                    _candidate="${_p}"
+                fi
+                break
+            fi
+        done
+    fi
+
+    # 4. Not found — prompt or die
+    if [[ -z "${_candidate}" ]]; then
+        if [[ "${STROMA_YES:-0}" == "1" ]]; then
+            die "STROMA_INSTALL_DIR not detected and no config.env found in standard paths."\
+" Set STROMA_INSTALL_DIR or pass --config=FILE."
+        fi
+        echo -e "${YELLOW}[WARN]${RESET}  Installation directory not detected (no config.env found)." >&2
+        echo -en "${BOLD}Enter installation directory path [/opt/stroma-ai]: ${RESET}"
+        local _input
+        read -r _input
+        _candidate="${_input:-/opt/stroma-ai}"
+    fi
+
+    export STROMA_INSTALL_DIR="${_candidate}"
+    export _STROMA_INSTALL_DIR_RESOLVED=1
+
+    # Derive dependent paths (not readonly — must be re-derivable after detection)
+    # shellcheck disable=SC2034
+    STROMA_LOG_DIR="${STROMA_LOG_DIR:-${STROMA_INSTALL_DIR}/logs}"
+    # shellcheck disable=SC2034
+    STROMA_STATE_DIR="${STROMA_INSTALL_DIR}/state"
+    # shellcheck disable=SC2034
+    STROMA_VENV="${STROMA_INSTALL_DIR}/venv"
+    # shellcheck disable=SC2034
+    STROMA_PYTHON="${STROMA_VENV}/bin/python3"
+    # shellcheck disable=SC2034
+    STROMA_PIP="${STROMA_VENV}/bin/pip"
+
+    log_info "Installation directory: ${STROMA_INSTALL_DIR}"
+}
 
 # ---------------------------------------------------------------------------
 # open_firewall_port PORT/PROTO [ZONE]
@@ -269,6 +349,15 @@ install_systemd_service() {
     log_info "Installing systemd unit: ${dest}"
     cp -p "${src}" "${dest}"
     chmod 644 "${dest}"
+
+    # Patch any template placeholders so the unit works regardless of where
+    # the repository was cloned / installed.
+    local _inst_dir="${STROMA_INSTALL_DIR:-/opt/stroma-ai}"
+    if [[ "${_inst_dir}" != "/opt/stroma-ai" ]]; then
+        sed -i "s|/opt/stroma-ai|${_inst_dir}|g" "${dest}"
+        log_info "Patched ${dest}: /opt/stroma-ai → ${_inst_dir}"
+    fi
+
     systemctl daemon-reload
     systemctl enable --now "${name}"
     log_ok "Service ${name} enabled and started"

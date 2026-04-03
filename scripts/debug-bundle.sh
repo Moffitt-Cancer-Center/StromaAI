@@ -40,8 +40,26 @@ done
 BUNDLE_DIR="${OUTPUT_DIR}/${BUNDLE_NAME}"
 OUTPUT="${OUTPUT:-${OUTPUT_DIR}/${BUNDLE_NAME}.tar.gz}"
 
-CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
-STATE_FILE="${STROMA_STATE_FILE:-/opt/stroma-ai/watcher_state.json}"
+_resolve_config_file() {
+    [[ -n "${CONFIG_FILE:-}" ]] && return 0
+    local _paths=(
+        "${STROMA_INSTALL_DIR:+${STROMA_INSTALL_DIR}/config.env}"
+        "/cm/shared/apps/stroma-ai/config.env"
+        "/opt/stroma-ai/config.env"
+        "/opt/apps/stroma-ai/config.env"
+        "/usr/local/stroma-ai/config.env"
+        "${HOME}/stroma-ai/config.env"
+    )
+    local _p
+    for _p in "${_paths[@]}"; do
+        [[ -z "${_p}" ]] && continue
+        if [[ -f "${_p}" ]]; then CONFIG_FILE="${_p}"; return 0; fi
+    done
+}
+
+CONFIG_FILE="${STROMA_CONFIG:-}"
+_resolve_config_file
+STATE_FILE="${STROMA_STATE_FILE:-$(dirname "${CONFIG_FILE:-/opt/stroma-ai/config.env}")/state/watcher_state.json}"
 SLURM_PARTITION="${STROMA_SLURM_PARTITION:-stroma-ai-gpu}"
 
 # Load config if available (for PARTITION, HEAD_HOST, VLLM_PORT, etc.)
@@ -81,7 +99,7 @@ mkdir -p "${BUNDLE_DIR}"
     echo "Kernel   : $(uname -r)"
     echo "OS       : $(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || echo 'unknown')"
     echo "Uptime   : $(uptime)"
-    echo "Disk     : $(df -h /opt/stroma-ai 2>/dev/null || true)"
+    echo "Disk     : $(df -h "${STROMA_INSTALL_DIR:-$(dirname "${CONFIG_FILE:-/opt/stroma-ai/config.env}")}" 2>/dev/null || true)"
 } > "${BUNDLE_DIR}/system.txt"
 
 # ---------------------------------------------------------------------------

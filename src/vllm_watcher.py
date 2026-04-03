@@ -74,7 +74,7 @@ DOWN_IDLE_S   = int(os.environ.get("STROMA_SCALE_DOWN_IDLE_SECONDS", "300"))
 UP_COOLDOWN   = int(os.environ.get("STROMA_SCALE_UP_COOLDOWN", "300"))
 POLL_S        = int(os.environ.get("STROMA_WATCHER_POLL_INTERVAL", "30"))
 INSTALL_DIR   = os.environ.get("STROMA_INSTALL_DIR", "/opt/stroma-ai")
-STATE_FILE    = os.environ.get("STROMA_STATE_FILE", "/opt/stroma-ai/watcher_state.json")
+STATE_FILE    = os.environ.get("STROMA_STATE_FILE", f"{INSTALL_DIR}/state/watcher_state.json")
 SLURM_SCRIPT  = os.environ.get("STROMA_SLURM_SCRIPT", "/share/slurm/stroma_ai_worker.slurm")
 
 # ClusterManager is constructed once in main() after config validation

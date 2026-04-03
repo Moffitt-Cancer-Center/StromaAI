@@ -71,7 +71,9 @@ source "${REPO_ROOT}/install/lib/detect.sh"
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-CONFIG_ENV="${STROMA_CONFIG_ENV:-/opt/stroma-ai/config.env}"
+# CONFIG_ENV starts empty; resolved after argument parsing so --config=FILE
+# takes precedence, otherwise falls back to _resolve_install_dir detection.
+CONFIG_ENV=""
 COMPOSE_ENV="${SCRIPT_DIR}/.env"
 
 # ---------------------------------------------------------------------------
@@ -85,7 +87,7 @@ Options:
   --mode=local      Deploy Keycloak 26.x container non-interactively
   --mode=external   Configure an existing institutional IdP non-interactively
   --config=FILE     Path to platform config.env
-                    (default: /opt/stroma-ai/config.env)
+                    (default: auto-detected from STROMA_INSTALL_DIR or standard paths)
   --env=prod|dev    Environment mode (default: prod)
                     prod: HTTPS URLs through nginx proxy
                     dev:  HTTP URLs for direct container access
@@ -121,6 +123,15 @@ for _arg in "$@"; do
     esac
 done
 unset _arg
+
+# Resolve CONFIG_ENV if not set by --config= argument.
+# _resolve_install_dir (from common.sh) searches env, repo root, and
+# well-known paths, then optionally prompts.
+if [[ -z "${CONFIG_ENV}" ]]; then
+    _resolve_install_dir
+    CONFIG_ENV="${STROMA_INSTALL_DIR}/config.env"
+fi
+log_info "Using config: ${CONFIG_ENV}"
 
 # ---------------------------------------------------------------------------
 # Detect Podman Compose implementation — sets COMPOSE_CMD

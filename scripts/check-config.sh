@@ -16,7 +16,33 @@
 
 set -euo pipefail
 
-CONFIG_FILE="${STROMA_CONFIG:-/opt/stroma-ai/config.env}"
+# Resolve config file path:
+#   1. STROMA_CONFIG env var
+#   2. --config argument (parsed below, may override)
+#   3. STROMA_INSTALL_DIR/config.env
+#   4. Search well-known HPC / system paths
+_resolve_config_file() {
+    [[ -n "${CONFIG_FILE:-}" ]] && return 0
+    local _paths=(
+        "${STROMA_INSTALL_DIR:+${STROMA_INSTALL_DIR}/config.env}"
+        "/cm/shared/apps/stroma-ai/config.env"
+        "/opt/stroma-ai/config.env"
+        "/opt/apps/stroma-ai/config.env"
+        "/usr/local/stroma-ai/config.env"
+        "${HOME}/stroma-ai/config.env"
+    )
+    local _p
+    for _p in "${_paths[@]}"; do
+        [[ -z "${_p}" ]] && continue
+        if [[ -f "${_p}" ]]; then
+            CONFIG_FILE="${_p}"
+            return 0
+        fi
+    done
+}
+
+CONFIG_FILE="${STROMA_CONFIG:-}"
+_resolve_config_file
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
