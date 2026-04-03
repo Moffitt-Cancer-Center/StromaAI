@@ -441,17 +441,30 @@ log_step "Slurm CLI Bind-Mount Verification"
 
 _slurm_warn=0
 for _bin_var in SLURM_SBATCH_BIN SLURM_SQUEUE_BIN SLURM_SCANCEL_BIN SLURM_SINFO_BIN; do
-    _default_bin="/usr/bin/$(echo "${_bin_var}" | sed 's/^SLURM_//;s/_BIN$//' | tr '[:upper:]' '[:lower:]')"
-    _path="${!_bin_var:-${_default_bin}}"
-    if [[ -x "${_path}" ]]; then
+    _bin_name="$(echo "${_bin_var}" | sed 's/^SLURM_//;s/_BIN$//' | tr '[:upper:]' '[:lower:]')"
+    _default_bin="/usr/bin/${_bin_name}"
+    _path="${!_bin_var:-}"
+    
+    # Try to find binary: 1) config value, 2) PATH, 3) default location
+    if [[ -n "${_path}" && -x "${_path}" ]]; then
+        log_ok "Slurm binary verified: ${_path}"
+    elif command -v "${_bin_name}" &>/dev/null; then
+        _path="$(command -v "${_bin_name}")"
+        log_ok "Slurm binary found in PATH: ${_path}"
+        # Auto-populate config variable for container bind-mount
+        write_env_var "${_bin_var}" "${_path}" "${CONFIG_FILE}"
+        log_info "  → Set ${_bin_var}=${_path} in ${CONFIG_FILE}"
+    elif [[ -x "${_default_bin}" ]]; then
+        _path="${_default_bin}"
         log_ok "Slurm binary verified: ${_path}"
     else
-        log_warn "Slurm binary not found: ${_path}"
-        log_warn "  Set ${_bin_var}=/actual/path/to/$(basename "${_path}") in ${CONFIG_FILE}"
+        log_warn "Slurm binary not found: ${_bin_name}"
+        log_warn "  Not in PATH, not at ${_default_bin}, and ${_bin_var} not set in ${CONFIG_FILE}"
+        log_warn "  If Slurm is available via environment modules, run: module load slurm"
         _slurm_warn=1
     fi
 done
-unset _bin_var _path _default_bin
+unset _bin_var _path _default_bin _bin_name
 
 MUNGE_SOCK_DIR="${SLURM_MUNGE_SOCKET_DIR:-/var/run/munge}"
 if [[ -S "${MUNGE_SOCK_DIR}/munge.socket.2" ]]; then

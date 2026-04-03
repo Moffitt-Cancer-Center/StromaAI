@@ -239,6 +239,7 @@ check_apptainer_worker() {
     else
         check_warn "nvidia-ctk not found — GPU passthrough into containers may be limited"
         check_warn "Install with: dnf install nvidia-container-toolkit  (after adding NVIDIA repo)"
+        check_warn "Note: CUDA Toolkit modules (cuda/toolkit) are NOT the same as NVIDIA Container Toolkit"
         need "nvidia-container-toolkit"
     fi
 
