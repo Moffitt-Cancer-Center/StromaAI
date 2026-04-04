@@ -118,6 +118,8 @@ class ClusterManager:
 
     # Slurm GPU resource request (--gres value).  Empty string = use --gpus-per-node=1.
     gres:           str = field(default="")
+    # Number of logical GPUs advertised to Ray (must match GRES count above).
+    gpus_per_node:  int = 1
 
     # Tuning
     vllm_kv_threads: int = 32
@@ -154,6 +156,7 @@ class ClusterManager:
             container_cmd   = os.environ.get("CONTAINER_CMD", ""),
             gpu_flag        = os.environ.get("STROMA_CONTAINER_GPU_FLAG", "--nv"),
             gres            = os.environ.get("STROMA_SLURM_GRES", ""),
+            gpus_per_node   = int(os.environ.get("STROMA_GPUS_PER_NODE", "1")),
             vllm_kv_threads = int(os.environ.get("STROMA_VLLM_CPU_KV_THREADS", "32")),
         )
         return instance
@@ -253,6 +256,7 @@ class ClusterManager:
                 f",STROMA_SHARED_ROOT={self.shared_root}"
                 f",STROMA_CONTAINER={self.container_path}"
                 f",STROMA_CONTAINER_GPU_FLAG={self.gpu_flag}"
+                f",STROMA_GPUS_PER_NODE={self.gpus_per_node}"
                 f",VLLM_CPU_KV_CACHE_THREADS={self.vllm_kv_threads}"
             ),
             self.slurm_script,
