@@ -86,11 +86,17 @@ check_fail() { log_error "$1"; (( FAIL_COUNT++ )) || true; }
 check_common() {
     log_step "Common checks"
 
-    # Root
+    # Root — required for --fix and full system checks; optional for read-only
+    # permission verification (--check-permissions without --fix) which can be
+    # run as the 'stromaai' service account itself.
     if [[ ${EUID} -eq 0 ]]; then
         check_pass "Running as root"
+    elif [[ "${FIX_PERMS}" -eq 1 ]]; then
+        check_fail "Not running as root — --fix requires sudo"
+    elif [[ "${CHECK_PERMS}" -eq 1 && "$(id -un)" == "stromaai" ]]; then
+        check_pass "Running as stromaai (read-only permission check)"
     else
-        check_fail "Not running as root — run with sudo"
+        check_warn "Not running as root — some checks may be limited (use sudo for full verification)"
     fi
 
     # OS detection
