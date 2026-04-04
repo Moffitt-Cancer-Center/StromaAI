@@ -134,6 +134,15 @@ scontrol create partition Name=stroma-ai-gpu \
 # Create service account for billing:
 sacctmgr add account stroma-ai-service Description="StromaAI burst workers" Organization=hpc
 
+# Associate the stromaai Linux user with the service account.
+# This is REQUIRED for job submission and for the warm reservation ACL —
+# the reservation uses Accounts=stroma-ai-service, so any submitting user
+# must be associated with that account or the job will be rejected.
+sacctmgr add user stromaai account=stroma-ai-service DefaultAccount=stroma-ai-service
+
+# Verify the association:
+sacctmgr show assoc where user=stromaai
+
 # Create always-warm node reservation (1 permanently allocated A30):
 scontrol create Reservation=stroma-ai-warm \
   StartTime=now \

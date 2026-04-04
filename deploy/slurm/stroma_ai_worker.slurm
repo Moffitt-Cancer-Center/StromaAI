@@ -13,6 +13,11 @@
 #   --time=12:00:00       — default walltime; overridden by Watcher's CLI --time flag
 #                           (STROMA_SLURM_WALLTIME in config.env)
 #                           CRITICAL: Must fit within your default QOS MaxWall limit
+#   GPU resource          — passed by the Watcher as --gres=<STROMA_SLURM_GRES>
+#                           (e.g. gpu:a30:1, gpu:2g.12gb:1, gpu:a100:4) or as
+#                           --gpus-per-node=1 when STROMA_SLURM_GRES is unset.
+#                           NOT hardcoded here to avoid conflicts with MIG/multi-GPU
+#                           clusters that need an explicit gres type string.
 #
 # Environment variables passed by Watcher via --export:
 #   STROMA_HEAD_HOST  — hostname of Proxmox VM Ray head node
@@ -33,7 +38,15 @@
 #SBATCH --job-name=stroma-ai-burst
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gpus-per-node=1
+# NOTE: GPU resource (--gres or --gpus-per-node) is passed by the Watcher at
+# submit time from STROMA_SLURM_GRES (e.g. --gres=gpu:a30:1) or falls back to
+# --gpus-per-node=1 when STROMA_SLURM_GRES is unset.  For manual sbatch runs,
+# pass the appropriate flag on the command line:
+#   Simple single-type cluster:       sbatch --gpus-per-node=1 stroma_ai_worker.slurm
+#   Specific GPU type:                sbatch --gres=gpu:a30:1  stroma_ai_worker.slurm
+#   MIG slice:                        sbatch --gres=gpu:2g.12gb:1 stroma_ai_worker.slurm
+# Do NOT add a --gres or --gpus-per-node directive here — it conflicts with the
+# CLI flag passed by the Watcher and may result in double-allocation or errors.
 #SBATCH --exclusive
 #SBATCH --time=12:00:00
 # NOTE: --output and --error paths are passed by the Watcher via sbatch CLI

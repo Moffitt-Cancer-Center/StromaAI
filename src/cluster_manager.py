@@ -116,6 +116,9 @@ class ClusterManager:
     container_cmd:  str = field(default="")
     gpu_flag:       str = field(default="--nv")
 
+    # Slurm GPU resource request (--gres value).  Empty string = use --gpus-per-node=1.
+    gres:           str = field(default="")
+
     # Tuning
     vllm_kv_threads: int = 32
 
@@ -150,6 +153,7 @@ class ClusterManager:
             ),
             container_cmd   = os.environ.get("CONTAINER_CMD", ""),
             gpu_flag        = os.environ.get("STROMA_CONTAINER_GPU_FLAG", "--nv"),
+            gres            = os.environ.get("STROMA_SLURM_GRES", ""),
             vllm_kv_threads = int(os.environ.get("STROMA_VLLM_CPU_KV_THREADS", "32")),
         )
         return instance
@@ -224,8 +228,8 @@ class ClusterManager:
         Submit a burst worker job to Slurm via sbatch.
 
         The worker script is expected to:
-          1. Call ``apptainer exec --nv <sif> ray start --address=<head> --num-gpus=1 --block``
-          2. Export STROMA_HEAD_HOST, STROMA_RAY_PORT, and STROMA_SHARED_ROOT.
+          1. Call ``apptainer exec --nv <sif> ray start --address=<head> --num-gpus=N --block``
+          2. Export STROMA_HEAD_HOST, STROMA_RAY_PORT, STROMA_SHARED_ROOT, and STROMA_GPUS_PER_NODE.
 
         Returns a SubmitResult. Does NOT raise on submission failure.
         """
@@ -238,6 +242,10 @@ class ClusterManager:
             f"--mem={self.mem}",
             f"--output={self.log_dir}/slurm-%j.out",
             f"--error={self.log_dir}/slurm-%j.err",
+            # GPU resource: explicit GRES type beats generic --gpus-per-node.
+            # --gres and --gpus-per-node conflict when both appear; only pass
+            # one to avoid Slurm allocating unexpected MIG slices or doubles.
+            (f"--gres={self.gres}" if self.gres else "--gpus-per-node=1"),
             (
                 f"--export=ALL"
                 f",STROMA_HEAD_HOST={self.head_host}"
