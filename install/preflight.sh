@@ -333,6 +333,25 @@ check_ood() {
 }
 
 # ---------------------------------------------------------------------------
+# _stromaai_test FLAG PATH
+# Test a file/directory attribute as the stromaai user without requiring
+# stromaai to be in sudoers.
+#   - Running as root        → sudo -u stromaai test FLAG PATH
+#   - Running as stromaai    → test FLAG PATH  (no sudo needed)
+#   - Running as other user  → su -s /bin/sh stromaai -c "test FLAG PATH"
+# ---------------------------------------------------------------------------
+_stromaai_test() {
+    local flag="$1" path="$2"
+    if [[ "$(id -u)" -eq 0 ]]; then
+        sudo -u stromaai test "${flag}" "${path}" 2>/dev/null
+    elif [[ "$(id -un)" == "stromaai" ]]; then
+        test "${flag}" "${path}"
+    else
+        su -s /bin/sh stromaai -c "test ${flag} '${path}'" 2>/dev/null
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Permissions checks (post-install verification)
 # ---------------------------------------------------------------------------
 check_permissions() {
@@ -460,7 +479,7 @@ check_permissions() {
         fi
         
         # Test write access by stromaai user
-        if sudo -u stromaai test -w "${venv_dir}"; then
+        if _stromaai_test -w "${venv_dir}"; then
             check_pass "${venv_dir} writable by stromaai user"
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
@@ -482,7 +501,7 @@ check_permissions() {
     for src_file in src/gateway.py src/vllm_watcher.py src/cluster_manager.py src/stroma_cli.py; do
         local file_path="${install_dir}/${src_file}"
         if [[ -f "${file_path}" ]]; then
-            if sudo -u stromaai test -r "${file_path}"; then
+            if _stromaai_test -r "${file_path}"; then
                 check_pass "${file_path} readable by stromaai user"
             else
                 if [[ "${FIX_PERMS}" -eq 1 ]]; then
@@ -514,7 +533,7 @@ check_permissions() {
             fi
         fi
         
-        if sudo -u stromaai test -w "${log_dir}"; then
+        if _stromaai_test -w "${log_dir}"; then
             check_pass "${log_dir} writable by stromaai user"
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
@@ -542,7 +561,7 @@ check_permissions() {
     
     # 7. State directory (watcher persistence)
     if [[ -d "${state_dir}" ]]; then
-        if sudo -u stromaai test -w "${state_dir}"; then
+        if _stromaai_test -w "${state_dir}"; then
             check_pass "${state_dir} writable by stromaai user"
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
@@ -570,7 +589,7 @@ check_permissions() {
     
     # 8. Model weights (read access required)
     if [[ -d "${model_path}" ]]; then
-        if sudo -u stromaai test -r "${model_path}"; then
+        if _stromaai_test -r "${model_path}"; then
             check_pass "${model_path} readable by stromaai user"
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
@@ -586,7 +605,7 @@ check_permissions() {
         local have_config=0
         for cfg in config.json model.safetensors.index.json; do
             if [[ -f "${model_path}/${cfg}" ]]; then
-                if sudo -u stromaai test -r "${model_path}/${cfg}"; then
+                if _stromaai_test -r "${model_path}/${cfg}"; then
                     have_config=1
                 else
                     if [[ "${FIX_PERMS}" -eq 1 ]]; then
@@ -606,7 +625,7 @@ check_permissions() {
     
     # 9. Container image (read access required)
     if [[ -f "${container_path}" ]]; then
-        if sudo -u stromaai test -r "${container_path}"; then
+        if _stromaai_test -r "${container_path}"; then
             check_pass "${container_path} readable by stromaai user"
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
@@ -623,7 +642,7 @@ check_permissions() {
     
     # 10. Shared storage mount point (general access)
     if [[ -d "${shared_root}" ]]; then
-        if sudo -u stromaai test -r "${shared_root}"; then
+        if _stromaai_test -r "${shared_root}"; then
             check_pass "${shared_root} readable by stromaai user"
         else
             check_warn "${shared_root} NOT readable by stromaai user — shared storage may not be mounted (cannot fix mount issues)"
@@ -650,7 +669,7 @@ check_permissions() {
             fi
         fi
         
-        if sudo -u stromaai test -w "${ray_tmp}"; then
+        if _stromaai_test -w "${ray_tmp}"; then
             check_pass "${ray_tmp} writable by stromaai user"
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
@@ -707,7 +726,7 @@ check_permissions() {
     # 14. Slurm batch script
     local slurm_script="${install_dir}/deploy/slurm/stroma_ai_worker.slurm"
     if [[ -f "${slurm_script}" ]]; then
-        if sudo -u stromaai test -r "${slurm_script}"; then
+        if _stromaai_test -r "${slurm_script}"; then
             check_pass "${slurm_script} readable by stromaai user"
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
