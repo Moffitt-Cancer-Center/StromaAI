@@ -291,7 +291,9 @@ _create_directories() {
     for dir in "${dirs[@]}"; do
         run_cmd mkdir -p "${dir}"
     done
-    run_cmd chown -R stromaai:stromaai "${STROMA_INSTALL_DIR}"
+    if _needs_chown "${STROMA_INSTALL_DIR}" stromaai stromaai; then
+        run_cmd chown -R stromaai:stromaai "${STROMA_INSTALL_DIR}"
+    fi
     run_cmd chmod 750 "${STROMA_INSTALL_DIR}"
     run_cmd chown stromaai:stromaai "${STROMA_LOG_DIR}" 2>/dev/null || true
 }

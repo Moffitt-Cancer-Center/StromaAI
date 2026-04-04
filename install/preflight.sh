@@ -365,7 +365,9 @@ check_permissions() {
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
                 log_info "Fixing ${install_dir} ownership: ${owner} → stromaai:stromaai"
-                chown -R stromaai:stromaai "${install_dir}"
+                if _needs_chown "${install_dir}" stromaai stromaai; then
+                    chown -R stromaai:stromaai "${install_dir}"
+                fi
                 check_pass "${install_dir} ownership: FIXED"
             else
                 check_fail "${install_dir} ownership: ${owner} (expected stromaai:stromaai)"
@@ -448,7 +450,9 @@ check_permissions() {
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
                 log_info "Fixing ${venv_dir} ownership: ${owner} → stromaai:stromaai"
-                chown -R stromaai:stromaai "${venv_dir}"
+                if _needs_chown "${venv_dir}" stromaai stromaai; then
+                    chown -R stromaai:stromaai "${venv_dir}"
+                fi
                 check_pass "${venv_dir} ownership: FIXED"
             else
                 check_fail "${venv_dir} ownership: ${owner} (expected stromaai:stromaai)"
@@ -461,7 +465,9 @@ check_permissions() {
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
                 log_info "Fixing ${venv_dir} write access"
-                chown -R stromaai:stromaai "${venv_dir}"
+                if _needs_chown "${venv_dir}" stromaai stromaai; then
+                    chown -R stromaai:stromaai "${venv_dir}"
+                fi
                 chmod -R u+w "${venv_dir}"
                 check_pass "${venv_dir} write access: FIXED"
             else
@@ -499,7 +505,9 @@ check_permissions() {
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
                 log_info "Fixing ${log_dir} ownership: ${owner} → stromaai:stromaai"
-                chown -R stromaai:stromaai "${log_dir}"
+                if _needs_chown "${log_dir}" stromaai stromaai; then
+                    chown -R stromaai:stromaai "${log_dir}"
+                fi
                 check_pass "${log_dir} ownership: FIXED"
             else
                 check_warn "${log_dir} ownership: ${owner} (expected stromaai:stromaai)"
@@ -511,7 +519,9 @@ check_permissions() {
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
                 log_info "Fixing ${log_dir} write access"
-                chown -R stromaai:stromaai "${log_dir}"
+                if _needs_chown "${log_dir}" stromaai stromaai; then
+                    chown -R stromaai:stromaai "${log_dir}"
+                fi
                 chmod -R u+w "${log_dir}"
                 check_pass "${log_dir} write access: FIXED"
             else
@@ -537,7 +547,9 @@ check_permissions() {
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
                 log_info "Fixing ${state_dir} write access"
-                chown -R stromaai:stromaai "${state_dir}"
+                if _needs_chown "${state_dir}" stromaai stromaai; then
+                    chown -R stromaai:stromaai "${state_dir}"
+                fi
                 chmod -R u+w "${state_dir}"
                 check_pass "${state_dir} write access: FIXED"
             else
@@ -629,7 +641,9 @@ check_permissions() {
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
                 log_info "Fixing ${ray_tmp} ownership: ${owner} → stromaai:stromaai"
-                chown -R stromaai:stromaai "${ray_tmp}"
+                if _needs_chown "${ray_tmp}" stromaai stromaai; then
+                    chown -R stromaai:stromaai "${ray_tmp}"
+                fi
                 check_pass "${ray_tmp} ownership: FIXED"
             else
                 check_warn "${ray_tmp} ownership: ${owner} (expected stromaai:stromaai)"
@@ -641,7 +655,9 @@ check_permissions() {
         else
             if [[ "${FIX_PERMS}" -eq 1 ]]; then
                 log_info "Fixing ${ray_tmp} write access"
-                chown -R stromaai:stromaai "${ray_tmp}"
+                if _needs_chown "${ray_tmp}" stromaai stromaai; then
+                    chown -R stromaai:stromaai "${ray_tmp}"
+                fi
                 chmod -R u+w "${ray_tmp}"
                 check_pass "${ray_tmp} write access: FIXED"
             else

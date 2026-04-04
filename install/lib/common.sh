@@ -149,6 +149,21 @@ PYEOF
 }
 
 # ---------------------------------------------------------------------------
+# _needs_chown PATH USER GROUP
+# ---------------------------------------------------------------------------
+# Returns 0 (true) if any file/directory under PATH is not owned by USER:GROUP.
+# Uses `find -print -quit` so it stops at the first mismatch — fast even on
+# large trees (e.g. /cm/shared/apps/stroma-ai with a full venv).
+# Returns 1 if PATH does not exist or everything is already correctly owned.
+# ---------------------------------------------------------------------------
+_needs_chown() {
+    local path="$1" user="$2" group="$3"
+    [[ -e "${path}" ]] || return 1
+    find "${path}" \( -not -user "${user}" -o -not -group "${group}" \) \
+        -print -quit 2>/dev/null | grep -q .
+}
+
+# ---------------------------------------------------------------------------
 # installed_version — return installed package version or empty string
 # ---------------------------------------------------------------------------
 installed_version() {
