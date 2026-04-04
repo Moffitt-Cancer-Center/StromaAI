@@ -143,17 +143,28 @@ sacctmgr add user stromaai account=stroma-ai-service DefaultAccount=stroma-ai-se
 # Verify the association:
 sacctmgr show assoc where user=stromaai
 
-# Create always-warm node reservation (1 permanently allocated A30):
-scontrol create Reservation=stroma-ai-warm \
-  StartTime=now \
-  Duration=UNLIMITED \
-  Nodes=node001 \
-  Accounts=stroma-ai-service \
-  Flags=MAINT,IGNORE_JOBS
+# (OPTIONAL) Create an always-warm node reservation to eliminate cold-start
+# latency.  Skip this for initial deployment — the burst scaler works without
+# it. Add it later once the cluster is validated and a free GPU node exists.
+#
+# Prerequisites before creating:
+#   - The target node must have no running jobs (check: squeue -w <node>)
+#   - The node will exist in other reservations (e.g. maintenance windows) —
+#     OVERLAP allows coexistence. TRES must match AccountingStorageTRES.
+#
+# scontrol create Reservation=stroma-ai-warm \
+#   StartTime=now \
+#   Duration=UNLIMITED \
+#   Nodes=<idle-gpu-node> \
+#   Accounts=stroma-ai-service \
+#   Flags=MAINT,IGNORE_JOBS,OVERLAP \
+#   TRES=cpu=<node-core-count>,gres/gpu=<gpu-count>
+#
+# Leave STROMA_WARM_RESERVATION unset in config.env to disable warm-node mode.
 
 # Verify:
 sinfo -p stroma-ai-gpu
-scontrol show reservation stroma-ai-warm
+# scontrol show reservation stroma-ai-warm  # only if reservation was created
 ```
 
 ### 1.6 Log directory
