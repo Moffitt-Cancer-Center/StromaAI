@@ -50,11 +50,13 @@
 #SBATCH --exclusive
 #SBATCH --time=12:00:00
 # NOTE: --output and --error paths are passed by the Watcher via sbatch CLI
-# flags using STROMA_LOG_DIR from config.env. The paths below are fallbacks
-# for manual sbatch runs only. Run 'mkdir -p ${STROMA_INSTALL_DIR}/logs' on
-# the head node before first use, matching your STROMA_LOG_DIR setting.
-#SBATCH --output=/opt/stroma-ai/logs/slurm-%j.out
-#SBATCH --error=/opt/stroma-ai/logs/slurm-%j.err
+# flags using STROMA_LOG_DIR from config.env. The directives below are
+# fallbacks for manual sbatch runs only — Slurm expands $STROMA_LOG_DIR from
+# the submission environment, so export it before running sbatch manually:
+#   export STROMA_LOG_DIR=/cm/shared/apps/stroma-ai/logs
+#   sbatch deploy/slurm/stroma_ai_worker.slurm
+#SBATCH --output=${STROMA_LOG_DIR}/slurm-%j.out
+#SBATCH --error=${STROMA_LOG_DIR}/slurm-%j.err
 # NOTE: --partition, --account, --cpus-per-task, and --mem are passed by the
 # Watcher at submit time via sbatch CLI flags and will override the defaults
 # above. The --time directive is required by some queuing systems and serves
