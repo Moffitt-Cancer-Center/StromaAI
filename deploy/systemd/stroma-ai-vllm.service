@@ -24,28 +24,6 @@ Environment=HF_HUB_OFFLINE=1
 Environment=TRANSFORMERS_OFFLINE=1
 
 # ---------------------------------------------------------------------------
-# IPv6-disabled host workaround (RHEL/Rocky with net.ipv6.conf.all.disable_ipv6=1)
-#
-# If vLLM crashes with:
-#   RuntimeError: [enforce fail at gloo/transport/tcp/device.cc:32]
-#   Address family not supported by protocol
-# your node has kernel-disabled IPv6. gloo's TCP device creation iterates
-# getifaddrs() and calls socket(family) for the first address found. If it
-# encounters ::1 (loopback IPv6 — permanently present even with disable_ipv6=1
-# because loopback is exempt), socket(AF_INET6, ...) fails → engine crash.
-#
-# Fix: set VLLM_HOST_IP to the node's actual primary IPv4 address in
-# config.env. This makes gloo look up the primary ethernet interface (no IPv6
-# because disable_ipv6=1 suppresses it there) instead of loopback.
-#
-#   DO NOT use 127.0.0.1 — that resolves to lo, which always has ::1.
-#   DO NOT set GLOO_SOCKET_IFNAME=lo — same problem.
-#
-# Detect IP: ip route get 1.1.1.1 | awk '/src/{for(i=1;i<=NF;i++){if($i=="src"){print $(i+1); exit}}}'
-# Then add to config.env:  VLLM_HOST_IP=<your_node_ip>
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # vLLM serve command
 #
 # Key flags and their rationale:
@@ -53,6 +31,14 @@ Environment=TRANSFORMERS_OFFLINE=1
 #   --tensor-parallel-size 1    — one GPU per node; scaling is data-parallel
 #   --distributed-executor-backend ray — dispatch GPU workers as Ray actors so
 #                                 the head node (no GPU) acts as coordinator;
+#                                 replaces the removed --worker-use-ray flag
+#   --disable-frontend-multiprocessing — runs engine in-process instead of a
+#                                 spawned subprocess. Required on vLLM 0.7.x
+#                                 because gloo env vars (GLOO_SOCKET_IFNAME,
+#                                 VLLM_HOST_IP) are not inherited by the
+#                                 multiprocessing.spawn child, causing
+#                                 "Address family not supported by protocol"
+#                                 crashes during gloo TCP device creation.
 #                                 replaces the removed --worker-use-ray flag
 #   --cpu-offload-gb            — overflow KV cache to CPU RAM; critical for
 #                                 high concurrency with long contexts on HPC nodes
@@ -81,6 +67,7 @@ ExecStart=/opt/stroma-ai/venv/bin/vllm serve \
     --device cuda \
     --distributed-executor-backend ray \
     --disable-async-output-proc \
+    --disable-frontend-multiprocessing \
     --cpu-offload-gb ${STROMA_CPU_OFFLOAD_GB} \
     --kv-cache-dtype ${STROMA_KV_CACHE_DTYPE} \
     --max-model-len ${STROMA_MAX_MODEL_LEN} \
