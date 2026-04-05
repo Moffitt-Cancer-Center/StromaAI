@@ -26,28 +26,24 @@ Environment=TRANSFORMERS_OFFLINE=1
 # ---------------------------------------------------------------------------
 # IPv6-disabled host workaround (RHEL/Rocky with net.ipv6.conf.all.disable_ipv6=1)
 #
-# vLLM always initialises a PyTorch distributed world group (even with
-# tensor_parallel_size=1) using a TCP rendezvous URL built from get_ip().
-# On RHEL nodes where IPv6 is kernel-disabled, gloo's socket creation fails
-# with "Address family not supported by protocol" because:
-#   1. get_ip() returns the hostname by default
-#   2. Linux resolves the hostname to an IPv6 address first
-#   3. gloo tries socket(AF_INET6, ...) → fails → engine crash
+# If vLLM crashes with:
+#   RuntimeError: [enforce fail at gloo/transport/tcp/device.cc:32]
+#   Address family not supported by protocol
+# your node has kernel-disabled IPv6. gloo's TCP device creation iterates
+# getifaddrs() and calls socket(family) for the first address found. If it
+# encounters ::1 (loopback IPv6 — permanently present even with disable_ipv6=1
+# because loopback is exempt), socket(AF_INET6, ...) fails → engine crash.
 #
-# VLLM_HOST_IP=127.0.0.1 forces get_ip() to return an explicit IPv4 address
-# so the rendezvous URL becomes tcp://127.0.0.1:<port>, bypassing IPv6 entirely.
+# Fix: set VLLM_HOST_IP to the node's actual primary IPv4 address in
+# config.env. This makes gloo look up the primary ethernet interface (no IPv6
+# because disable_ipv6=1 suppresses it there) instead of loopback.
 #
-# NOTE: Do NOT set GLOO_SOCKET_IFNAME=lo — gloo iterates ALL addresses on the
-# 'lo' interface, including ::1 (loopback IPv6 persists even when
-# net.ipv6.conf.all.disable_ipv6=1 because loopback is exempt). Without
-# GLOO_SOCKET_IFNAME, gloo auto-detects and skips loopback interfaces entirely,
-# finding a valid non-loopback IPv4 interface instead.
+#   DO NOT use 127.0.0.1 — that resolves to lo, which always has ::1.
+#   DO NOT set GLOO_SOCKET_IFNAME=lo — same problem.
 #
-# NCCL_SOCKET_IFNAME=lo is kept for the head-node vLLM (single GPU, no
-# inter-node NCCL traffic). Burst workers on Slurm use their own environment.
+# Detect IP: ip route get 1.1.1.1 | awk '/src/{for(i=1;i<=NF;i++){if($i=="src"){print $(i+1); exit}}}'
+# Then add to config.env:  VLLM_HOST_IP=<your_node_ip>
 # ---------------------------------------------------------------------------
-Environment=VLLM_HOST_IP=127.0.0.1
-Environment=NCCL_SOCKET_IFNAME=lo
 
 # ---------------------------------------------------------------------------
 # vLLM serve command
