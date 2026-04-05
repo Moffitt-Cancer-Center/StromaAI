@@ -136,6 +136,13 @@ class ClusterManager:
         """
         install_dir = os.environ.get("STROMA_INSTALL_DIR", "/opt/stroma-ai")
 
+        # HPC clusters often install Slurm under a non-standard prefix that
+        # isn't on systemd's default PATH.  If STROMA_SLURM_BIN_DIR is set,
+        # prepend it so shutil.which() can find sbatch/squeue/scancel.
+        slurm_bin_dir = os.environ.get("STROMA_SLURM_BIN_DIR", "")
+        if slurm_bin_dir:
+            os.environ["PATH"] = slurm_bin_dir + os.pathsep + os.environ.get("PATH", "")
+
         instance = cls(
             partition    = os.environ.get("STROMA_SLURM_PARTITION", "stroma-ai-gpu"),
             account      = os.environ.get("STROMA_SLURM_ACCOUNT",   "stroma-ai-service"),

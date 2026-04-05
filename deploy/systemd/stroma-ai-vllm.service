@@ -102,7 +102,11 @@ ProtectKernelTunables=true
 ProtectControlGroups=true
 # ProtectHostname requires systemd >= 243 (RHEL 8 ships 239 — omitted)
 RestrictSUIDSGID=true
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# AF_NETLINK is required — glibc's getifaddrs() uses netlink sockets internally
+# to enumerate interfaces; gloo (PyTorch distributed) calls getifaddrs() during
+# device init. Without AF_NETLINK the call fails with EAFNOSUPPORT, which gloo
+# surfaces as "Address family not supported by protocol" at device.cc.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target

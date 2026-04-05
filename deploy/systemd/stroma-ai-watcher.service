@@ -37,7 +37,7 @@ ProtectKernelTunables=true
 ProtectControlGroups=true
 # ProtectHostname requires systemd >= 243 (RHEL 8 ships 239 — omitted)
 RestrictSUIDSGID=true
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target
