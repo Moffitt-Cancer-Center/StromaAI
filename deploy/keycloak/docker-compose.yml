@@ -69,15 +69,6 @@ services:
       KC_PROXY_HEADERS: "xforwarded"
 
       KC_LOG_LEVEL: INFO
-    # Keycloak 26.x runs a Quarkus optimized build on first start when
-    # --features are specified.  On rootless podman with overlay force_mask
-    # the container filesystem is read-only to UID 1000 (keycloak).  Mount
-    # a tmpfs so the build step can write jars, and a named volume for
-    # persistent data (realm exports, h2 fallback, etc.).
-    tmpfs:
-      - /opt/keycloak/lib/quarkus
-    volumes:
-      - keycloak_data:/opt/keycloak/data
     ports:
       - "${KC_PORT:-8080}:8080"
     depends_on:
@@ -103,7 +94,6 @@ services:
 
 volumes:
   postgres_data:
-  keycloak_data:
 
 networks:
   # Single shared network for keycloak ↔ postgres.
