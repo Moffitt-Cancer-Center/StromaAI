@@ -361,6 +361,16 @@ install_systemd_service() {
         die "Systemd unit file not found: ${src}"
     fi
 
+    # Non-root users cannot write to /etc/systemd/system — warn and skip rather
+    # than aborting the entire setup flow (containers/realm config must proceed).
+    if [[ "$(id -u)" -ne 0 ]]; then
+        log_warn "Systemd: cannot install ${name}.service (not root)"
+        log_warn "Run manually as root after setup:"
+        log_warn "  cp ${src} ${dest}"
+        log_warn "  systemctl daemon-reload && systemctl enable --now ${name}"
+        return 0
+    fi
+
     log_info "Installing systemd unit: ${dest}"
     cp -p "${src}" "${dest}"
     chmod 644 "${dest}"
