@@ -80,3 +80,32 @@ logs/
 *.jks
 *.p12
 *.pfx
+
+# Runtime state and generated data (ephemeral — not part of repo)
+state/
+client.env
+config.env.bak.*
+
+# Python virtual environment
+venv/
+.venv/
+
+# HPC / cluster user dotfiles and caches (appear when repo is cloned into $HOME)
+.apptainer/
+.bash_history
+.bash_logout
+.bash_profile
+.bashrc
+.cache/
+.cm/
+.config/
+.emacs
+.esd_auth
+.kshrc
+.lmod.d/
+.local/
+.mozilla/
+.nv/
+.ssh/
+.vim/
+.viminfo
