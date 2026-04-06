@@ -736,7 +736,7 @@ print(json.dumps({
 # AD_CUSTOM_FILTER already restricts which users get synced to exactly those
 # in the authorized groups — so every synced user qualifies for stroma_researcher.
 # hardcoded-role assigns the role unconditionally to all users from this provider.
-add_mapper "stroma-researcher-role-mapper" "hardcoded-role" \
+add_mapper "stroma-researcher-role-mapper" "hardcoded-ldap-role-mapper" \
     "$(python3 -c "
 import json
 print(json.dumps({
