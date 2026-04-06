@@ -448,8 +448,7 @@ fi
 hr
 echo
 _total=$((PASS + FAIL + SKIP))
-printf "  %s passed  %s failed  %s skipped  (of %s tests)\n" \
-    "${GREEN}${PASS}${RESET}" "${RED}${FAIL}${RESET}" "${YELLOW}${SKIP}${RESET}" "${_total}"
+echo -e "  ${GREEN}${PASS}${RESET} passed  ${RED}${FAIL}${RESET} failed  ${YELLOW}${SKIP}${RESET} skipped  (of ${_total} tests)"
 echo
 if [[ "${FAIL}" -gt 0 ]]; then
     echo -e "${RED}  PLATFORM NOT HEALTHY — fix failing tests before going live.${RESET}"
