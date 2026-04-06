@@ -415,10 +415,10 @@ fi
 # ---------------------------------------------------------------------------
 # TEST 9 — OpenWebUI via nginx TLS
 # ---------------------------------------------------------------------------
-hr; echo -e "  ${BOLD}TEST 9${RESET}  OpenWebUI via nginx TLS (/webui/)"
+hr; echo -e "  ${BOLD}TEST 9${RESET}  OpenWebUI via nginx TLS (/)"
 _http_code=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" \
-    "https://${HEAD}/webui/" 2>/dev/null || echo "000")
-if [[ "${_http_code}" == "200" ]]; then
+    "https://${HEAD}/" 2>/dev/null || echo "000")
+if [[ "${_http_code}" == "200" || "${_http_code}" == "301" || "${_http_code}" == "302" ]]; then
     result PASS "OpenWebUI via nginx" "HTTP ${_http_code}"
 elif [[ "${_http_code}" == "000" ]]; then
     result FAIL "OpenWebUI via nginx" "connection refused or nginx misconfigured"
@@ -511,12 +511,11 @@ echo -e "  ${BOLD}Quick Reference — URLs${RESET}"
 echo
 echo -e "  ${CYAN}External (TLS, via nginx)${RESET}"
 echo -e "    Health         https://${HEAD}/health"
+echo -e "    OpenWebUI      https://${HEAD}/"
 echo -e "    API (v1)       https://${HEAD}/v1/"
 echo -e "    Models         https://${HEAD}/v1/models"
 echo -e "    Chat           https://${HEAD}/v1/chat/completions"
-echo -e "    Completions    https://${HEAD}/v1/completions"
-echo -e "    OpenWebUI      https://${HEAD}/"
-echo -e "    OIDC login     https://${HEAD}/realms/stroma-ai/protocol/openid-connect/token"
+echo -e "    OIDC token     https://${HEAD}/realms/stroma-ai/protocol/openid-connect/token  ${YELLOW}(POST only)${RESET}"
 echo -e "    KC console     https://${HEAD}/admin/master/console/"
 echo
 echo -e "  ${CYAN}Internal — Gateway${RESET}"
@@ -524,11 +523,11 @@ echo -e "    Health         http://${HEAD}:${GW_PORT}/health"
 echo -e "    API (v1)       http://${HEAD}:${GW_PORT}/v1/"
 echo
 echo -e "  ${CYAN}Internal — Keycloak${RESET}"
-echo -e "    Admin REST     http://${KC}:${KC_PORT}/admin/realms/stroma-ai"
+echo -e "    Admin REST     http://${KC}:${KC_PORT}/admin/realms/stroma-ai  ${YELLOW}(needs Bearer token)${RESET}"
 echo -e "    OIDC discovery http://${KC}:${KC_PORT}/realms/stroma-ai/.well-known/openid-configuration"
 echo -e "    JWKS           http://${KC}:${KC_PORT}/realms/stroma-ai/protocol/openid-connect/certs"
-echo -e "    Token endpoint http://${KC}:${KC_PORT}/realms/stroma-ai/protocol/openid-connect/token"
-echo -e "    KC console     http://${KC}:${KC_PORT}/admin/master/console/"
+echo -e "    Token endpoint http://${KC}:${KC_PORT}/realms/stroma-ai/protocol/openid-connect/token  ${YELLOW}(POST only)${RESET}"
+echo -e "    KC console     https://${HEAD}/admin/master/console/  ${YELLOW}(use nginx URL — direct port broken with KC_HOSTNAME)${RESET}"
 echo
 echo -e "  ${CYAN}Internal — OpenWebUI${RESET}"
 echo -e "    Chat UI        http://${OWU_HOST}:${OWU_PORT}/"

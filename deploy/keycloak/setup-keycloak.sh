@@ -218,7 +218,7 @@ configure_keycloak_realm_rest() {
     python3 - \
         "${kc_base_url}" "${admin_user}" "${admin_pass}" "${realm}" \
         "${GW_CLIENT_SECRET}" "${OWU_CLIENT_SECRET}" "${DEMO_USER_PASSWORD}" \
-        "${KC_HOSTNAME}" "${KC_PORT:-8080}" "${STROMA_HEAD_HOST}" "${OPENWEBUI_URL}" <<'PYEOF'
+        "${KC_HOSTNAME}" "${KC_PORT:-8080}" "${STROMA_HEAD_HOST}" "${OPENWEBUI_URL}" "${OPENWEBUI_INTERNAL_URL:-}" <<'PYEOF'
 import sys, json, time
 import urllib.request as urlreq
 import urllib.parse as urlparse
@@ -235,6 +235,7 @@ host       = sys.argv[8]
 port       = sys.argv[9]
 head_host  = sys.argv[10]
 owu_url    = sys.argv[11]
+owu_internal = sys.argv[12] if len(sys.argv) > 12 else ''
 
 def _http(method, path, data=None, token=None, form=False):
     url  = kc_url + path
@@ -359,10 +360,10 @@ _http('POST', f'/admin/realms/{realm}/clients', {
     'clientAuthenticatorType': 'client-secret',
     'secret': owu_sec,
     'redirectUris': [
-        f'https://{head_host}/*',          # Prod: nginx-proxied Keycloak
-        f'{owu_url}/*',                    # OpenWebUI callback
+        f'https://{head_host}/*',          # Prod: nginx-proxied head node
+        f'{owu_url}/*',                    # OpenWebUI callback (nginx-proxied URL)
         'http://localhost:3000/*',         # Dev: direct to OpenWebUI
-    ],
+    ] + ([f'{owu_internal.rstrip("/")}/*'] if owu_internal else []),
     'webOrigins': ['+'],
     'attributes': {'pkce.code.challenge.method': 'S256'},
 }, token=token)

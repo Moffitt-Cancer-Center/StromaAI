@@ -202,6 +202,14 @@ async def validate_token(
     Raises HTTP 403 if the token is valid but lacks the required role.
     """
     token = credentials.credentials
+
+    # Static API key bypass — allows server-to-server callers (e.g. OpenWebUI)
+    # to authenticate without OIDC round-trips.  STROMA_API_KEY is a 256-bit
+    # hex secret never shared with end-users; all interactive researcher access
+    # still goes through the full OIDC flow via nginx.
+    if STROMA_API_KEY and token == STROMA_API_KEY:
+        return {"sub": "api-key-bypass", "realm_access": {"roles": [ALLOWED_ROLE]}}
+
     _401 = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired authentication token",

@@ -219,15 +219,16 @@ if [[ "${MODE}" == "local" ]]; then
 
     if [[ "${STROMA_YES:-0}" == "1" ]]; then
         OWU_PORT="${OWU_PORT:-3000}"
-        GATEWAY_URL="${GATEWAY_URL:-http://host.containers.internal:9000}"
+        GATEWAY_URL="${GATEWAY_URL:-http://${STROMA_HEAD_HOST:-localhost}:${GATEWAY_PORT:-9000}}"
         WEBUI_NAME="${WEBUI_NAME:-StromaAI Research Chat}"
         ENABLE_OAUTH_SIGNUP="true"
     else
         read -rp "OpenWebUI host port [default: 3000]: " _inp
         OWU_PORT="${_inp:-3000}"
 
-        read -rp "StromaAI Gateway URL (from inside Podman) [default: http://host.containers.internal:9000]: " _inp
-        GATEWAY_URL="${_inp:-http://host.containers.internal:9000}"
+        _gw_default="http://${STROMA_HEAD_HOST:-localhost}:${GATEWAY_PORT:-9000}"
+        read -rp "StromaAI Gateway URL (reachable from Podman) [default: ${_gw_default}]: " _inp
+        GATEWAY_URL="${_inp:-${_gw_default}}"
 
         read -rp "WebUI display name [default: StromaAI Research Chat]: " _inp
         WEBUI_NAME="${_inp:-StromaAI Research Chat}"
@@ -253,7 +254,7 @@ if [[ "${MODE}" == "local" ]]; then
 OPENWEBUI_PORT=${OWU_PORT}
 WEBUI_NAME=${WEBUI_NAME}
 STROMA_GATEWAY_URL=${GATEWAY_URL}
-STROMA_GATEWAY_API_KEY=not-used-gateway-validates-oidc
+STROMA_GATEWAY_API_KEY=${STROMA_API_KEY:-not-used-gateway-validates-oidc}
 OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL}
 KC_OPENWEBUI_CLIENT_ID=${KC_OPENWEBUI_CLIENT_ID}
 KC_OPENWEBUI_CLIENT_SECRET=${KC_OPENWEBUI_CLIENT_SECRET}
