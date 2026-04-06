@@ -321,6 +321,36 @@ _http('POST', f'/admin/realms/{realm}/clients', {
     'secret': gw_sec,
 }, token=token)
 
+# Look up the internal client UUID (needed for mappers and service-account ops)
+_, gw_clients = _http('GET',
+    f'/admin/realms/{realm}/clients?clientId=stroma-gateway', token=token)
+gw_id = gw_clients[0]['id']
+
+# Add an audience protocol mapper so every token issued to/by this client
+# contains  aud: ["stroma-gateway"].  Without this, jwt.decode(audience=
+# "stroma-gateway") always fails because Keycloak's default aud is ["account"].
+_http('POST', f'/admin/realms/{realm}/clients/{gw_id}/protocol-mappers/models', {
+    'name': 'stroma-gateway-audience',
+    'protocol': 'openid-connect',
+    'protocolMapper': 'oidc-audience-mapper',
+    'config': {
+        'included.client.audience': 'stroma-gateway',
+        'id.token.claim': 'false',
+        'access.token.claim': 'true',
+    },
+}, token=token)
+print('[KC]  Audience mapper added to stroma-gateway client')
+
+# Grant the stroma_researcher role to the gateway service account so
+# client_credentials tokens pass the role check inside gateway.py.
+_, sa_users = _http('GET',
+    f'/admin/realms/{realm}/clients/{gw_id}/service-account-user', token=token)
+sa_uid = sa_users['id']
+_http('POST',
+    f'/admin/realms/{realm}/users/{sa_uid}/role-mappings/realm',
+    [researcher_role], token=token)
+print('[KC]  stroma_researcher role assigned to gateway service account')
+
 _http('POST', f'/admin/realms/{realm}/clients', {
     'clientId': 'openwebui', 'name': 'Open WebUI',
     'enabled': True, 'protocol': 'openid-connect',
