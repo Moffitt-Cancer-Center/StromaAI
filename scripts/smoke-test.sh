@@ -5,7 +5,7 @@
 # Verifies all services are reachable and correctly configured from any
 # machine with network access to the StromaAI platform.
 #
-# Runs 12 tests covering:
+# Runs 13 tests covering:
 #   1.  nginx TLS endpoint (head node)
 #   2.  vLLM /v1/models via nginx (model loaded check)
 #   3.  Keycloak direct HTTP (pod-head container)
@@ -18,6 +18,7 @@
 #   10. Gateway health check (direct)
 #   11. OIDC user token (end-to-end KC login)
 #   12. Authenticated vLLM inference (full E2E)
+#   13. client.env world-readable and populated (user onboarding)
 #
 # Usage:
 #   scripts/smoke-test.sh                        # reads config.env auto-detect
@@ -491,11 +492,62 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# TEST 13 — client.env world-readable and populated
+# Verifies that unprivileged cluster users can source the connection file.
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 13${RESET} client.env readable by cluster users"
+_install_dir="${STROMA_INSTALL_DIR:-${CONFIG_FILE%/config.env}}"
+_client_env="${_install_dir}/client.env"
+if [[ ! -f "${_client_env}" ]]; then
+    result FAIL "client.env" "not found at ${_client_env} — re-run install.sh to generate it"
+else
+    # Check world-readable bit (others read = octal mode & 004)
+    _perms=$(stat -c '%a' "${_client_env}" 2>/dev/null || stat -f '%Lp' "${_client_env}" 2>/dev/null || echo "000")
+    _world_readable=0
+    if (( (8#${_perms} & 8#004) != 0 )); then
+        _world_readable=1
+    fi
+
+    # Check that a non-root user can actually read it
+    _readable_test=0
+    if [[ "$(id -u)" -ne 0 ]]; then
+        # Running as normal user — attempt a direct read
+        if [[ -r "${_client_env}" ]]; then _readable_test=1; fi
+    else
+        # Running as root — use su to test as an unprivileged user
+        _test_user=$(getent passwd stromaai &>/dev/null && echo stromaai || \
+                     id -un 1000 2>/dev/null || \
+                     awk -F: '$3 >= 1000 && $3 < 65534 {print $1; exit}' /etc/passwd 2>/dev/null || \
+                     echo "nobody")
+        if su -s /bin/sh -c "test -r '${_client_env}'" "${_test_user}" 2>/dev/null; then
+            _readable_test=1
+        fi
+    fi
+
+    # Check that required variables are non-empty
+    _missing_vars=()
+    for _var in STROMA_API_URL STROMA_MODEL_NAME STROMA_CHAT_URL; do
+        if ! grep -qE "^${_var}=.+" "${_client_env}" 2>/dev/null; then
+            _missing_vars+=("${_var}")
+        fi
+    done
+
+    if [[ "${_world_readable}" -eq 0 ]]; then
+        result FAIL "client.env" "mode ${_perms} — not world-readable; fix: chmod 644 ${_client_env}"
+    elif [[ "${_readable_test}" -eq 0 ]]; then
+        result FAIL "client.env" "world-readable bit set but read test failed (ACL or mount restriction?)"
+    elif [[ ${#_missing_vars[@]} -gt 0 ]]; then
+        result FAIL "client.env" "missing populated vars: ${_missing_vars[*]} — re-run install.sh"
+    else
+        _api_url=$(grep -m1 '^STROMA_API_URL=' "${_client_env}" | cut -d= -f2-)
+        result PASS "client.env" "mode ${_perms}, readable, STROMA_API_URL=${_api_url}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 hr
-echo
-_total=$((PASS + FAIL + SKIP))
 echo -e "  ${GREEN}${PASS}${RESET} passed  ${RED}${FAIL}${RESET} failed  ${YELLOW}${SKIP}${RESET} skipped  (of ${_total} tests)"
 echo
 if [[ "${FAIL}" -gt 0 ]]; then
