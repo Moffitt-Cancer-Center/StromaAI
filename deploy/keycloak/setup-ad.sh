@@ -389,8 +389,10 @@ fi
 # need a JDK installed.
 # ---------------------------------------------------------------------------
 if echo "${AD_SERVER_URL}" | grep -qi "^ldaps://"; then
-    _ad_host=$(echo "${AD_SERVER_URL}" | sed 's|ldaps://||;s|/.*||;s|:.*||')
-    _ad_port=$(echo "${AD_SERVER_URL}" | grep -oP ':\K[0-9]+' || echo "636")
+    # Take only the first URL from a space-separated list, then extract host/port
+    _first_url=$(echo "${AD_SERVER_URL}" | awk '{print $1}')
+    _ad_host=$(echo "${_first_url}" | sed 's|ldaps://||;s|/.*||;s|:.*||')
+    _ad_port=$(echo "${_first_url}" | grep -oP ':\K[0-9]+$' || echo "636")
     _ad_port="${_ad_port:-636}"
     _ts_dir="$(dirname "${CONFIG_FILE}")"
     _ts_path="${_ts_dir}/ldap-truststore.jks"
@@ -403,8 +405,12 @@ if echo "${AD_SERVER_URL}" | grep -qi "^ldaps://"; then
     if command -v keytool &>/dev/null; then
         _keytool="keytool"
     else
-        # Find the Keycloak container name (matches *keycloak*)
-        _kc_container=$(podman ps --format '{{.Names}}' 2>/dev/null | grep -i keycloak | head -1 || true)
+        # Find the Keycloak container — match keycloak twice to avoid keycloak_postgres_1
+        _kc_container=$(podman ps --format '{{.Names}}' 2>/dev/null | grep -i 'keycloak.*keycloak\|keycloak_keycloak' | head -1 || true)
+        # Fallback: any container with keycloak that is NOT postgres
+        if [[ -z "${_kc_container}" ]]; then
+            _kc_container=$(podman ps --format '{{.Names}}' 2>/dev/null | grep -i keycloak | grep -iv postgres | head -1 || true)
+        fi
         if [[ -n "${_kc_container}" ]]; then
             _keytool="podman exec ${_kc_container} keytool"
             echo -e "  ${DIM}keytool not found on host — using container: ${_kc_container}${RESET}"
