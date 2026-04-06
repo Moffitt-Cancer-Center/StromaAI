@@ -94,7 +94,7 @@ done
 # Remove systemd units
 # ---------------------------------------------------------------------------
 log_step "Removing systemd service units"
-for unit in ray-head.service stroma-ai-vllm.service stroma-ai-watcher.service; do
+for unit in ray-head.service stroma-ai-vllm.service stroma-ai-watcher.service stroma-ai-gateway.service; do
     if [[ -f "/etc/systemd/system/${unit}" ]]; then
         run_cmd rm -f "/etc/systemd/system/${unit}"
         log_ok "Removed /etc/systemd/system/${unit}"

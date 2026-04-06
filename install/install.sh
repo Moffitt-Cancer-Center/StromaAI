@@ -570,6 +570,7 @@ _deploy_systemd_units() {
         "deploy/systemd/ray-head.service:ray-head.service"
         "deploy/systemd/stroma-ai-vllm.service:stroma-ai-vllm.service"
         "deploy/systemd/stroma-ai-watcher.service:stroma-ai-watcher.service"
+        "deploy/systemd/stroma-ai-gateway.service:stroma-ai-gateway.service"
     )
 
     for entry in "${units[@]}"; do
@@ -583,7 +584,7 @@ _deploy_systemd_units() {
     # Patch all deployed units: substitute the actual install dir and shared root.
     # systemd cannot expand shell variables in paths, so the installer does it.
     if [[ "${STROMA_DRY_RUN}" == "0" ]]; then
-        for unit in ray-head stroma-ai-vllm stroma-ai-watcher; do
+        for unit in ray-head stroma-ai-vllm stroma-ai-watcher stroma-ai-gateway; do
             local dest="${STROMA_SYSTEMD_DIR}/${unit}.service"
             [[ -f "${dest}" ]] || continue
             sed -i "s|/opt/stroma-ai|${STROMA_INSTALL_DIR}|g" "${dest}"
