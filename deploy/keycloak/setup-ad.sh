@@ -448,20 +448,48 @@ PYEOF
             for _cert_file in /tmp/stroma-ad-cert-$$-*.pem; do
                 [[ -f "${_cert_file}" ]] || continue
                 _alias="ad-ldaps-$(basename "${_cert_file}" .pem)"
-                # Skip if alias already exist
-                if ${_keytool} -list -keystore "${_ts_path}" -storepass "${_ts_pass}" \
+
+                # When keytool runs inside a container, cert files must be
+                # copied into the container first — podman exec stdin redirection
+                # does not deliver file content to the keytool process correctly.
+                _kt_cert_arg="${_cert_file}"
+                if [[ "${_keytool}" == podman\ exec* ]]; then
+                    _ctr="${_kc_container}"
+                    podman cp "${_cert_file}" "${_ctr}:${_cert_file}" 2>/dev/null || true
+                    _kt_ts_path="/tmp/stroma-ldap-truststore-$$.jks"
+                    # Also copy existing truststore into container if it exists on host
+                    if [[ -f "${_ts_path}" ]] && ! podman exec "${_ctr}" test -f "${_kt_ts_path}" 2>/dev/null; then
+                        podman cp "${_ts_path}" "${_ctr}:${_kt_ts_path}" 2>/dev/null || true
+                    fi
+                else
+                    _kt_ts_path="${_ts_path}"
+                fi
+
+                # Skip if alias already exists
+                if ${_keytool} -list -keystore "${_kt_ts_path}" -storepass "${_ts_pass}" \
                         -alias "${_alias}" &>/dev/null 2>&1; then
                     echo -e "  ${DIM}skip (already imported): ${_alias}${RESET}"
                 else
                     ${_keytool} -importcert -noprompt -trustcacerts \
                         -alias "${_alias}" -file "${_cert_file}" \
-                        -keystore "${_ts_path}" \
+                        -keystore "${_kt_ts_path}" \
                         -storepass "${_ts_pass}" &>/dev/null \
                         && { echo -e "  Imported: ${_alias}"; _imported=$((_imported+1)); } \
                         || echo -e "  ${YELLOW}WARN:${RESET} Failed to import ${_alias}"
                 fi
+
+                # Clean up cert from container
+                if [[ "${_keytool}" == podman\ exec* ]]; then
+                    podman exec "${_ctr}" rm -f "${_cert_file}" 2>/dev/null || true
+                fi
                 rm -f "${_cert_file}"
             done
+
+            # Copy truststore back from container to host
+            if [[ "${_keytool}" == podman\ exec* && -n "${_kc_container}" ]]; then
+                podman cp "${_kc_container}:${_kt_ts_path}" "${_ts_path}" 2>/dev/null \
+                    && podman exec "${_kc_container}" rm -f "${_kt_ts_path}" 2>/dev/null || true
+            fi
             rm -f "${_chain_file}"
 
             if [[ "${_imported}" -gt 0 || -f "${_ts_path}" ]]; then
