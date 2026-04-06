@@ -75,3 +75,8 @@ logs/
 *.crt
 *.key
 *.pem
+
+# Java keystores / truststores (site-specific, may contain private certs)
+*.jks
+*.p12
+*.pfx
