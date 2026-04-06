@@ -163,8 +163,15 @@ GATEWAY_BASE="${GATEWAY_OVERRIDE:-http://${HEAD}:${GATEWAY_PORT:-9000}}"
 TLS_BASE="https://${HEAD}"
 
 TOKEN_URL="http://${KC_HOST}:${KC_PORT}/realms/${REALM}/protocol/openid-connect/token"
-EXPECTED_ISSUER="http://${KC_HOST}:${KC_PORT}/realms/${REALM}"
-EXPECTED_AUDIENCE="stroma-ai-gateway"
+
+# Use OIDC_ISSUER from config.env when available — Keycloak sets the issuer
+# to its configured frontend hostname, which may differ from the IP/host you
+# connect to for the token request.  Fall back to constructing from KC_HOST.
+EXPECTED_ISSUER="${OIDC_ISSUER:-http://${KC_HOST}:${KC_PORT}/realms/${REALM}}"
+
+# Use OIDC_AUDIENCE from config.env — the installed value is 'stroma-gateway',
+# not 'stroma-ai-gateway'.  Fall back to the gateway-client ID.
+EXPECTED_AUDIENCE="${OIDC_AUDIENCE:-stroma-gateway}"
 
 # ---------------------------------------------------------------------------
 # Pre-flight
@@ -346,9 +353,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# TEST 5 — Token audience includes stroma-ai-gateway
+# TEST 5 — Token audience includes expected audience (default: stroma-gateway)
 # ---------------------------------------------------------------------------
-hr; echo -e "  ${BOLD}TEST 5${RESET}  Token audience (stroma-ai-gateway)"
+hr; echo -e "  ${BOLD}TEST 5${RESET}  Token audience (${EXPECTED_AUDIENCE})"
 if [[ "${TOKEN_VALID}" -eq 0 ]]; then
     result SKIP "Token audience" "no token"
 else
@@ -423,7 +430,7 @@ elif [[ "${TOKEN_VALID}" -eq 0 ]]; then
 elif [[ -z "${HEAD}" ]]; then
     result SKIP "Gateway auth" "STROMA_HEAD_HOST not set — use --head=HOST"
 else
-    _g_code=$(curl -sk --max-time 15 -o /dev/null -w "%{http_code}" \
+    _g_code=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" \
         "${GATEWAY_BASE}/v1/models" \
         -H "Authorization: Bearer ${ACCESS_TOKEN}" \
         2>/dev/null || echo "000")
@@ -431,7 +438,7 @@ else
         200) result PASS "Gateway auth" "${GATEWAY_BASE}/v1/models → HTTP ${_g_code}" ;;
         401) result FAIL "Gateway auth" "HTTP 401 — token rejected by gateway (issuer mismatch? OIDC_DISCOVERY_URL points to different KC?)" ;;
         403) result FAIL "Gateway auth" "HTTP 403 — token valid but role not accepted (check stroma_researcher role)" ;;
-        000) result FAIL "Gateway auth" "connection failed — is gateway running at ${GATEWAY_BASE}?" ;;
+        000) result SKIP "Gateway auth" "port ${GATEWAY_PORT:-9000} unreachable from this host — gateway is internal to head node; TEST 10 (TLS proxy) is the authoritative check" ;;
         *)   result FAIL "Gateway auth" "unexpected HTTP ${_g_code} from ${GATEWAY_BASE}/v1/models" ;;
     esac
 fi
@@ -492,11 +499,12 @@ echo
 if [[ "${FAIL}" -gt 0 ]]; then
     echo -e "  ${BOLD}Troubleshooting hints:${RESET}"
     echo -e "  ${DIM}• TEST 2 FAIL (Invalid credentials): verify the user exists in KC or AD is synced${RESET}"
-    echo -e "  ${DIM}• TEST 2 FAIL (Direct access grants disabled): KC → Clients → openwebui → Settings → enable 'Direct access grants'${RESET}"
-    echo -e "  ${DIM}• TEST 5 FAIL (audience): KC → Clients → openwebui → Client Scopes → Add mapper → Audience → stroma-ai-gateway${RESET}"
+    echo -e "  ${DIM}• TEST 2 FAIL (Direct access grants disabled): KC → Clients → stroma-cli → Settings → enable 'Direct access grants'${RESET}"
+    echo -e "  ${DIM}• TEST 4 FAIL (issuer): token iss= must match OIDC_ISSUER in config.env — re-run setup-keycloak.sh or set KC_HOSTNAME correctly${RESET}"
+    echo -e "  ${DIM}• TEST 5 FAIL (audience): KC → Clients → stroma-cli → Client Scopes → Add mapper → Audience → ${EXPECTED_AUDIENCE}${RESET}"
     echo -e "  ${DIM}• TEST 6 FAIL (role): KC → Users → ${TEST_USER} → Role Mappings → assign stroma_researcher${RESET}"
     echo -e "  ${DIM}•        (or for AD): KC → Identity Providers → ${REALM}-ad → Mappers → add Role Importer${RESET}"
-    echo -e "  ${DIM}• TEST 9/10 FAIL (401): OIDC_DISCOVERY_URL in config.env must match the 'iss' in token (TEST 4)${RESET}"
+    echo -e "  ${DIM}• TEST 10 FAIL (401): OIDC_DISCOVERY_URL in config.env must match the 'iss' in token (TEST 4)${RESET}"
     echo
     exit 1
 fi
