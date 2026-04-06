@@ -69,6 +69,21 @@ services:
       KC_PROXY_HEADERS: "xforwarded"
 
       KC_LOG_LEVEL: INFO
+
+      # LDAP/LDAPS TLS trust — mount host Java truststore so Keycloak can
+      # validate AD server certificates signed by internal PKI.
+      # KC_LDAP_TRUSTSTORE_JKS defaults to the RHEL/Rocky system Java truststore
+      # (populated by update-ca-trust).  Override in config.env if needed.
+      # KC_SPI_TRUSTSTORE_FILE_HOSTNAME_VERIFICATION_POLICY=ANY skips hostname
+      # verification — AD servers often present a cert with a different subject
+      # than the URL hostname.  Change to WILDCARD or STRICT if stricter is needed.
+      KC_SPI_TRUSTSTORE_FILE_FILE: /opt/keycloak/conf/ldap-truststore.jks
+      KC_SPI_TRUSTSTORE_FILE_PASSWORD: ${KC_LDAP_TRUSTSTORE_PASSWORD:-changeit}
+      KC_SPI_TRUSTSTORE_FILE_HOSTNAME_VERIFICATION_POLICY: ANY
+    volumes:
+      # Mount the host system Java truststore (includes update-ca-trust certs)
+      # into the Keycloak container so LDAPS connections to AD work.
+      - ${KC_LDAP_TRUSTSTORE_JKS:-/etc/pki/java/cacerts}:/opt/keycloak/conf/ldap-truststore.jks:ro
     ports:
       - "${KC_PORT:-8080}:8080"
     depends_on:
