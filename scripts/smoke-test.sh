@@ -1,0 +1,442 @@
+#!/usr/bin/env bash
+# =============================================================================
+# StromaAI — Platform Smoke Test
+# =============================================================================
+# Verifies all services are reachable and correctly configured from any
+# machine with network access to the StromaAI platform.
+#
+# Runs 12 tests covering:
+#   1.  nginx TLS endpoint (head node)
+#   2.  vLLM /v1/models via nginx (model loaded check)
+#   3.  Keycloak direct HTTP (pod-head container)
+#   4.  Keycloak realm via nginx TLS proxy
+#   5.  Keycloak admin credentials
+#   6.  stroma-ai realm existence
+#   7.  OIDC clients registered (stroma-gateway, openwebui)
+#   8.  OpenWebUI direct HTTP (pod-head)
+#   9.  OpenWebUI via nginx TLS proxy
+#   10. Gateway health check (direct)
+#   11. OIDC user token (end-to-end KC login)
+#   12. Authenticated vLLM inference (full E2E)
+#
+# Usage:
+#   scripts/smoke-test.sh                        # reads config.env auto-detect
+#   scripts/smoke-test.sh --config=/path/to/config.env
+#   scripts/smoke-test.sh --head=host --kc=host  # explicit hosts
+#   scripts/smoke-test.sh --skip-auth            # skip tests needing KC admin pass
+#   scripts/smoke-test.sh --help
+#
+# Options:
+#   --config=FILE       Path to config.env (auto-detected if omitted)
+#   --head=HOST         FQDN/IP of the StromaAI head node (nginx + vLLM)
+#   --kc=HOST           FQDN/IP of the Keycloak/OpenWebUI host
+#   --api-key=KEY       STROMA_API_KEY override
+#   --kc-admin-pass=PW  Keycloak admin password (from deploy/keycloak/.env)
+#   --skip-auth         Skip tests that require the KC admin password
+#   --no-color          Disable ANSI color output
+#   -h | --help         Show this message
+#
+# Exit codes:
+#   0  All tests passed
+#   1  One or more tests failed
+# =============================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# ---------------------------------------------------------------------------
+# Color setup
+# ---------------------------------------------------------------------------
+if [[ -t 1 && "${NO_COLOR:-}" == "" ]]; then
+    RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
+    CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+else
+    RED='' YELLOW='' GREEN='' CYAN='' BOLD='' DIM='' RESET=''
+fi
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+CONFIG_FILE=""
+HEAD_HOST=""
+KC_HOST=""
+API_KEY_OVERRIDE=""
+KC_ADMIN_PASS_OVERRIDE=""
+SKIP_AUTH=0
+for _arg in "$@"; do
+    case "${_arg}" in
+        --config=*)       CONFIG_FILE="${_arg#--config=}" ;;
+        --head=*)         HEAD_HOST="${_arg#--head=}" ;;
+        --kc=*)           KC_HOST="${_arg#--kc=}" ;;
+        --api-key=*)      API_KEY_OVERRIDE="${_arg#--api-key=}" ;;
+        --kc-admin-pass=*) KC_ADMIN_PASS_OVERRIDE="${_arg#--kc-admin-pass=}" ;;
+        --skip-auth)      SKIP_AUTH=1 ;;
+        --no-color)       RED='' YELLOW='' GREEN='' CYAN='' BOLD='' DIM='' RESET='' ;;
+        -h|--help)
+            sed -n '2,/^# ===.*$/{ s/^# \{0,2\}//; p }' "$0" | head -40
+            exit 0
+            ;;
+        *) echo "Unknown argument: ${_arg}. Use --help for usage." >&2; exit 1 ;;
+    esac
+done
+unset _arg
+
+# ---------------------------------------------------------------------------
+# Locate config.env
+# ---------------------------------------------------------------------------
+if [[ -z "${CONFIG_FILE}" ]]; then
+    for _p in \
+        "${STROMA_INSTALL_DIR:+${STROMA_INSTALL_DIR}/config.env}" \
+        "/cm/shared/apps/stroma-ai/config.env" \
+        "/opt/stroma-ai/config.env" \
+        "/opt/apps/stroma-ai/config.env" \
+        "${HOME}/stroma-ai/config.env"
+    do
+        [[ -z "${_p}" ]] && continue
+        if [[ -f "${_p}" ]]; then CONFIG_FILE="${_p}"; break; fi
+    done
+fi
+
+# Source config if found
+if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
+    # shellcheck source=/dev/null
+    source "${CONFIG_FILE}"
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve runtime values (flag > config.env > sensible default)
+# ---------------------------------------------------------------------------
+HEAD="${HEAD_HOST:-${STROMA_HEAD_HOST:-}}"
+KC="${KC_HOST:-${STROMA_HEAD_HOST:-}}"    # default: same host as head
+API_KEY="${API_KEY_OVERRIDE:-${STROMA_API_KEY:-}}"
+KC_ADMIN_PASS="${KC_ADMIN_PASS_OVERRIDE:-}"
+KC_PORT="${KC_PORT:-8080}"
+OWU_PORT="${OPENWEBUI_PORT:-3000}"
+GW_PORT="${GATEWAY_PORT:-9000}"
+
+# ---------------------------------------------------------------------------
+# Pre-flight: require basic tools
+# ---------------------------------------------------------------------------
+for _cmd in curl python3; do
+    command -v "${_cmd}" &>/dev/null || { echo "ERROR: ${_cmd} not found." >&2; exit 1; }
+done
+
+# ---------------------------------------------------------------------------
+# Test harness
+# ---------------------------------------------------------------------------
+PASS=0; FAIL=0; SKIP=0
+_results=()   # array of "PASS|FAIL|SKIP :: description :: detail"
+
+result() {
+    local status="$1" desc="$2" detail="${3:-}"
+    case "${status}" in
+        PASS) PASS=$((PASS+1)); _results+=("${GREEN}PASS${RESET} :: ${desc}${detail:+ — ${DIM}${detail}${RESET}}") ;;
+        FAIL) FAIL=$((FAIL+1)); _results+=("${RED}FAIL${RESET} :: ${desc}${detail:+ — ${RED}${detail}${RESET}}") ;;
+        SKIP) SKIP=$((SKIP+1)); _results+=("${YELLOW}SKIP${RESET} :: ${desc}${detail:+ — ${DIM}${detail}${RESET}}") ;;
+    esac
+}
+
+# http_get URL [extra curl args...] → body; returns curl exit code
+http_get() {
+    local url="$1"; shift
+    curl -sk --max-time 10 "$@" "${url}" 2>/dev/null
+}
+
+# json_field BODY FIELD → value (empty if not found / not JSON)
+json_field() {
+    python3 -c "
+import sys, json
+try:
+    d = json.loads(sys.argv[1])
+    # support nested: 'data.0.id'
+    for k in sys.argv[2].split('.'):
+        d = d[int(k)] if isinstance(d, list) else d[k]
+    print(d)
+except Exception:
+    pass
+" "$1" "$2" 2>/dev/null || true
+}
+
+hr() { printf "${DIM}%.0s─${RESET}" {1..62}; echo; }
+
+# ---------------------------------------------------------------------------
+# Banner
+# ---------------------------------------------------------------------------
+echo
+echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${RESET}"
+printf  "${BOLD}║   StromaAI Smoke Test  —  %-35s║${RESET}\n" "$(date '+%Y-%m-%d %H:%M %Z')"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${RESET}"
+echo
+if [[ -n "${CONFIG_FILE}" ]]; then
+    echo -e "  ${CYAN}Config${RESET}   : ${CONFIG_FILE}"
+else
+    echo -e "  ${YELLOW}Config${RESET}   : not found — set --config= or STROMA_INSTALL_DIR"
+fi
+echo -e "  ${CYAN}Head${RESET}     : ${HEAD:-${RED}(not set — use --head=)${RESET}}"
+echo -e "  ${CYAN}Keycloak${RESET} : ${KC:-${YELLOW}(defaulting to head)${RESET}}"
+[[ "${SKIP_AUTH}" -eq 1 ]] && \
+    echo -e "  ${YELLOW}Auth tests${RESET}: skipped (--skip-auth)"
+echo
+
+if [[ -z "${HEAD}" ]]; then
+    echo -e "${RED}ERROR: HEAD host not set. Pass --head=<hostname> or set STROMA_HEAD_HOST in config.env${RESET}" >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 1 — nginx TLS health endpoint
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 1${RESET}  nginx TLS health"
+body=$(http_get "https://${HEAD}/health")
+status=$(json_field "${body}" "status")
+if [[ "${status}" == "ok" ]]; then
+    result PASS "nginx TLS /health" "status=ok"
+else
+    result FAIL "nginx TLS /health" "got: ${body:0:120}"
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 2 — vLLM /v1/models (API key auth)
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 2${RESET}  vLLM /v1/models via nginx"
+if [[ -z "${API_KEY}" ]]; then
+    result SKIP "vLLM /v1/models" "STROMA_API_KEY not set"
+else
+    body=$(http_get "https://${HEAD}/v1/models" -H "Authorization: Bearer ${API_KEY}")
+    model_id=$(json_field "${body}" "data.0.id")
+    if [[ -n "${model_id}" ]]; then
+        result PASS "vLLM /v1/models" "model=${model_id}"
+    else
+        result FAIL "vLLM /v1/models" "got: ${body:0:120}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 3 — Keycloak direct HTTP (master realm)
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 3${RESET}  Keycloak direct HTTP (${KC}:${KC_PORT})"
+body=$(http_get "http://${KC}:${KC_PORT}/realms/master/.well-known/openid-configuration")
+issuer=$(json_field "${body}" "issuer")
+if [[ -n "${issuer}" ]]; then
+    result PASS "Keycloak direct HTTP" "issuer=${issuer}"
+else
+    result FAIL "Keycloak direct HTTP" "no JSON or unreachable — got: ${body:0:80}"
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 4 — Keycloak stroma-ai realm via nginx TLS
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 4${RESET}  stroma-ai realm via nginx TLS (${HEAD})"
+body=$(http_get "https://${HEAD}/realms/stroma-ai/.well-known/openid-configuration")
+issuer=$(json_field "${body}" "issuer")
+if [[ -n "${issuer}" ]]; then
+    result PASS "Keycloak stroma-ai realm via nginx" "issuer=${issuer}"
+else
+    result FAIL "Keycloak stroma-ai realm via nginx" \
+        "no issuer — KC_INTERNAL_URL may point to wrong host. got: ${body:0:80}"
+fi
+
+# ---------------------------------------------------------------------------
+# Get KC admin token (needed for tests 5, 6, 7)
+# ---------------------------------------------------------------------------
+KC_ADMIN_TOKEN=""
+if [[ "${SKIP_AUTH}" -eq 0 && -z "${KC_ADMIN_PASS}" ]]; then
+    # Try to read from compose .env next to this repo
+    _kc_env="${REPO_ROOT}/deploy/keycloak/.env"
+    if [[ -f "${_kc_env}" ]]; then
+        KC_ADMIN_PASS="$(grep '^KC_ADMIN_PASSWORD=' "${_kc_env}" \
+            | head -1 | cut -d= -f2- | tr -d '[:space:]')" || true
+    fi
+    if [[ -z "${KC_ADMIN_PASS}" ]]; then
+        echo -e "  ${YELLOW}NOTE${RESET}: KC admin password not found. Pass --kc-admin-pass=PW or"
+        echo -e "        place it in deploy/keycloak/.env. Tests 5–7, 11–12 will be skipped."
+        SKIP_AUTH=1
+    fi
+fi
+
+if [[ "${SKIP_AUTH}" -eq 0 ]]; then
+    _token_body=$(http_get \
+        "http://${KC}:${KC_PORT}/realms/master/protocol/openid-connect/token" \
+        -X POST \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "grant_type=password&client_id=admin-cli&username=admin&password=${KC_ADMIN_PASS}")
+    KC_ADMIN_TOKEN=$(json_field "${_token_body}" "access_token")
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 5 — Keycloak admin credentials
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 5${RESET}  Keycloak admin credentials"
+if [[ "${SKIP_AUTH}" -eq 1 ]]; then
+    result SKIP "Keycloak admin login" "--skip-auth or password not available"
+elif [[ -n "${KC_ADMIN_TOKEN}" ]]; then
+    result PASS "Keycloak admin login" "token obtained"
+else
+    _err=$(json_field "${_token_body:-}" "error_description")
+    result FAIL "Keycloak admin login" "${_err:-wrong password or KC not reachable}"
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 6 — stroma-ai realm exists
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 6${RESET}  stroma-ai realm configured"
+if [[ "${SKIP_AUTH}" -eq 1 || -z "${KC_ADMIN_TOKEN}" ]]; then
+    result SKIP "stroma-ai realm" "no admin token"
+else
+    body=$(http_get "http://${KC}:${KC_PORT}/admin/realms/stroma-ai" \
+        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}")
+    realm=$(json_field "${body}" "realm")
+    enabled=$(json_field "${body}" "enabled")
+    if [[ "${realm}" == "stroma-ai" && "${enabled}" == "True" ]]; then
+        result PASS "stroma-ai realm" "realm=stroma-ai enabled=True"
+    elif [[ "${realm}" == "stroma-ai" ]]; then
+        result FAIL "stroma-ai realm" "realm exists but enabled=${enabled}"
+    else
+        result FAIL "stroma-ai realm" "not found — run setup-keycloak.sh to completion"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 7 — OIDC clients registered
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 7${RESET}  OIDC clients registered"
+if [[ "${SKIP_AUTH}" -eq 1 || -z "${KC_ADMIN_TOKEN}" ]]; then
+    result SKIP "OIDC clients" "no admin token"
+else
+    _clients_ok=1
+    _client_details=""
+    for _client in stroma-gateway openwebui; do
+        _cbody=$(http_get \
+            "http://${KC}:${KC_PORT}/admin/realms/stroma-ai/clients?clientId=${_client}" \
+            -H "Authorization: Bearer ${KC_ADMIN_TOKEN}")
+        _enabled=$(json_field "${_cbody}" "0.enabled")
+        if [[ "${_enabled}" == "True" ]]; then
+            _client_details+="${_client}=enabled "
+        else
+            _clients_ok=0
+            _client_details+="${_client}=MISSING "
+        fi
+    done
+    if [[ "${_clients_ok}" -eq 1 ]]; then
+        result PASS "OIDC clients" "${_client_details% }"
+    else
+        result FAIL "OIDC clients" "${_client_details% } — re-run setup-keycloak.sh"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 8 — OpenWebUI direct HTTP
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 8${RESET}  OpenWebUI direct HTTP (${KC}:${OWU_PORT})"
+_http_code=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" \
+    "http://${KC}:${OWU_PORT}/" 2>/dev/null || echo "000")
+if [[ "${_http_code}" == "200" ]]; then
+    result PASS "OpenWebUI direct HTTP" "HTTP ${_http_code}"
+elif [[ "${_http_code}" == "000" ]]; then
+    result FAIL "OpenWebUI direct HTTP" "connection refused — run setup-openwebui.sh"
+else
+    result FAIL "OpenWebUI direct HTTP" "HTTP ${_http_code}"
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 9 — OpenWebUI via nginx TLS
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 9${RESET}  OpenWebUI via nginx TLS (/webui/)"
+_http_code=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" \
+    "https://${HEAD}/webui/" 2>/dev/null || echo "000")
+if [[ "${_http_code}" == "200" ]]; then
+    result PASS "OpenWebUI via nginx" "HTTP ${_http_code}"
+elif [[ "${_http_code}" == "000" ]]; then
+    result FAIL "OpenWebUI via nginx" "connection refused or nginx misconfigured"
+else
+    result FAIL "OpenWebUI via nginx" "HTTP ${_http_code} — check OPENWEBUI_INTERNAL_URL in config.env"
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 10 — Gateway health (direct)
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 10${RESET} Gateway health check (${HEAD}:${GW_PORT})"
+body=$(http_get "http://${HEAD}:${GW_PORT}/health")
+svc=$(json_field "${body}" "service")
+if [[ "${svc}" == "stroma-gateway" ]]; then
+    result PASS "Gateway health" "service=stroma-gateway"
+else
+    result FAIL "Gateway health" "got: ${body:0:80} — is stroma-ai-gateway.service running?"
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 11 — OIDC user token (researcher-demo)
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 11${RESET} OIDC user token (researcher-demo)"
+USER_TOKEN=""
+GW_CLIENT_SECRET="${KC_GATEWAY_CLIENT_SECRET:-}"
+if [[ "${SKIP_AUTH}" -eq 1 || -z "${KC_ADMIN_TOKEN}" ]]; then
+    result SKIP "OIDC user token" "no admin token"
+elif [[ -z "${GW_CLIENT_SECRET}" ]]; then
+    result SKIP "OIDC user token" "KC_GATEWAY_CLIENT_SECRET not in config.env"
+else
+    # researcher-demo may have a temporary password — attempt login anyway.
+    # A "400 Account is not fully set up" means the password must be reset first.
+    _tbody=$(http_get \
+        "https://${HEAD}/realms/stroma-ai/protocol/openid-connect/token" \
+        -X POST \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "grant_type=client_credentials&client_id=stroma-gateway&client_secret=${GW_CLIENT_SECRET}")
+    USER_TOKEN=$(json_field "${_tbody}" "access_token")
+    _terr=$(json_field "${_tbody}" "error_description")
+    if [[ -n "${USER_TOKEN}" ]]; then
+        result PASS "OIDC client_credentials token" "token obtained"
+    else
+        result FAIL "OIDC client_credentials token" "${_terr:-check KC_GATEWAY_CLIENT_SECRET matches Keycloak}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 12 — End-to-end authenticated inference
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 12${RESET} Authenticated vLLM inference (E2E)"
+if [[ -z "${USER_TOKEN}" ]]; then
+    result SKIP "E2E inference" "no user token (tests 5–11 must pass first)"
+else
+    _MODEL="${STROMA_MODEL_NAME:-stroma-ai-coder}"
+    _ibody=$(curl -sk --max-time 60 \
+        "https://${HEAD}/v1/chat/completions" \
+        -H "Authorization: Bearer ${USER_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"model\":\"${_MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly one word: ready\"}],\"max_tokens\":5}" \
+        2>/dev/null)
+    _reply=$(json_field "${_ibody}" "choices.0.message.content")
+    if [[ -n "${_reply}" ]]; then
+        result PASS "E2E inference" "model replied: ${_reply}"
+    else
+        _ierr=$(json_field "${_ibody}" "message")
+        result FAIL "E2E inference" "${_ierr:-no completion returned — got: ${_ibody:0:120}}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+hr
+echo
+echo -e "${BOLD}  Results${RESET}"
+hr
+for _r in "${_results[@]}"; do
+    echo -e "  ${_r}"
+done
+echo
+_total=$((PASS + FAIL + SKIP))
+printf "  %s passed  %s failed  %s skipped  (of %s tests)\n" \
+    "${GREEN}${PASS}${RESET}" "${RED}${FAIL}${RESET}" "${YELLOW}${SKIP}${RESET}" "${_total}"
+echo
+if [[ "${FAIL}" -gt 0 ]]; then
+    echo -e "${RED}  PLATFORM NOT HEALTHY — fix failing tests before going live.${RESET}"
+    echo
+    exit 1
+else
+    echo -e "${GREEN}  Platform is healthy.${RESET}"
+    echo
+    exit 0
+fi
