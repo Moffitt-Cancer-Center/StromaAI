@@ -560,8 +560,13 @@ _deploy_nginx() {
     esac
 
     backup_file "${nginx_conf_path}" 2>/dev/null || true
-    
-    # Process nginx config template with envsubst to support flexible backend URLs
+
+    # Process nginx config template with envsubst to support flexible backend URLs.
+    # IMPORTANT: This runs during install, before setup-keycloak.sh and
+    # setup-openwebui.sh write the real KC/OWU addresses to config.env.
+    # If those addresses are still at localhost defaults here, we write a
+    # placeholder config and instruct the operator to re-run deploy-nginx.sh
+    # after those setup scripts complete.
     log_info "Processing nginx config template with backend URLs from ${CONFIG_FILE}"
     if [[ "${STROMA_DRY_RUN}" == "0" ]]; then
         # Read backend URL variables from config and strip http:// prefix for nginx upstream
@@ -570,22 +575,44 @@ _deploy_nginx() {
         export OPENWEBUI_INTERNAL_URL="$(grep -E '^OPENWEBUI_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:3000')"
         _gw_port="$(grep -E '^GATEWAY_PORT=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo '9000')"
         export GATEWAY_INTERNAL_URL="$(grep -E '^GATEWAY_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo "http://127.0.0.1:${_gw_port}")"
-        
-        # Strip http:// prefix for nginx upstream blocks (envsubst doesn't support parameter expansion)
-        export VLLM_INTERNAL_URL="${VLLM_INTERNAL_URL#http://}"
-        export KC_INTERNAL_URL="${KC_INTERNAL_URL#http://}"
-        export OPENWEBUI_INTERNAL_URL="${OPENWEBUI_INTERNAL_URL#http://}"
-        export GATEWAY_INTERNAL_URL="${GATEWAY_INTERNAL_URL#http://}"
-        
-        envsubst '${VLLM_INTERNAL_URL} ${GATEWAY_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
-            < "${REPO_DIR}/deploy/nginx/stroma-ai.conf" \
-            > "${nginx_conf_path}"
-        
-        log_ok "nginx config installed at ${nginx_conf_path}"
-        log_info "  vLLM backend:     ${VLLM_INTERNAL_URL}"
-        log_info "  Gateway backend:  ${GATEWAY_INTERNAL_URL}"
-        log_info "  Keycloak backend: ${KC_INTERNAL_URL}"
-        log_info "  OpenWebUI backend: ${OPENWEBUI_INTERNAL_URL}"
+
+        # Detect whether KC or OWU are still pointing at localhost (not yet configured).
+        # If so, skip nginx generation — writing localhost addresses into the live nginx
+        # config would make /realms/ and / return 502 for all external clients.
+        _kc_is_local=0
+        _owu_is_local=0
+        [[ "${KC_INTERNAL_URL}" == *"127.0.0.1:8080"* || "${KC_INTERNAL_URL}" == *"localhost:8080"* ]] && _kc_is_local=1
+        [[ "${OPENWEBUI_INTERNAL_URL}" == *"127.0.0.1:3000"* || "${OPENWEBUI_INTERNAL_URL}" == *"localhost:3000"* ]] && _owu_is_local=1
+
+        if [[ "${_kc_is_local}" -eq 1 || "${_owu_is_local}" -eq 1 ]]; then
+            log_warn "nginx config NOT generated yet — Keycloak and/or OpenWebUI URLs are still at defaults."
+            [[ "${_kc_is_local}"  -eq 1 ]] && log_warn "  KC_INTERNAL_URL=${KC_INTERNAL_URL}  ← set real address in ${CONFIG_FILE}"
+            [[ "${_owu_is_local}" -eq 1 ]] && log_warn "  OPENWEBUI_INTERNAL_URL=${OPENWEBUI_INTERNAL_URL}  ← set real address in ${CONFIG_FILE}"
+            log_warn "After running setup-keycloak.sh and setup-openwebui.sh, regenerate nginx:"
+            log_warn "  sudo ${REPO_DIR}/scripts/deploy-nginx.sh"
+            # Write a minimal safe placeholder so nginx starts (returns 503 for KC/OWU paths)
+            # rather than failing to start entirely due to missing config.
+            envsubst '${VLLM_INTERNAL_URL} ${GATEWAY_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+                < "${REPO_DIR}/deploy/nginx/stroma-ai.conf" \
+                > "${nginx_conf_path}"
+            log_info "  Placeholder nginx config written — /realms/ and / will return 502 until deploy-nginx.sh is re-run."
+        else
+            # Strip http:// prefix for nginx upstream blocks (envsubst doesn't support parameter expansion)
+            export VLLM_INTERNAL_URL="${VLLM_INTERNAL_URL#http://}"
+            export KC_INTERNAL_URL="${KC_INTERNAL_URL#http://}"
+            export OPENWEBUI_INTERNAL_URL="${OPENWEBUI_INTERNAL_URL#http://}"
+            export GATEWAY_INTERNAL_URL="${GATEWAY_INTERNAL_URL#http://}"
+
+            envsubst '${VLLM_INTERNAL_URL} ${GATEWAY_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+                < "${REPO_DIR}/deploy/nginx/stroma-ai.conf" \
+                > "${nginx_conf_path}"
+
+            log_ok "nginx config installed at ${nginx_conf_path}"
+            log_info "  vLLM backend:      ${VLLM_INTERNAL_URL}"
+            log_info "  Gateway backend:   ${GATEWAY_INTERNAL_URL}"
+            log_info "  Keycloak backend:  ${KC_INTERNAL_URL}"
+            log_info "  OpenWebUI backend: ${OPENWEBUI_INTERNAL_URL}"
+        fi
     else
         log_dry "Would process nginx template and write to ${nginx_conf_path}"
     fi
@@ -728,11 +755,18 @@ _print_head_summary() {
     echo -e "    journalctl -u stroma-ai-watcher -f"
     echo ""
     echo -e "  Next steps:"
-    echo -e "    1. Run preflight on Slurm worker nodes:"
+    echo -e "    1. Set up Keycloak (identity provider):"
+    echo -e "       sudo ./deploy/keycloak/setup-keycloak.sh"
+    echo -e "    2. Set up OpenWebUI (browser chat interface):"
+    echo -e "       sudo ./deploy/openwebui/setup-openwebui.sh"
+    echo -e "    3. Re-generate nginx config with real KC/OWUI addresses:"
+    echo -e "       sudo ./scripts/deploy-nginx.sh"
+    echo -e "       ${YELLOW}(required if Keycloak/OpenWebUI run on a separate VM)${RESET}"
+    echo -e "    4. Run preflight on Slurm worker nodes:"
     echo -e "       sudo ./install/preflight.sh --mode=worker"
-    echo -e "    2. Build the Apptainer container:"
+    echo -e "    5. Build the Apptainer container:"
     echo -e "       apptainer build ${STROMA_CONTAINER} deploy/containers/stroma-ai-vllm.def"
-    echo -e "    3. Configure OOD integration:"
+    echo -e "    6. Configure OOD integration:"
     echo -e "       sudo ./install/install.sh --mode=ood --config=${STROMA_INSTALL_DIR}/config.env"
     echo ""
 }
