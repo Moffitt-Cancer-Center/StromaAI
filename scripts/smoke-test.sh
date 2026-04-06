@@ -449,10 +449,12 @@ if [[ "${SKIP_AUTH}" -eq 1 || -z "${KC_ADMIN_TOKEN}" ]]; then
 elif [[ -z "${GW_CLIENT_SECRET}" ]]; then
     result SKIP "OIDC user token" "KC_GATEWAY_CLIENT_SECRET not in config.env"
 else
-    # researcher-demo may have a temporary password — attempt login anyway.
-    # A "400 Account is not fully set up" means the password must be reset first.
+    # Fetch token directly from KC (not via nginx) so the issued token's
+    # "iss" claim matches the issuer the gateway cached from OIDC_DISCOVERY_URL
+    # (http://<host>:8080/...).  Going through nginx would produce an https://
+    # issuer that doesn't match, causing 401 on subsequent requests.
     _tbody=$(http_get \
-        "https://${HEAD}/realms/stroma-ai/protocol/openid-connect/token" \
+        "http://${KC}:${KC_PORT}/realms/stroma-ai/protocol/openid-connect/token" \
         -X POST \
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "grant_type=client_credentials&client_id=stroma-gateway&client_secret=${GW_CLIENT_SECRET}")

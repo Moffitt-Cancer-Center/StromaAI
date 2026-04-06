@@ -294,7 +294,7 @@ async def proxy_to_vllm(
     content-type are read from the backend response headers before yielding
     body chunks, so no double-request occurs.
     """
-    target_url = f"{VLLM_BACKEND_URL}/{path}"
+    target_url = f"{VLLM_BACKEND_URL}/v1/{path}"
     params     = dict(request.query_params)
     body       = await request.body()
 
