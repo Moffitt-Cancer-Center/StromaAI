@@ -456,8 +456,52 @@ EOF
         
         chown stromaai:stromaai "${STROMA_INSTALL_DIR}/config.env"
         chmod 640 "${STROMA_INSTALL_DIR}/config.env"
+
+        # Write world-readable client.env — safe-to-share connection info only.
+        # Users source this to point their tools (Kilo Code, curl, etc.) at the API.
+        # Contains NO secrets: no API keys, no client secrets, no admin passwords.
+        if [[ "${STROMA_DRY_RUN}" == "0" ]]; then
+            local _https_port="${STROMA_HTTPS_PORT:-443}"
+            local _base_url
+            if [[ "${_https_port}" == "443" ]]; then
+                _base_url="https://${STROMA_HEAD_HOST}"
+            else
+                _base_url="https://${STROMA_HEAD_HOST}:${_https_port}"
+            fi
+            cat > "${STROMA_INSTALL_DIR}/client.env" <<EOF
+# StromaAI — user connection settings
+# Source this file to configure your AI client tools:
+#   source /cm/shared/apps/stroma-ai/client.env
+#
+# For authentication, obtain a bearer token via Keycloak:
+#   curl -s -X POST "\${STROMA_OIDC_TOKEN_URL}" \
+#     -d "client_id=stroma-gateway&grant_type=password" \
+#     -d "username=<your-username>&password=<your-password>" \
+#     | python3 -m json.tool
+# Or use the shared API key provided by your administrator.
+
+# API endpoint (for Kilo Code, GitHub Copilot, OpenAI-compatible clients)
+STROMA_API_URL=${_base_url}/v1
+
+# Model served by this cluster
+STROMA_MODEL_NAME=${STROMA_MODEL_NAME}
+
+# OIDC discovery (for token-based auth)
+STROMA_OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}
+STROMA_OIDC_TOKEN_URL=${OIDC_DISCOVERY_URL%/.well-known/openid-configuration}/protocol/openid-connect/token
+
+# Chat UI
+STROMA_CHAT_URL=${_base_url}/
+EOF
+            chown root:root "${STROMA_INSTALL_DIR}/client.env"
+            chmod 644 "${STROMA_INSTALL_DIR}/client.env"
+            log_ok "client.env written (world-readable): ${STROMA_INSTALL_DIR}/client.env"
+        else
+            log_dry "Would write ${STROMA_INSTALL_DIR}/client.env (world-readable, no secrets)"
+        fi
     else
         log_dry "Would write ${STROMA_INSTALL_DIR}/config.env with site values"
+        log_dry "Would write ${STROMA_INSTALL_DIR}/client.env (world-readable, no secrets)"
     fi
     log_ok "config.env written."
 }
