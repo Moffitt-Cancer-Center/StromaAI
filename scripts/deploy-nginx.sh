@@ -185,10 +185,36 @@ deploy_container_mode() {
     if [[ ! -f "${compose_file}" ]]; then
         log_fatal "docker-compose.yml not found: ${compose_file}"
     fi
-    
+
     # Ensure SSL certs exist (container mounts from ${SSL_CERT_DIR})
     check_or_create_ssl_cert
-    
+
+    # Generate nginx.conf from template before restarting the container.
+    # nginx.conf is not committed — it is produced by envsubst from
+    # nginx.conf.template so that KC and OpenWebUI upstream addresses
+    # (which live outside the Compose network) are injected at deploy time.
+    local nginx_tmpl="${REPO_DIR}/deploy/head/nginx.conf.template"
+    local nginx_out="${REPO_DIR}/deploy/head/nginx.conf"
+
+    [[ -f "${nginx_tmpl}" ]] || log_fatal "nginx.conf.template not found: ${nginx_tmpl}"
+
+    # Load upstream URLs from config
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        export KC_INTERNAL_URL=$(grep -E '^KC_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:8080')
+        export OPENWEBUI_INTERNAL_URL=$(grep -E '^OPENWEBUI_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:3000')
+    else
+        log_info "Config not found — using default upstream URLs"
+        export KC_INTERNAL_URL='http://127.0.0.1:8080'
+        export OPENWEBUI_INTERNAL_URL='http://127.0.0.1:3000'
+    fi
+
+    log_info "Generating nginx.conf from template"
+    log_info "  Keycloak  → ${KC_INTERNAL_URL}"
+    log_info "  OpenWebUI → ${OPENWEBUI_INTERNAL_URL}"
+    envsubst '${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+        < "${nginx_tmpl}" > "${nginx_out}" || log_fatal "envsubst failed"
+    log_ok "nginx.conf generated at ${nginx_out}"
+
     # Check if compose stack is running
     if ! podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^stroma-nginx$'; then
         log_error "nginx container not running. Start the full stack first:"
@@ -196,11 +222,11 @@ deploy_container_mode() {
         log_error "  ./setup-head.sh"
         exit 1
     fi
-    
-    # Restart nginx container to pick up any config or cert changes
+
+    # Restart nginx container to pick up the new config
     log_info "Restarting nginx container"
     cd "${REPO_DIR}/deploy/head"
-    
+
     # Detect compose command
     local compose_cmd
     if podman compose version &>/dev/null 2>&1; then
@@ -210,9 +236,9 @@ deploy_container_mode() {
     else
         log_fatal "No Podman Compose found. Install: dnf install podman-compose"
     fi
-    
+
     ${compose_cmd} restart nginx || log_fatal "Failed to restart nginx container"
-    
+
     log_ok "nginx container restarted"
     echo ""
     log_ok "Container nginx deployment complete"
