@@ -382,6 +382,102 @@ if [[ "${DRY_RUN}" -eq 0 && -n "${CONFIG_FILE}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# LDAPS truststore setup (only when using ldaps://)
+# ---------------------------------------------------------------------------
+# keytool is part of the JVM — it is not a standalone binary on most HPC nodes.
+# We use keytool from inside the running Keycloak container so the host doesn't
+# need a JDK installed.
+# ---------------------------------------------------------------------------
+if echo "${AD_SERVER_URL}" | grep -qi "^ldaps://"; then
+    _ad_host=$(echo "${AD_SERVER_URL}" | sed 's|ldaps://||;s|/.*||;s|:.*||')
+    _ad_port=$(echo "${AD_SERVER_URL}" | grep -oP ':\K[0-9]+' || echo "636")
+    _ad_port="${_ad_port:-636}"
+    _ts_dir="$(dirname "${CONFIG_FILE}")"
+    _ts_path="${_ts_dir}/ldap-truststore.jks"
+    _ts_pass="${KC_LDAP_TRUSTSTORE_PASSWORD:-changeit}"
+
+    log_step "Setting up LDAPS truststore for ${_ad_host}:${_ad_port}"
+
+    # Detect keytool: prefer host, fall back to Keycloak container
+    _keytool=""
+    if command -v keytool &>/dev/null; then
+        _keytool="keytool"
+    else
+        # Find the Keycloak container name (matches *keycloak*)
+        _kc_container=$(podman ps --format '{{.Names}}' 2>/dev/null | grep -i keycloak | head -1 || true)
+        if [[ -n "${_kc_container}" ]]; then
+            _keytool="podman exec ${_kc_container} keytool"
+            echo -e "  ${DIM}keytool not found on host — using container: ${_kc_container}${RESET}"
+        fi
+    fi
+
+    if [[ -z "${_keytool}" ]]; then
+        echo -e "  ${YELLOW}WARN:${RESET} keytool not found (host or container). Skipping truststore setup."
+        echo -e "  Run setup-ad.sh again after starting the Keycloak container, or"
+        echo -e "  create ${_ts_path} manually and set KC_LDAP_TRUSTSTORE_JKS in config.env."
+    else
+        # Fetch the full cert chain from the AD LDAPS port
+        _chain_file="/tmp/stroma-ad-ca-chain-$$.pem"
+        echo -e "  Fetching cert chain from ${_ad_host}:${_ad_port} ..."
+        openssl s_client -connect "${_ad_host}:${_ad_port}" -showcerts \
+            </dev/null 2>/dev/null \
+            | sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' \
+            > "${_chain_file}"
+
+        _cert_count=$(grep -c "BEGIN CERTIFICATE" "${_chain_file}" 2>/dev/null || echo 0)
+        if [[ "${_cert_count}" -eq 0 ]]; then
+            echo -e "  ${YELLOW}WARN:${RESET} Could not retrieve certs from ${_ad_host}:${_ad_port}."
+            echo -e "  Check firewall / AD server URL and run setup-ad.sh again."
+            rm -f "${_chain_file}"
+        else
+            echo -e "  Retrieved ${_cert_count} certificate(s) from chain."
+
+            # Split chain into individual cert files and import each into JKS.
+            # Using Python to split avoids csplit portability issues (RHEL 8 vs 9).
+            python3 - "${_chain_file}" /tmp/stroma-ad-cert-$$ <<'PYEOF'
+import sys, re
+chain  = open(sys.argv[1]).read()
+prefix = sys.argv[2]
+certs  = re.findall(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', chain, re.DOTALL)
+for i, c in enumerate(certs):
+    with open(f"{prefix}-{i}.pem", "w") as f:
+        f.write(c + "\n")
+PYEOF
+
+            _imported=0
+            for _cert_file in /tmp/stroma-ad-cert-$$-*.pem; do
+                [[ -f "${_cert_file}" ]] || continue
+                _alias="ad-ldaps-$(basename "${_cert_file}" .pem)"
+                # Skip if alias already exist
+                if ${_keytool} -list -keystore "${_ts_path}" -storepass "${_ts_pass}" \
+                        -alias "${_alias}" &>/dev/null 2>&1; then
+                    echo -e "  ${DIM}skip (already imported): ${_alias}${RESET}"
+                else
+                    ${_keytool} -importcert -noprompt -trustcacerts \
+                        -alias "${_alias}" -file "${_cert_file}" \
+                        -keystore "${_ts_path}" \
+                        -storepass "${_ts_pass}" &>/dev/null \
+                        && { echo -e "  Imported: ${_alias}"; _imported=$((_imported+1)); } \
+                        || echo -e "  ${YELLOW}WARN:${RESET} Failed to import ${_alias}"
+                fi
+                rm -f "${_cert_file}"
+            done
+            rm -f "${_chain_file}"
+
+            if [[ "${_imported}" -gt 0 || -f "${_ts_path}" ]]; then
+                chmod 640 "${_ts_path}" 2>/dev/null || true
+                # Persist truststore path to config.env
+                write_env_var "KC_LDAP_TRUSTSTORE_JKS" "${_ts_path}" "${CONFIG_FILE}" 2>/dev/null || true
+                write_env_var "KC_LDAP_TRUSTSTORE_PASSWORD" "${_ts_pass}" "${CONFIG_FILE}" 2>/dev/null || true
+                log_ok "Truststore ready: ${_ts_path} (${_imported} cert(s) imported)"
+                echo -e "  ${YELLOW}ACTION:${RESET} Restart Keycloak to pick up truststore:"
+                echo -e "    cd $(dirname "${CONFIG_FILE}")/../keycloak && podman compose down keycloak && podman compose up -d keycloak"
+            fi
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Obtain KC admin token
 # ---------------------------------------------------------------------------
 log_step "Obtaining Keycloak admin token"
