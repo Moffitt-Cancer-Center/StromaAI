@@ -710,7 +710,7 @@ add_mapper "groups" "group-ldap-mapper" \
     "$(python3 -c "
 import json
 print(json.dumps({
-    'mode':                         ['LDAP_ONLY'],
+    'mode':                         ['READ_ONLY'],
     'membership.attribute.type':    ['DN'],
     'membership.ldap.attribute':    ['member'],
     'membership.user.ldap.attribute': ['${AD_USERNAME_ATTR}'],
@@ -737,8 +737,7 @@ print(json.dumps({
     'membership.ldap.attribute': ['member'],
     'membership.attribute.type': ['DN'],
     'membership.user.ldap.attribute': ['${AD_USERNAME_ATTR}'],
-    'mode':                   ['LDAP_ONLY'],
-    'user.roles.retrieve.strategy': ['LOAD_ROLES_BY_MEMBER_ATTRIBUTE'],
+    'mode':                   ['READ_ONLY'],
     'mapped.role':            ['stroma_researcher'],
     'client.id':              [''],
     'roles.ldap.filter':      [''],
