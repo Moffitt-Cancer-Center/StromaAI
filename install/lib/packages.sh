@@ -254,6 +254,20 @@ install_head_python_deps() {
     run_cmd "${STROMA_PIP}" install \
         "git+https://git@github.com/Moffitt-Cancer-Center/hfmodel-check"
 
+    # Gateway OIDC proxy dependencies (FastAPI, uvicorn, httpx, PyJWT, cryptography)
+    if [[ -f "${REPO_DIR}/requirements-gateway.txt" ]]; then
+        log_info "Installing gateway dependencies from requirements-gateway.txt ..."
+        run_cmd "${STROMA_PIP}" install -r "${REPO_DIR}/requirements-gateway.txt"
+    else
+        log_info "Installing gateway dependencies inline ..."
+        run_cmd "${STROMA_PIP}" install \
+            "fastapi>=0.115.0" \
+            "uvicorn[standard]>=0.32.0" \
+            "httpx>=0.27.0" \
+            "PyJWT[crypto]>=2.9.0" \
+            "cryptography>=43.0.0"
+    fi
+
     log_ok "Python packages installed successfully."
 }
 
