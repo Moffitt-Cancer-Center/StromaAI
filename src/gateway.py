@@ -31,6 +31,15 @@ Environment variables
   GATEWAY_LOG_LEVEL     Uvicorn log level (default: info)
   GATEWAY_ALLOWED_ROLE  Realm role required for access (default: stroma_researcher)
   JWKS_REFRESH_SECS     JWKS cache TTL in seconds (default: 3600)
+  JWKS_OVERRIDE_URI     Override the JWKS URI from OIDC discovery (optional).
+                        Use this when Keycloak is behind a reverse proxy that
+                        uses a self-signed cert — point directly at the internal
+                        HTTP URL, e.g. http://10.x.x.x:8080/realms/stroma-ai/
+                        protocol/openid-connect/certs
+  GATEWAY_VERIFY_SSL    Set to "false" to skip TLS verification when fetching
+                        the OIDC discovery doc (default: true). Use only when
+                        the IdP is behind a self-signed cert on an internal
+                        network. JWKS_OVERRIDE_URI is preferred.
 
 Requires
 --------
@@ -67,6 +76,11 @@ VLLM_BACKEND_URL   = os.environ.get("VLLM_BACKEND_URL", "http://localhost:8000")
 STROMA_API_KEY     = os.environ.get("STROMA_API_KEY", "")
 ALLOWED_ROLE       = os.environ.get("GATEWAY_ALLOWED_ROLE", "stroma_researcher")
 JWKS_REFRESH_SECS  = int(os.environ.get("JWKS_REFRESH_SECS", "3600"))
+# When set, this URI is used for JWKS instead of the one in the discovery doc.
+# Useful when nginx proxy uses a self-signed cert — point at KC's direct HTTP port.
+JWKS_OVERRIDE_URI  = os.environ.get("JWKS_OVERRIDE_URI", "")
+# Set GATEWAY_VERIFY_SSL=false to skip TLS cert verification for the discovery fetch.
+_VERIFY_SSL        = os.environ.get("GATEWAY_VERIFY_SSL", "true").lower() not in ("0", "false", "no")
 
 log = logging.getLogger("stroma-gateway")
 
@@ -87,13 +101,15 @@ class _JWKSCache:
         if not OIDC_DISCOVERY_URL:
             raise RuntimeError("OIDC_DISCOVERY_URL is not configured")
 
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, verify=_VERIFY_SSL) as client:
             resp = await client.get(OIDC_DISCOVERY_URL)
             resp.raise_for_status()
             discovery = resp.json()
 
         self._issuer = discovery["issuer"]
-        jwks_uri     = discovery["jwks_uri"]
+        # Allow operator to override the JWKS URI (e.g. to avoid fetching through
+        # a self-signed TLS proxy — point directly at internal KC HTTP port instead)
+        jwks_uri = JWKS_OVERRIDE_URI if JWKS_OVERRIDE_URI else discovery["jwks_uri"]
         # PyJWKClient handles key selection for us (kid matching)
         self._jwks_client = jwt.PyJWKClient(jwks_uri, cache_keys=True)
         self._fetched_at  = time.monotonic()

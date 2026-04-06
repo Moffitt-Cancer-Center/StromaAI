@@ -224,18 +224,34 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# TEST 2 — vLLM /v1/models (API key auth)
+# TEST 2 — vLLM /v1/models (direct port, API key auth)
+# All /v1/ traffic now routes through the OIDC gateway — STROMA_API_KEY is an
+# internal secret and is no longer valid over the public HTTPS endpoint.
+# Obtain a client_credentials token from Keycloak and use it to test the model
+# list endpoint via the gateway, which exercises the full OIDC validation path.
 # ---------------------------------------------------------------------------
-hr; echo -e "  ${BOLD}TEST 2${RESET}  vLLM /v1/models via nginx"
-if [[ -z "${API_KEY}" ]]; then
-    result SKIP "vLLM /v1/models" "STROMA_API_KEY not set"
+hr; echo -e "  ${BOLD}TEST 2${RESET}  vLLM /v1/models via gateway (OIDC)"
+_t2_secret="${KC_GATEWAY_CLIENT_SECRET:-}"
+if [[ -z "${_t2_secret}" ]]; then
+    result SKIP "vLLM /v1/models" "KC_GATEWAY_CLIENT_SECRET not in config.env — add it first"
 else
-    body=$(http_get "https://${HEAD}/v1/models" -H "Authorization: Bearer ${API_KEY}")
-    model_id=$(json_field "${body}" "data.0.id")
-    if [[ -n "${model_id}" ]]; then
-        result PASS "vLLM /v1/models" "model=${model_id}"
+    _t2_tbody=$(http_get \
+        "http://${KC}:${KC_PORT}/realms/stroma-ai/protocol/openid-connect/token" \
+        -X POST \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "grant_type=client_credentials&client_id=stroma-gateway&client_secret=${_t2_secret}")
+    _t2_token=$(json_field "${_t2_tbody}" "access_token")
+    if [[ -z "${_t2_token}" ]]; then
+        _t2_err=$(json_field "${_t2_tbody}" "error_description")
+        result FAIL "vLLM /v1/models" "could not get OIDC token: ${_t2_err:-${_t2_tbody:0:80}}"
     else
-        result FAIL "vLLM /v1/models" "got: ${body:0:120}"
+        body=$(http_get "https://${HEAD}/v1/models" -H "Authorization: Bearer ${_t2_token}")
+        model_id=$(json_field "${body}" "data.0.id")
+        if [[ -n "${model_id}" ]]; then
+            result PASS "vLLM /v1/models" "model=${model_id}"
+        else
+            result FAIL "vLLM /v1/models" "got: ${body:0:120}"
+        fi
     fi
 fi
 
