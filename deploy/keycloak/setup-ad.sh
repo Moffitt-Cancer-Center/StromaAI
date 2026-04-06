@@ -74,15 +74,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=install/lib/common.sh
 source "${REPO_ROOT}/install/lib/common.sh"
 
-# ---------------------------------------------------------------------------
-# Color (common.sh may not set these)
-# ---------------------------------------------------------------------------
-if [[ -t 1 && "${NO_COLOR:-}" == "" ]]; then
-    RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
-    BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
-else
-    RED='' YELLOW='' GREEN='' BOLD='' DIM='' RESET=''
-fi
+# DIM is not declared in common.sh — add it here
+DIM=$([[ -t 1 ]] && echo '\033[2m' || echo '')
 
 # ---------------------------------------------------------------------------
 # Argument parsing
