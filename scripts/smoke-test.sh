@@ -501,6 +501,41 @@ echo
 if [[ "${FAIL}" -gt 0 ]]; then
     echo -e "${RED}  PLATFORM NOT HEALTHY — fix failing tests before going live.${RESET}"
     echo
+fi
+
+# ---------------------------------------------------------------------------
+# Quick Reference — URLs
+# ---------------------------------------------------------------------------
+hr
+echo -e "  ${BOLD}Quick Reference — URLs${RESET}"
+echo
+echo -e "  ${CYAN}External (TLS, via nginx)${RESET}"
+echo -e "    Health         https://${HEAD}/health"
+echo -e "    API (v1)       https://${HEAD}/v1/"
+echo -e "    Models         https://${HEAD}/v1/models"
+echo -e "    Chat           https://${HEAD}/v1/chat/completions"
+echo -e "    Completions    https://${HEAD}/v1/completions"
+echo -e "    OpenWebUI      https://${HEAD}/"
+echo -e "    OIDC login     https://${HEAD}/realms/stroma-ai/protocol/openid-connect/token"
+echo -e "    KC console     https://${HEAD}/admin/master/console/"
+echo
+echo -e "  ${CYAN}Internal — Gateway${RESET}"
+echo -e "    Health         http://${HEAD}:${GW_PORT}/health"
+echo -e "    API (v1)       http://${HEAD}:${GW_PORT}/v1/"
+echo
+echo -e "  ${CYAN}Internal — Keycloak${RESET}"
+echo -e "    Admin REST     http://${KC}:${KC_PORT}/admin/realms/stroma-ai"
+echo -e "    OIDC discovery http://${KC}:${KC_PORT}/realms/stroma-ai/.well-known/openid-configuration"
+echo -e "    JWKS           http://${KC}:${KC_PORT}/realms/stroma-ai/protocol/openid-connect/certs"
+echo -e "    Token endpoint http://${KC}:${KC_PORT}/realms/stroma-ai/protocol/openid-connect/token"
+echo -e "    KC console     http://${KC}:${KC_PORT}/admin/master/console/"
+echo
+echo -e "  ${CYAN}Internal — OpenWebUI${RESET}"
+echo -e "    Chat UI        http://${OWU_HOST}:${OWU_PORT}/"
+echo
+hr
+
+if [[ "${FAIL}" -gt 0 ]]; then
     exit 1
 else
     echo -e "${GREEN}  Platform is healthy.${RESET}"
