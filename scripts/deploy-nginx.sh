@@ -251,20 +251,25 @@ deploy_host_mode() {
         export VLLM_INTERNAL_URL=$(grep -E '^VLLM_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:8000')
         export KC_INTERNAL_URL=$(grep -E '^KC_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:8080')
         export OPENWEBUI_INTERNAL_URL=$(grep -E '^OPENWEBUI_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:3000')
+        _gw_port=$(grep -E '^GATEWAY_PORT=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo '9000')
+        export GATEWAY_INTERNAL_URL=$(grep -E '^GATEWAY_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo "http://127.0.0.1:${_gw_port}")
     else
         log_info "Config file not found, using defaults"
         export VLLM_INTERNAL_URL='http://127.0.0.1:8000'
         export KC_INTERNAL_URL='http://127.0.0.1:8080'
         export OPENWEBUI_INTERNAL_URL='http://127.0.0.1:3000'
+        export GATEWAY_INTERNAL_URL='http://127.0.0.1:9000'
     fi
     
     # Strip http:// prefix for nginx upstream blocks (envsubst doesn't support parameter expansion)
     export VLLM_INTERNAL_URL="${VLLM_INTERNAL_URL#http://}"
     export KC_INTERNAL_URL="${KC_INTERNAL_URL#http://}"
     export OPENWEBUI_INTERNAL_URL="${OPENWEBUI_INTERNAL_URL#http://}"
+    export GATEWAY_INTERNAL_URL="${GATEWAY_INTERNAL_URL#http://}"
     
     log_info "Backend URLs:"
     log_info "  vLLM:     ${VLLM_INTERNAL_URL}"
+    log_info "  Gateway:  ${GATEWAY_INTERNAL_URL}"
     log_info "  Keycloak: ${KC_INTERNAL_URL}"
     log_info "  OpenWebUI: ${OPENWEBUI_INTERNAL_URL}"
     
@@ -277,7 +282,7 @@ deploy_host_mode() {
     
     # Process template with envsubst
     log_info "Generating nginx config from template"
-    envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+    envsubst '${VLLM_INTERNAL_URL} ${GATEWAY_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
         < "${template}" \
         > "${nginx_conf_path}" || log_fatal "envsubst failed"
     

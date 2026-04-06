@@ -493,18 +493,22 @@ _deploy_nginx() {
         export VLLM_INTERNAL_URL="$(grep -E '^VLLM_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:8000')"
         export KC_INTERNAL_URL="$(grep -E '^KC_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:8080')"
         export OPENWEBUI_INTERNAL_URL="$(grep -E '^OPENWEBUI_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo 'http://127.0.0.1:3000')"
+        _gw_port="$(grep -E '^GATEWAY_PORT=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo '9000')"
+        export GATEWAY_INTERNAL_URL="$(grep -E '^GATEWAY_INTERNAL_URL=' "${CONFIG_FILE}" 2>/dev/null | cut -d= -f2- || echo "http://127.0.0.1:${_gw_port}")"
         
         # Strip http:// prefix for nginx upstream blocks (envsubst doesn't support parameter expansion)
         export VLLM_INTERNAL_URL="${VLLM_INTERNAL_URL#http://}"
         export KC_INTERNAL_URL="${KC_INTERNAL_URL#http://}"
         export OPENWEBUI_INTERNAL_URL="${OPENWEBUI_INTERNAL_URL#http://}"
+        export GATEWAY_INTERNAL_URL="${GATEWAY_INTERNAL_URL#http://}"
         
-        envsubst '${VLLM_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+        envsubst '${VLLM_INTERNAL_URL} ${GATEWAY_INTERNAL_URL} ${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
             < "${REPO_DIR}/deploy/nginx/stroma-ai.conf" \
             > "${nginx_conf_path}"
         
         log_ok "nginx config installed at ${nginx_conf_path}"
         log_info "  vLLM backend:     ${VLLM_INTERNAL_URL}"
+        log_info "  Gateway backend:  ${GATEWAY_INTERNAL_URL}"
         log_info "  Keycloak backend: ${KC_INTERNAL_URL}"
         log_info "  OpenWebUI backend: ${OPENWEBUI_INTERNAL_URL}"
     else
