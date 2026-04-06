@@ -732,22 +732,15 @@ print(json.dumps({
 }))
 ")"
 
-# Now add a role-ldap-mapper that maps the specific group to the realm role
-add_mapper "stroma-researcher-role-mapper" "role-ldap-mapper" \
+# Use a hardcoded-role mapper instead of role-ldap-mapper.
+# AD_CUSTOM_FILTER already restricts which users get synced to exactly those
+# in the authorized groups — so every synced user qualifies for stroma_researcher.
+# hardcoded-role assigns the role unconditionally to all users from this provider.
+add_mapper "stroma-researcher-role-mapper" "hardcoded-role" \
     "$(python3 -c "
 import json
 print(json.dumps({
-    'roles.dn':               ['${AD_RESEARCHER_GROUP%,*}'],
-    'role.name.ldap.attribute': ['cn'],
-    'role.object.classes':    ['${AD_GROUP_OBJECT_CLASS}'],
-    'membership.ldap.attribute': ['member'],
-    'membership.attribute.type': ['DN'],
-    'membership.user.ldap.attribute': ['${AD_USERNAME_ATTR}'],
-    'mode':                   ['READ_ONLY'],
-    'mapped.role':            ['stroma_researcher'],
-    'client.id':              [''],
-    'roles.ldap.filter':      [''],
-    'use.realm.roles.mapping': ['true'],
+    'role': ['stroma_researcher'],
 }))
 ")"
 
