@@ -168,6 +168,8 @@ _preload_ns_vars() {
     do
         local src_key="${_pair%%:*}" dst_var="${_pair##*:}"
         local val="${!src_key:-}"
+        # Strip surrounding double-quotes written by the persist block
+        val="${val#\"}" val="${val%\"}"
         if [[ -n "${val}" ]]; then
             declare -g "${dst_var}=${val}"
         fi
@@ -359,17 +361,20 @@ echo
 # ---------------------------------------------------------------------------
 if [[ "${DRY_RUN}" -eq 0 && -n "${CONFIG_FILE}" ]]; then
     log_step "Persisting AD configuration to ${CONFIG_FILE}"
-    # Write using namespaced keys so multiple providers don't overwrite each other
+    # Write using namespaced keys so multiple providers don't overwrite each other.
+    # Values are double-quoted so AD_SERVER_URL (space-separated URLs),
+    # AD_USER_DN, and AD_RESEARCHER_GROUP (contain spaces, =, (, )) are
+    # preserved correctly when config.env is sourced.
     for _bare in SERVER_URL BIND_DN USER_DN RESEARCHER_GROUP \
                  USER_OBJECT_CLASS UUID_ATTR USERNAME_ATTR \
                  FIRSTNAME_ATTR LASTNAME_ATTR EMAIL_ATTR \
                  GROUP_OBJECT_CLASS SYNC_INTERVAL; do
         local_var="AD_${_bare}"
         conf_key="${_pfx}${_bare}"
-        write_env_var "${conf_key}" "${!local_var}" "${CONFIG_FILE}" 2>/dev/null || true
+        write_env_var "${conf_key}" "\"${!local_var}\"" "${CONFIG_FILE}" 2>/dev/null || true
     done
     # Store bind password with namespaced key — config.env is already 640
-    write_env_var "${_pfx}BIND_PASSWORD" "${AD_BIND_PASSWORD}" "${CONFIG_FILE}" 2>/dev/null || true
+    write_env_var "${_pfx}BIND_PASSWORD" "\"${AD_BIND_PASSWORD}\"" "${CONFIG_FILE}" 2>/dev/null || true
     log_ok "AD config saved (keys prefixed with '${_pfx}')"
 fi
 
