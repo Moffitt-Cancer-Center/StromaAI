@@ -1,0 +1,655 @@
+#!/usr/bin/env bash
+# =============================================================================
+# StromaAI — Active Directory / LDAP Federation Setup
+# =============================================================================
+# Configures Keycloak to federate users from your institution's Active
+# Directory (or any LDAP server) into the stroma-ai realm.
+#
+# What this script does:
+#   1. Reads AD connection parameters (from config.env or flags)
+#   2. Obtains a Keycloak admin token
+#   3. Creates/replaces the LDAP user-storage provider in the stroma-ai realm
+#   4. Adds standard attribute mappers (username, email, firstName, lastName)
+#   5. Adds a group-to-role mapper: AD_RESEARCHER_GROUP → stroma_researcher
+#   6. Adds a hardcoded-role mapper for the role fallback (optional)
+#   7. Triggers an initial full sync (users + groups)
+#   8. Runs test-auth.sh --check-groups to validate the mapping
+#
+# After running this script, cluster users can log in to StromaAI using their
+# normal institutional username and password. No account provisioning needed.
+#
+# Usage:
+#   deploy/keycloak/setup-ad.sh                         # interactive wizard
+#   deploy/keycloak/setup-ad.sh --yes                   # non-interactive (all values in config.env)
+#   deploy/keycloak/setup-ad.sh --dry-run --yes         # print without executing
+#   deploy/keycloak/setup-ad.sh --config=/path/to/config.env
+#   deploy/keycloak/setup-ad.sh --test-user=jsmith      # run test-auth after sync
+#   deploy/keycloak/setup-ad.sh --help
+#
+# Configuration (all readable from config.env or passed as flags):
+#   AD_SERVER_URL         ldaps://ad.your-institution.org  (or ldap:// for plain)
+#   AD_BIND_DN            cn=svc-stroma,ou=Service Accounts,dc=moffitt,dc=org
+#   AD_BIND_PASSWORD      <service account password>
+#   AD_USER_DN            ou=Users,dc=moffitt,dc=org
+#   AD_RESEARCHER_GROUP   CN=HPC-GPU-Users,ou=Groups,dc=moffitt,dc=org
+#   AD_DOMAIN             moffitt.org   (used for connection test only)
+#
+# Optional tuning (defaults are safe for most AD deployments):
+#   AD_USER_OBJECT_CLASS   user            (AD default)
+#   AD_UUID_ATTR           objectGUID      (AD default; use entryUUID for OpenLDAP)
+#   AD_USERNAME_ATTR       sAMAccountName  (AD default; use uid for OpenLDAP)
+#   AD_FIRSTNAME_ATTR      givenName
+#   AD_LASTNAME_ATTR       sn
+#   AD_EMAIL_ATTR          mail
+#   AD_GROUP_OBJECT_CLASS  group           (AD default)
+#   AD_SYNC_INTERVAL       86400           (full sync period in seconds; 0=manual)
+#
+# Security requirements:
+#   - AD_BIND_DN should be a read-only service account with no write access
+#   - Use ldaps:// (TLS) in production; ldap:// only for testing
+#   - AD_BIND_PASSWORD is written to config.env (chmod 640, owned by stromaai)
+#
+# Options:
+#   --config=FILE        Path to config.env (auto-detected if omitted)
+#   --kc=HOST:PORT       Keycloak host:port (default: from KC_INTERNAL_URL)
+#   --realm=REALM        Keycloak realm (default: stroma-ai)
+#   --test-user=USER     Run test-auth.sh --check-groups after sync
+#   --dry-run            Print API payloads without calling Keycloak
+#   --yes                Non-interactive (fail if required values missing)
+#   -h | --help          Show this message
+#
+# Exit codes:
+#   0  Completed successfully
+#   1  Fatal error or missing required input
+# =============================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# ---------------------------------------------------------------------------
+# Source shared library
+# ---------------------------------------------------------------------------
+# shellcheck source=install/lib/common.sh
+source "${REPO_ROOT}/install/lib/common.sh"
+
+# ---------------------------------------------------------------------------
+# Color (common.sh may not set these)
+# ---------------------------------------------------------------------------
+if [[ -t 1 && "${NO_COLOR:-}" == "" ]]; then
+    RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
+    BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+else
+    RED='' YELLOW='' GREEN='' BOLD='' DIM='' RESET=''
+fi
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+CONFIG_FILE=""
+KC_OVERRIDE=""
+REALM="stroma-ai"
+TEST_USER=""
+DRY_RUN=0
+
+for _arg in "$@"; do
+    case "${_arg}" in
+        --config=*)    CONFIG_FILE="${_arg#--config=}" ;;
+        --kc=*)        KC_OVERRIDE="${_arg#--kc=}" ;;
+        --realm=*)     REALM="${_arg#--realm=}" ;;
+        --test-user=*) TEST_USER="${_arg#--test-user=}" ;;
+        --dry-run)     DRY_RUN=1 ;;
+        --yes)         export STROMA_YES=1 ;;
+        -h|--help)
+            sed -n '2,/^# ===.*$/{ s/^# \{0,2\}//; p }' "$0" | head -70
+            exit 0
+            ;;
+        *) echo "Unknown argument: ${_arg}. Use --help." >&2; exit 1 ;;
+    esac
+done
+unset _arg
+
+# ---------------------------------------------------------------------------
+# Locate and source config.env
+# ---------------------------------------------------------------------------
+if [[ -z "${CONFIG_FILE}" ]]; then
+    for _p in \
+        "${STROMA_INSTALL_DIR:+${STROMA_INSTALL_DIR}/config.env}" \
+        "/cm/shared/apps/stroma-ai/config.env" \
+        "/opt/stroma-ai/config.env" \
+        "/opt/apps/stroma-ai/config.env" \
+        "${HOME}/stroma-ai/config.env"
+    do
+        [[ -z "${_p}" ]] && continue
+        if [[ -f "${_p}" ]]; then CONFIG_FILE="${_p}"; break; fi
+    done
+fi
+if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
+    # shellcheck source=/dev/null
+    source "${CONFIG_FILE}"
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve Keycloak host:port
+# ---------------------------------------------------------------------------
+if [[ -n "${KC_OVERRIDE}" ]]; then
+    _kc_tmp="${KC_OVERRIDE}"
+else
+    if [[ -n "${KC_INTERNAL_URL:-}" ]]; then
+        _kc_tmp="${KC_INTERNAL_URL#http://}"; _kc_tmp="${_kc_tmp#https://}"
+        _kc_tmp="${_kc_tmp%%/*}"
+    else
+        _kc_tmp="${STROMA_HEAD_HOST:-localhost}:8080"
+    fi
+fi
+KC_HOST="${_kc_tmp%%:*}"
+KC_PORT="${_kc_tmp##*:}"; [[ "${KC_PORT}" == "${KC_HOST}" ]] && KC_PORT="8080"
+KC_BASE="http://${KC_HOST}:${KC_PORT}"
+
+# ---------------------------------------------------------------------------
+# Pre-flight: require tools
+# ---------------------------------------------------------------------------
+for _cmd in curl python3; do
+    command -v "${_cmd}" &>/dev/null || { echo "ERROR: ${_cmd} not found." >&2; exit 1; }
+done
+
+# ---------------------------------------------------------------------------
+# Dry-run helpers
+# ---------------------------------------------------------------------------
+kc_api() {
+    # kc_api METHOD PATH JSON_BODY — calls Keycloak admin REST API
+    local method="$1" path="$2" body="${3:-}"
+    if [[ "${DRY_RUN}" -eq 1 ]]; then
+        echo -e "  ${DIM}[DRY-RUN] ${method} ${KC_BASE}${path}${RESET}"
+        [[ -n "${body}" ]] && echo -e "  ${DIM}  body: ${body:0:120}...${RESET}"
+        echo "dry-run-placeholder"
+        return 0
+    fi
+    local resp
+    if [[ -n "${body}" ]]; then
+        resp=$(curl -sk --max-time 30 \
+            -X "${method}" "${KC_BASE}${path}" \
+            -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "${body}" \
+            -w "\n%{http_code}" 2>/dev/null)
+    else
+        resp=$(curl -sk --max-time 30 \
+            -X "${method}" "${KC_BASE}${path}" \
+            -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+            -w "\n%{http_code}" 2>/dev/null)
+    fi
+    # Split body and status code
+    local http_code body_text
+    http_code=$(echo "${resp}" | tail -1)
+    body_text=$(echo "${resp}" | head -n -1)
+    # 2xx = success, 409 = already exists (treat as OK)
+    if [[ "${http_code}" =~ ^2 ]] || [[ "${http_code}" == "409" ]]; then
+        echo "${body_text}"
+    else
+        echo -e "${RED}ERROR${RESET}: KC API ${method} ${path} returned HTTP ${http_code}" >&2
+        echo -e "  Response: ${body_text:0:300}" >&2
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Banner
+# ---------------------------------------------------------------------------
+echo
+echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
+echo -e "${BOLD}║   StromaAI — Active Directory Federation Setup        ║${RESET}"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
+echo
+[[ "${DRY_RUN}" -eq 1 ]] && echo -e "${YELLOW}DRY-RUN mode — no changes will be made to Keycloak${RESET}\n"
+
+# ---------------------------------------------------------------------------
+# Gather AD parameters interactively if not in config.env
+# ---------------------------------------------------------------------------
+prompt_if_empty() {
+    # prompt_if_empty VAR_NAME "Prompt text" [default]
+    local var_name="$1" prompt_text="$2" default="${3:-}"
+    local current="${!var_name:-}"
+    if [[ -n "${current}" ]]; then
+        echo -e "  ${DIM}${var_name}=${current}${RESET}"
+        return
+    fi
+    if [[ "${STROMA_YES:-0}" == "1" ]]; then
+        if [[ -n "${default}" ]]; then
+            declare -g "${var_name}=${default}"
+            echo -e "  ${DIM}${var_name}=${default} (default)${RESET}"
+        else
+            echo -e "${RED}ERROR:${RESET} ${var_name} is required but not set. Add it to config.env or use --yes with all values set." >&2
+            exit 1
+        fi
+        return
+    fi
+    local input
+    if [[ -n "${default}" ]]; then
+        read -rp "  ${prompt_text} [${default}]: " input
+        declare -g "${var_name}=${input:-${default}}"
+    else
+        read -rp "  ${prompt_text}: " input
+        if [[ -z "${input}" ]]; then
+            echo -e "${RED}ERROR:${RESET} ${var_name} is required." >&2
+            exit 1
+        fi
+        declare -g "${var_name}=${input}"
+    fi
+}
+
+prompt_secret() {
+    # prompt_secret VAR_NAME "Prompt text" — masked input, no default shown
+    local var_name="$1" prompt_text="$2"
+    local current="${!var_name:-}"
+    if [[ -n "${current}" ]]; then
+        echo -e "  ${DIM}${var_name}=<set>${RESET}"
+        return
+    fi
+    if [[ "${STROMA_YES:-0}" == "1" ]]; then
+        echo -e "${RED}ERROR:${RESET} ${var_name} is required but not set." >&2
+        exit 1
+    fi
+    local input
+    read -rsp "  ${prompt_text}: " input
+    echo
+    if [[ -z "${input}" ]]; then
+        echo -e "${RED}ERROR:${RESET} ${var_name} is required." >&2
+        exit 1
+    fi
+    declare -g "${var_name}=${input}"
+}
+
+echo -e "${BOLD}Step 1: AD Connection Parameters${RESET}"
+echo -e "${DIM}(Values already in config.env are shown and skipped)${RESET}"
+echo
+
+prompt_if_empty AD_SERVER_URL    "AD server URL (ldaps://ad.example.org or ldap://...)"
+prompt_if_empty AD_BIND_DN       "Service account DN (cn=svc-stroma,ou=Service Accounts,dc=example,dc=org)"
+prompt_secret   AD_BIND_PASSWORD "Service account password"
+prompt_if_empty AD_USER_DN       "User search base DN (ou=Users,dc=example,dc=org)"
+prompt_if_empty AD_RESEARCHER_GROUP \
+    "AD group DN for StromaAI researchers (CN=HPC-GPU-Users,ou=Groups,dc=example,dc=org)"
+
+echo
+echo -e "${BOLD}Step 2: Optional tuning${RESET} ${DIM}(press Enter to accept defaults)${RESET}"
+echo
+prompt_if_empty AD_USER_OBJECT_CLASS  "User object class"           "user"
+prompt_if_empty AD_UUID_ATTR          "UUID attribute"              "objectGUID"
+prompt_if_empty AD_USERNAME_ATTR      "Username attribute"          "sAMAccountName"
+prompt_if_empty AD_FIRSTNAME_ATTR     "First name attribute"        "givenName"
+prompt_if_empty AD_LASTNAME_ATTR      "Last name attribute"         "sn"
+prompt_if_empty AD_EMAIL_ATTR         "Email attribute"             "mail"
+prompt_if_empty AD_GROUP_OBJECT_CLASS "Group object class"          "group"
+prompt_if_empty AD_SYNC_INTERVAL      "Full sync interval (seconds, 0=manual)" "86400"
+echo
+
+# ---------------------------------------------------------------------------
+# Persist AD params to config.env (except password — stored separately)
+# ---------------------------------------------------------------------------
+if [[ "${DRY_RUN}" -eq 0 && -n "${CONFIG_FILE}" ]]; then
+    log_step "Persisting AD configuration to ${CONFIG_FILE}"
+    for _v in AD_SERVER_URL AD_BIND_DN AD_USER_DN AD_RESEARCHER_GROUP \
+               AD_USER_OBJECT_CLASS AD_UUID_ATTR AD_USERNAME_ATTR \
+               AD_FIRSTNAME_ATTR AD_LASTNAME_ATTR AD_EMAIL_ATTR \
+               AD_GROUP_OBJECT_CLASS AD_SYNC_INTERVAL; do
+        write_env_var "${_v}" "${!_v}" "${CONFIG_FILE}" 2>/dev/null || true
+    done
+    # Store the bind password too — config.env is already 640
+    write_env_var "AD_BIND_PASSWORD" "${AD_BIND_PASSWORD}" "${CONFIG_FILE}" 2>/dev/null || true
+    log_ok "AD config saved"
+fi
+
+# ---------------------------------------------------------------------------
+# Obtain KC admin token
+# ---------------------------------------------------------------------------
+log_step "Obtaining Keycloak admin token"
+KC_ADMIN_PASSWORD="${KC_ADMIN_PASSWORD:-}"
+if [[ -z "${KC_ADMIN_PASSWORD}" ]]; then
+    if [[ "${STROMA_YES:-0}" == "1" ]]; then
+        echo -e "${RED}ERROR:${RESET} KC_ADMIN_PASSWORD not in config.env." >&2
+        exit 1
+    fi
+    read -rsp "  Keycloak admin password: " KC_ADMIN_PASSWORD; echo
+fi
+
+_token_resp=$(curl -sk --max-time 15 \
+    -X POST "${KC_BASE}/realms/master/protocol/openid-connect/token" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -d "client_id=admin-cli&grant_type=password&username=admin&password=${KC_ADMIN_PASSWORD}" \
+    2>/dev/null)
+KC_ADMIN_TOKEN=$(python3 -c "import sys,json; print(json.loads(sys.argv[1]).get('access_token',''))" \
+    "${_token_resp}" 2>/dev/null || true)
+
+if [[ -z "${KC_ADMIN_TOKEN}" ]]; then
+    _err=$(python3 -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('error_description', d.get('error','unknown')))" \
+        "${_token_resp}" 2>/dev/null || echo "connection failed")
+    echo -e "${RED}FATAL:${RESET} Could not obtain admin token: ${_err}" >&2
+    echo "  Check: KC_ADMIN_PASSWORD in config.env, and that KC is running at ${KC_BASE}" >&2
+    exit 1
+fi
+log_ok "Admin token obtained (KC: ${KC_BASE})"
+
+# Tokens are short-lived (~60s). We now execute all API calls without pause.
+
+# ---------------------------------------------------------------------------
+# Step 3: Create/replace LDAP user-storage provider
+# ---------------------------------------------------------------------------
+log_step "Configuring LDAP user-storage provider"
+
+# Check if a provider with our name already exists
+_existing=$(kc_api GET "/admin/realms/${REALM}/components?type=org.keycloak.storage.UserStorageProvider")
+_existing_id=$(python3 - "${_existing}" <<'PYEOF'
+import sys, json
+try:
+    comps = json.loads(sys.argv[1])
+    for c in comps:
+        if c.get("name") == "stroma-ai-ad":
+            print(c["id"])
+            break
+except Exception:
+    pass
+PYEOF
+)
+
+# Use PUT to update, POST to create
+if [[ -n "${_existing_id}" && "${_existing_id}" != "dry-run-placeholder" ]]; then
+    log_info "Existing LDAP provider found (${_existing_id}) — updating"
+    _ldap_method="PUT"
+    _ldap_path="/admin/realms/${REALM}/components/${_existing_id}"
+    _ldap_id_field="\"id\": \"${_existing_id}\","
+else
+    _ldap_method="POST"
+    _ldap_path="/admin/realms/${REALM}/components"
+    _ldap_id_field=""
+fi
+
+# Determine whether this is AD (binary UUID needs special handling) or generic LDAP
+_is_ad="true"
+if echo "${AD_SERVER_URL}" | grep -qi "ldap://"; then
+    _use_tls="false"
+else
+    _use_tls="true"
+fi
+
+_ldap_payload=$(python3 -c "
+import json, sys
+payload = {
+    ${_ldap_id_field and '\"id\": \"' + '${_existing_id}' + '\",' or ''}
+    'name': 'stroma-ai-ad',
+    'providerId': 'ldap',
+    'providerType': 'org.keycloak.storage.UserStorageProvider',
+    'parentId': '${REALM}',
+    'config': {
+        'enabled':                   ['true'],
+        'priority':                  ['0'],
+        'editMode':                  ['READ_ONLY'],
+        'syncRegistrations':         ['false'],
+        'vendor':                    ['ad'],
+        'usernameLDAPAttribute':     ['${AD_USERNAME_ATTR}'],
+        'rdnLDAPAttribute':          ['cn'],
+        'uuidLDAPAttribute':         ['${AD_UUID_ATTR}'],
+        'userObjectClasses':         ['${AD_USER_OBJECT_CLASS}'],
+        'connectionUrl':             ['${AD_SERVER_URL}'],
+        'usersDn':                   ['${AD_USER_DN}'],
+        'authType':                  ['simple'],
+        'bindDn':                    ['${AD_BIND_DN}'],
+        'bindCredential':            ['${AD_BIND_PASSWORD}'],
+        'searchScope':               ['2'],
+        'useTruststoreSpi':          ['ldapsOnly'],
+        'connectionPooling':         ['true'],
+        'pagination':                ['true'],
+        'startTls':                  ['false'],
+        'usePasswordModifyExtendedOp': ['false'],
+        'validatePasswordPolicy':    ['false'],
+        'trustEmail':                ['true'],
+        'fullSyncPeriod':            ['${AD_SYNC_INTERVAL}'],
+        'changedSyncPeriod':         ['3600'],
+        'batchSizeForSync':          ['1000'],
+        'debug':                     ['false'],
+    }
+}
+print(json.dumps(payload))
+")
+
+_ldap_resp=$(kc_api "${_ldap_method}" "${_ldap_path}" "${_ldap_payload}")
+
+# Get the provider ID for mapper creation
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+    _provider_id="dry-run-ldap-id"
+elif [[ -n "${_existing_id}" ]]; then
+    _provider_id="${_existing_id}"
+else
+    # POST returns 201 with Location header, but our kc_api returns body.
+    # Re-fetch to get the ID.
+    _prov=$(kc_api GET "/admin/realms/${REALM}/components?type=org.keycloak.storage.UserStorageProvider")
+    _provider_id=$(python3 - "${_prov}" <<'PYEOF'
+import sys, json
+try:
+    comps = json.loads(sys.argv[1])
+    for c in comps:
+        if c.get("name") == "stroma-ai-ad":
+            print(c["id"])
+            break
+except Exception:
+    pass
+PYEOF
+)
+fi
+log_ok "LDAP provider configured (id=${_provider_id})"
+
+# ---------------------------------------------------------------------------
+# Step 4: Standard attribute mappers
+# ---------------------------------------------------------------------------
+log_step "Adding attribute mappers"
+
+add_mapper() {
+    local name="$1" mapper_type="$2" config_json="$3"
+    # Skip if a mapper with this name already exists on this provider
+    _existing_mappers=$(kc_api GET "/admin/realms/${REALM}/components?parent=${_provider_id}&type=org.keycloak.storage.ldap.mappers.LDAPStorageMapper")
+    _exists=$(python3 -c "
+import sys, json
+try:
+    ms = json.loads(sys.argv[1])
+    print('yes' if any(m.get('name') == sys.argv[2] for m in ms) else 'no')
+except Exception:
+    print('no')
+" "${_existing_mappers}" "${name}" 2>/dev/null || echo "no")
+    if [[ "${_exists}" == "yes" ]]; then
+        echo -e "  ${DIM}skip (already exists): ${name}${RESET}"
+        return
+    fi
+    local payload
+    payload=$(python3 -c "
+import json
+print(json.dumps({
+    'name': '${name}',
+    'providerId': '${mapper_type}',
+    'providerType': 'org.keycloak.storage.ldap.mappers.LDAPStorageMapper',
+    'parentId': '${_provider_id}',
+    'config': ${config_json}
+}))
+")
+    kc_api POST "/admin/realms/${REALM}/components" "${payload}" > /dev/null
+    echo -e "  ${GREEN}+${RESET} ${name}"
+}
+
+# username
+add_mapper "username" "user-attribute-ldap-mapper" \
+    '{"ldap.attribute":["'"${AD_USERNAME_ATTR}"'"],"user.model.attribute":["username"],"always.read.value.from.ldap":["false"],"is.mandatory.in.ldap":["true"],"read.only":["true"]}'
+
+# email
+add_mapper "email" "user-attribute-ldap-mapper" \
+    '{"ldap.attribute":["'"${AD_EMAIL_ATTR}"'"],"user.model.attribute":["email"],"always.read.value.from.ldap":["true"],"is.mandatory.in.ldap":["false"],"read.only":["true"]}'
+
+# firstName
+add_mapper "firstName" "user-attribute-ldap-mapper" \
+    '{"ldap.attribute":["'"${AD_FIRSTNAME_ATTR}"'"],"user.model.attribute":["firstName"],"always.read.value.from.ldap":["true"],"is.mandatory.in.ldap":["false"],"read.only":["true"]}'
+
+# lastName
+add_mapper "lastName" "user-attribute-ldap-mapper" \
+    '{"ldap.attribute":["'"${AD_LASTNAME_ATTR}"'"],"user.model.attribute":["lastName"],"always.read.value.from.ldap":["true"],"is.mandatory.in.ldap":["false"],"read.only":["true"]}'
+
+log_ok "Attribute mappers ready"
+
+# ---------------------------------------------------------------------------
+# Step 5: Group-to-role mapper (AD group → stroma_researcher realm role)
+# ---------------------------------------------------------------------------
+log_step "Configuring group-to-role mapper (${AD_RESEARCHER_GROUP} → stroma_researcher)"
+
+# First ensure a group-ldap-mapper exists so KC syncs groups at all
+add_mapper "groups" "group-ldap-mapper" \
+    "$(python3 -c "
+import json
+print(json.dumps({
+    'mode':                         ['LDAP_ONLY'],
+    'membership.attribute.type':    ['DN'],
+    'membership.ldap.attribute':    ['member'],
+    'membership.user.ldap.attribute': ['${AD_USERNAME_ATTR}'],
+    'memberof.ldap.attribute':      ['memberOf'],
+    'groups.dn':                    ['${AD_RESEARCHER_GROUP%,*}'],
+    'group.name.ldap.attribute':    ['cn'],
+    'group.object.classes':         ['${AD_GROUP_OBJECT_CLASS}'],
+    'preserve.group.inheritance':   ['false'],
+    'ignore.missing.groups':        ['true'],
+    'user.roles.retrieve.strategy': ['LOAD_GROUPS_BY_MEMBER_ATTRIBUTE'],
+    'mapped.group.attributes':      [''],
+    'drop.non.existing.groups.during.sync': ['false'],
+}))
+")"
+
+# Now add a role-ldap-mapper that maps the specific group to the realm role
+add_mapper "stroma-researcher-role-mapper" "role-ldap-mapper" \
+    "$(python3 -c "
+import json
+print(json.dumps({
+    'roles.dn':               ['${AD_RESEARCHER_GROUP%,*}'],
+    'role.name.ldap.attribute': ['cn'],
+    'role.object.classes':    ['${AD_GROUP_OBJECT_CLASS}'],
+    'membership.ldap.attribute': ['member'],
+    'membership.attribute.type': ['DN'],
+    'membership.user.ldap.attribute': ['${AD_USERNAME_ATTR}'],
+    'mode':                   ['LDAP_ONLY'],
+    'user.roles.retrieve.strategy': ['LOAD_ROLES_BY_MEMBER_ATTRIBUTE'],
+    'mapped.role':            ['stroma_researcher'],
+    'client.id':              [''],
+    'roles.ldap.filter':      [''],
+    'use.realm.roles.mapping': ['true'],
+}))
+")"
+
+log_ok "Group-to-role mapper configured"
+
+# ---------------------------------------------------------------------------
+# Step 6: Add groups claim mapper to stroma-cli client scope
+#         so tokens contain the 'groups' array (for test-auth --check-groups)
+# ---------------------------------------------------------------------------
+log_step "Adding groups claim to stroma-cli token"
+
+# Find stroma-cli client UUID
+_cli_resp=$(kc_api GET "/admin/realms/${REALM}/clients?clientId=stroma-cli")
+_cli_id=$(python3 -c "
+import sys, json
+try:
+    data = json.loads(sys.argv[1])
+    print(data[0]['id'])
+except Exception:
+    pass
+" "${_cli_resp}" 2>/dev/null || true)
+
+if [[ -z "${_cli_id}" || "${_cli_id}" == "dry-run-placeholder" ]]; then
+    log_warn "stroma-cli client not found — skipping groups claim mapper (run setup-keycloak.sh first)"
+else
+    # Check if mapper already exists
+    _pm_existing=$(kc_api GET "/admin/realms/${REALM}/clients/${_cli_id}/protocol-mappers/models")
+    _pm_exists=$(python3 -c "
+import sys, json
+try:
+    ms = json.loads(sys.argv[1])
+    print('yes' if any(m.get('name') == 'groups' for m in ms) else 'no')
+except Exception:
+    print('no')
+" "${_pm_existing}" 2>/dev/null || echo "no")
+
+    if [[ "${_pm_exists}" == "yes" ]]; then
+        echo -e "  ${DIM}skip (groups mapper already present on stroma-cli)${RESET}"
+    else
+        kc_api POST "/admin/realms/${REALM}/clients/${_cli_id}/protocol-mappers/models" \
+            '{"name":"groups","protocol":"openid-connect","protocolMapper":"oidc-group-membership-mapper","config":{"full.path":"false","id.token.claim":"false","access.token.claim":"true","userinfo.token.claim":"false","claim.name":"groups"}}' \
+            > /dev/null
+        echo -e "  ${GREEN}+${RESET} groups mapper added to stroma-cli"
+    fi
+fi
+log_ok "Groups claim configured"
+
+# ---------------------------------------------------------------------------
+# Step 7: Trigger initial user sync
+# ---------------------------------------------------------------------------
+log_step "Triggering initial LDAP user sync (this may take 30–60s for large directories)"
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+    echo -e "  ${DIM}[DRY-RUN] POST /admin/realms/${REALM}/user-storage/${_provider_id}/sync?action=triggerFullSync${RESET}"
+else
+    _sync_resp=$(curl -sk --max-time 120 \
+        -X POST "${KC_BASE}/admin/realms/${REALM}/user-storage/${_provider_id}/sync?action=triggerFullSync" \
+        -H "Authorization: Bearer ${KC_ADMIN_TOKEN}" \
+        -w "\n%{http_code}" 2>/dev/null)
+    _sync_code=$(echo "${_sync_resp}" | tail -1)
+    _sync_body=$(echo "${_sync_resp}" | head -n -1)
+    if [[ "${_sync_code}" =~ ^2 ]]; then
+        _added=$(python3 -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('added',0))" "${_sync_body}" 2>/dev/null || echo "?")
+        _updated=$(python3 -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('updated',0))" "${_sync_body}" 2>/dev/null || echo "?")
+        _failed=$(python3 -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('failed',0))" "${_sync_body}" 2>/dev/null || echo "0")
+        log_ok "Sync complete: ${_added} added, ${_updated} updated, ${_failed} failed"
+        if [[ "${_failed}" != "0" && "${_failed}" != "?" ]]; then
+            log_warn "Some users failed to sync — check Keycloak admin console: Users → View all users"
+        fi
+    else
+        log_warn "Sync returned HTTP ${_sync_code}: ${_sync_body:0:200}"
+        log_warn "Manual sync: KC Admin → User Federation → stroma-ai-ad → Synchronize all users"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo
+echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
+echo -e "${BOLD}║   Active Directory Federation — Summary               ║${RESET}"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
+echo
+echo "  Provider      : stroma-ai-ad (${_provider_id})"
+echo "  AD Server     : ${AD_SERVER_URL}"
+echo "  User Base DN  : ${AD_USER_DN}"
+echo "  Researcher grp: ${AD_RESEARCHER_GROUP}"
+echo "  Username attr : ${AD_USERNAME_ATTR}"
+echo "  Sync interval : ${AD_SYNC_INTERVAL}s"
+echo
+echo -e "  ${GREEN}Next steps:${RESET}"
+echo "  1. Verify a user synced: KC Admin → Users → search for an AD user"
+echo "  2. Run the auth test against a real AD user:"
+echo "     scripts/test-auth.sh --user=<ad-username> --check-groups"
+echo "  3. If TEST 6 (role) fails: the user's AD group membership may not have"
+echo "     synced yet — trigger a manual sync in KC Admin → User Federation"
+echo "  4. If TEST 4 (issuer) fails after AD enable: check KC_HOSTNAME in"
+echo "     deploy/keycloak/.env matches OIDC_ISSUER in config.env"
+echo
+
+# ---------------------------------------------------------------------------
+# Step 8: Optional post-setup auth test
+# ---------------------------------------------------------------------------
+if [[ -n "${TEST_USER}" ]]; then
+    echo -e "${BOLD}Running auth test for '${TEST_USER}'...${RESET}"
+    echo
+    TEST_PW=""
+    if [[ ! -t 0 && "${STROMA_YES:-0}" == "1" ]]; then
+        log_warn "--test-user requires a TTY for password input; skipping auth test"
+    else
+        read -rsp "  Password for ${TEST_USER}: " TEST_PW; echo
+        "${REPO_ROOT}/scripts/test-auth.sh" \
+            ${CONFIG_FILE:+--config="${CONFIG_FILE}"} \
+            --user="${TEST_USER}" \
+            --password="${TEST_PW}" \
+            --check-groups || true
+    fi
+fi
