@@ -19,12 +19,28 @@
 # normal institutional username and password. No account provisioning needed.
 #
 # Usage:
-#   deploy/keycloak/setup-ad.sh                         # interactive wizard
-#   deploy/keycloak/setup-ad.sh --yes                   # non-interactive (all values in config.env)
-#   deploy/keycloak/setup-ad.sh --dry-run --yes         # print without executing
+#   deploy/keycloak/setup-ad.sh                              # interactive wizard
+#   deploy/keycloak/setup-ad.sh --yes                        # non-interactive
+#   deploy/keycloak/setup-ad.sh --provider-name=stroma-ai-partner  # second domain
+#   deploy/keycloak/setup-ad.sh --dry-run --yes
 #   deploy/keycloak/setup-ad.sh --config=/path/to/config.env
-#   deploy/keycloak/setup-ad.sh --test-user=jsmith      # run test-auth after sync
+#   deploy/keycloak/setup-ad.sh --test-user=jsmith
 #   deploy/keycloak/setup-ad.sh --help
+#
+# Multiple AD domains:
+#   Run the script twice with different --provider-name values.
+#   Each provider gets its own namespaced variables in config.env:
+#
+#     # First domain (default name stroma-ai-ad  →  prefix AD_)
+#     deploy/keycloak/setup-ad.sh
+#
+#     # Second domain (name stroma-ai-partner  →  prefix PARTNER_AD_)
+#     deploy/keycloak/setup-ad.sh --provider-name=stroma-ai-partner
+#
+#   Config.env layout for two domains:
+#     AD_SERVER_URL=ldaps://ad.moffitt.org
+#     PARTNER_AD_SERVER_URL=ldaps://ad.partner.org
+#     ... (each provider has its own PARTNER_AD_* vars)
 #
 # Configuration (all readable from config.env or passed as flags):
 #   AD_SERVER_URL         ldaps://ad.your-institution.org  (or ldap:// for plain)
@@ -32,7 +48,6 @@
 #   AD_BIND_PASSWORD      <service account password>
 #   AD_USER_DN            ou=Users,dc=moffitt,dc=org
 #   AD_RESEARCHER_GROUP   CN=HPC-GPU-Users,ou=Groups,dc=moffitt,dc=org
-#   AD_DOMAIN             moffitt.org   (used for connection test only)
 #
 # Optional tuning (defaults are safe for most AD deployments):
 #   AD_USER_OBJECT_CLASS   user            (AD default)
@@ -50,13 +65,15 @@
 #   - AD_BIND_PASSWORD is written to config.env (chmod 640, owned by stromaai)
 #
 # Options:
-#   --config=FILE        Path to config.env (auto-detected if omitted)
-#   --kc=HOST:PORT       Keycloak host:port (default: from KC_INTERNAL_URL)
-#   --realm=REALM        Keycloak realm (default: stroma-ai)
-#   --test-user=USER     Run test-auth.sh --check-groups after sync
-#   --dry-run            Print API payloads without calling Keycloak
-#   --yes                Non-interactive (fail if required values missing)
-#   -h | --help          Show this message
+#   --config=FILE            Path to config.env (auto-detected if omitted)
+#   --provider-name=NAME     Keycloak LDAP provider name (default: stroma-ai-ad)
+#                            Use a unique name per AD domain when federating multiple
+#   --kc=HOST:PORT           Keycloak host:port (default: from KC_INTERNAL_URL)
+#   --realm=REALM            Keycloak realm (default: stroma-ai)
+#   --test-user=USER         Run test-auth.sh --check-groups after sync
+#   --dry-run                Print API payloads without calling Keycloak
+#   --yes                    Non-interactive (fail if required values missing)
+#   -h | --help              Show this message
 #
 # Exit codes:
 #   0  Completed successfully
@@ -83,25 +100,77 @@ DIM=$([[ -t 1 ]] && echo '\033[2m' || echo '')
 CONFIG_FILE=""
 KC_OVERRIDE=""
 REALM="stroma-ai"
+PROVIDER_NAME="stroma-ai-ad"
 TEST_USER=""
 DRY_RUN=0
 
 for _arg in "$@"; do
     case "${_arg}" in
-        --config=*)    CONFIG_FILE="${_arg#--config=}" ;;
-        --kc=*)        KC_OVERRIDE="${_arg#--kc=}" ;;
-        --realm=*)     REALM="${_arg#--realm=}" ;;
-        --test-user=*) TEST_USER="${_arg#--test-user=}" ;;
-        --dry-run)     DRY_RUN=1 ;;
-        --yes)         export STROMA_YES=1 ;;
+        --config=*)         CONFIG_FILE="${_arg#--config=}" ;;
+        --provider-name=*)  PROVIDER_NAME="${_arg#--provider-name=}" ;;
+        --kc=*)             KC_OVERRIDE="${_arg#--kc=}" ;;
+        --realm=*)          REALM="${_arg#--realm=}" ;;
+        --test-user=*)      TEST_USER="${_arg#--test-user=}" ;;
+        --dry-run)          DRY_RUN=1 ;;
+        --yes)              export STROMA_YES=1 ;;
         -h|--help)
-            sed -n '2,/^# ===.*$/{ s/^# \{0,2\}//; p }' "$0" | head -70
+            sed -n '2,/^# ===.*$/{ s/^# \{0,2\}//; p }' "$0" | head -80
             exit 0
             ;;
         *) echo "Unknown argument: ${_arg}. Use --help." >&2; exit 1 ;;
     esac
 done
 unset _arg
+
+# ---------------------------------------------------------------------------
+# Derive config.env namespace from provider name.
+# stroma-ai-ad      → CONF_NS="AD"       → vars: AD_SERVER_URL, AD_BIND_DN …
+# stroma-ai-partner → CONF_NS="PARTNER"  → vars: PARTNER_AD_SERVER_URL …
+# stroma-ai-ucf     → CONF_NS="UCF"      → vars: UCF_AD_SERVER_URL …
+# ---------------------------------------------------------------------------
+_derive_conf_ns() {
+    local name="$1"
+    local short="${name#stroma-ai-}"
+    # Uppercase and replace hyphens with underscores
+    echo "${short^^}" | tr '-' '_'
+}
+CONF_NS="$(_derive_conf_ns "${PROVIDER_NAME}")"
+
+# Build the actual config.env key names for this provider.
+# Default provider (stroma-ai-ad / CONF_NS=AD) uses the plain AD_ prefix
+# for backward compatibility.  All others use <NS>_AD_ prefix.
+if [[ "${CONF_NS}" == "AD" ]]; then
+    _pfx="AD_"
+else
+    _pfx="${CONF_NS}_AD_"
+fi
+
+# Pre-load values from namespaced config.env keys into the canonical
+# AD_* variable names that the rest of the script uses internally.
+# This is done BEFORE sourcing config.env so the source can overwrite; we
+# re-assign from the namespaced names just after.
+_preload_ns_vars() {
+    local pfx="$1"
+    for _pair in \
+        "${pfx}SERVER_URL:AD_SERVER_URL" \
+        "${pfx}BIND_DN:AD_BIND_DN" \
+        "${pfx}BIND_PASSWORD:AD_BIND_PASSWORD" \
+        "${pfx}USER_DN:AD_USER_DN" \
+        "${pfx}RESEARCHER_GROUP:AD_RESEARCHER_GROUP" \
+        "${pfx}USER_OBJECT_CLASS:AD_USER_OBJECT_CLASS" \
+        "${pfx}UUID_ATTR:AD_UUID_ATTR" \
+        "${pfx}USERNAME_ATTR:AD_USERNAME_ATTR" \
+        "${pfx}FIRSTNAME_ATTR:AD_FIRSTNAME_ATTR" \
+        "${pfx}LASTNAME_ATTR:AD_LASTNAME_ATTR" \
+        "${pfx}EMAIL_ATTR:AD_EMAIL_ATTR" \
+        "${pfx}GROUP_OBJECT_CLASS:AD_GROUP_OBJECT_CLASS" \
+        "${pfx}SYNC_INTERVAL:AD_SYNC_INTERVAL"
+    do
+        local src_key="${_pair%%:*}" dst_var="${_pair##*:}"
+        local val="${!src_key:-}"
+        [[ -n "${val}" ]] && declare -g "${dst_var}=${val}"
+    done
+}
 
 # ---------------------------------------------------------------------------
 # Locate and source config.env
@@ -122,6 +191,8 @@ if [[ -n "${CONFIG_FILE}" && -f "${CONFIG_FILE}" ]]; then
     # shellcheck source=/dev/null
     source "${CONFIG_FILE}"
 fi
+# Map namespaced config.env keys → canonical AD_* vars used internally
+_preload_ns_vars "${_pfx}"
 
 # ---------------------------------------------------------------------------
 # Resolve Keycloak host:port
@@ -194,6 +265,8 @@ echo
 echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
 echo -e "${BOLD}║   StromaAI — Active Directory Federation Setup        ║${RESET}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
+echo
+echo -e "  ${DIM}Provider: ${PROVIDER_NAME}  |  Config prefix: ${_pfx}${RESET}"
 echo
 [[ "${DRY_RUN}" -eq 1 ]] && echo -e "${YELLOW}DRY-RUN mode — no changes will be made to Keycloak${RESET}\n"
 
@@ -283,15 +356,18 @@ echo
 # ---------------------------------------------------------------------------
 if [[ "${DRY_RUN}" -eq 0 && -n "${CONFIG_FILE}" ]]; then
     log_step "Persisting AD configuration to ${CONFIG_FILE}"
-    for _v in AD_SERVER_URL AD_BIND_DN AD_USER_DN AD_RESEARCHER_GROUP \
-               AD_USER_OBJECT_CLASS AD_UUID_ATTR AD_USERNAME_ATTR \
-               AD_FIRSTNAME_ATTR AD_LASTNAME_ATTR AD_EMAIL_ATTR \
-               AD_GROUP_OBJECT_CLASS AD_SYNC_INTERVAL; do
-        write_env_var "${_v}" "${!_v}" "${CONFIG_FILE}" 2>/dev/null || true
+    # Write using namespaced keys so multiple providers don't overwrite each other
+    for _bare in SERVER_URL BIND_DN USER_DN RESEARCHER_GROUP \
+                 USER_OBJECT_CLASS UUID_ATTR USERNAME_ATTR \
+                 FIRSTNAME_ATTR LASTNAME_ATTR EMAIL_ATTR \
+                 GROUP_OBJECT_CLASS SYNC_INTERVAL; do
+        local_var="AD_${_bare}"
+        conf_key="${_pfx}${_bare}"
+        write_env_var "${conf_key}" "${!local_var}" "${CONFIG_FILE}" 2>/dev/null || true
     done
-    # Store the bind password too — config.env is already 640
-    write_env_var "AD_BIND_PASSWORD" "${AD_BIND_PASSWORD}" "${CONFIG_FILE}" 2>/dev/null || true
-    log_ok "AD config saved"
+    # Store bind password with namespaced key — config.env is already 640
+    write_env_var "${_pfx}BIND_PASSWORD" "${AD_BIND_PASSWORD}" "${CONFIG_FILE}" 2>/dev/null || true
+    log_ok "AD config saved (keys prefixed with '${_pfx}')"
 fi
 
 # ---------------------------------------------------------------------------
@@ -333,12 +409,13 @@ log_step "Configuring LDAP user-storage provider"
 
 # Check if a provider with our name already exists
 _existing=$(kc_api GET "/admin/realms/${REALM}/components?type=org.keycloak.storage.UserStorageProvider")
-_existing_id=$(python3 - "${_existing}" <<'PYEOF'
+_existing_id=$(python3 - "${_existing}" "${PROVIDER_NAME}" <<'PYEOF'
 import sys, json
 try:
     comps = json.loads(sys.argv[1])
+    name  = sys.argv[2]
     for c in comps:
-        if c.get("name") == "stroma-ai-ad":
+        if c.get("name") == name:
             print(c["id"])
             break
 except Exception:
@@ -370,7 +447,7 @@ _ldap_payload=$(python3 -c "
 import json, sys
 payload = {
     ${_ldap_id_field and '\"id\": \"' + '${_existing_id}' + '\",' or ''}
-    'name': 'stroma-ai-ad',
+    'name': '${PROVIDER_NAME}',
     'providerId': 'ldap',
     'providerType': 'org.keycloak.storage.UserStorageProvider',
     'parentId': '${REALM}',
@@ -417,12 +494,13 @@ else
     # POST returns 201 with Location header, but our kc_api returns body.
     # Re-fetch to get the ID.
     _prov=$(kc_api GET "/admin/realms/${REALM}/components?type=org.keycloak.storage.UserStorageProvider")
-    _provider_id=$(python3 - "${_prov}" <<'PYEOF'
+    _provider_id=$(python3 - "${_prov}" "${PROVIDER_NAME}" <<'PYEOF'
 import sys, json
 try:
     comps = json.loads(sys.argv[1])
+    name  = sys.argv[2]
     for c in comps:
-        if c.get("name") == "stroma-ai-ad":
+        if c.get("name") == name:
             print(c["id"])
             break
 except Exception:
@@ -611,7 +689,8 @@ echo -e "${BOLD}╔════════════════════�
 echo -e "${BOLD}║   Active Directory Federation — Summary               ║${RESET}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${RESET}"
 echo
-echo "  Provider      : stroma-ai-ad (${_provider_id})"
+  echo "  Provider      : ${PROVIDER_NAME} (${_provider_id})"
+  echo "  Config prefix : ${_pfx}  (in config.env)"
 echo "  AD Server     : ${AD_SERVER_URL}"
 echo "  User Base DN  : ${AD_USER_DN}"
 echo "  Researcher grp: ${AD_RESEARCHER_GROUP}"
