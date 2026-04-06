@@ -362,8 +362,10 @@ STROMA_RAY_DASHBOARD_PORT=${STROMA_RAY_DASHBOARD_PORT}
 STROMA_API_KEY=${STROMA_API_KEY}
 
 # Backend URLs for nginx reverse proxy (change when services move to separate hosts)
-KC_INTERNAL_URL=http://127.0.0.1:8080
-OPENWEBUI_INTERNAL_URL=http://127.0.0.1:3000
+# Default to localhost; setup-keycloak.sh and setup-openwebui.sh set the real values
+# when KC/OWU run on a separate pod-head VM.
+KC_INTERNAL_URL=${KC_INTERNAL_URL:-http://127.0.0.1:8080}
+OPENWEBUI_INTERNAL_URL=${OPENWEBUI_INTERNAL_URL:-http://127.0.0.1:3000}
 
 STROMA_MODEL_PATH=${STROMA_MODEL_PATH}
 STROMA_MODEL_NAME=${STROMA_MODEL_NAME}
