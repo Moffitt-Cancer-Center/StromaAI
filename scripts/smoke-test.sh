@@ -111,11 +111,40 @@ fi
 # Resolve runtime values (flag > config.env > sensible default)
 # ---------------------------------------------------------------------------
 HEAD="${HEAD_HOST:-${STROMA_HEAD_HOST:-}}"
-KC="${KC_HOST:-${STROMA_HEAD_HOST:-}}"    # default: same host as head
+
+# KC host: --kc= flag > extract from KC_INTERNAL_URL > fall back to HEAD
+if [[ -n "${KC_HOST:-}" ]]; then
+    KC="${KC_HOST}"
+elif [[ -n "${KC_INTERNAL_URL:-}" ]]; then
+    _kc_tmp="${KC_INTERNAL_URL#http://}"; _kc_tmp="${_kc_tmp#https://}"
+    KC="${_kc_tmp%%:*}"; KC="${KC%%/*}"
+else
+    KC="${STROMA_HEAD_HOST:-}"
+fi
+
+# KC port: from KC_INTERNAL_URL if available
+if [[ -n "${KC_INTERNAL_URL:-}" ]]; then
+    _kc_tmp="${KC_INTERNAL_URL#*://}"
+    _kc_port="${_kc_tmp#*:}"; _kc_port="${_kc_port%%/*}"
+    KC_PORT="${KC_PORT:-${_kc_port:-8080}}"
+else
+    KC_PORT="${KC_PORT:-8080}"
+fi
+
+# OpenWebUI host: extract from OPENWEBUI_INTERNAL_URL (may differ from KC host)
+if [[ -n "${OPENWEBUI_INTERNAL_URL:-}" ]]; then
+    _owu_tmp="${OPENWEBUI_INTERNAL_URL#http://}"; _owu_tmp="${_owu_tmp#https://}"
+    OWU_HOST="${_owu_tmp%%:*}"; OWU_HOST="${OWU_HOST%%/*}"
+    _owu_port="${_owu_tmp#*:}"; _owu_port="${_owu_port%%/*}"
+    OWU_PORT="${OPENWEBUI_PORT:-${_owu_port:-3000}}"
+else
+    OWU_HOST="${KC}"
+    OWU_PORT="${OPENWEBUI_PORT:-3000}"
+fi
+
 API_KEY="${API_KEY_OVERRIDE:-${STROMA_API_KEY:-}}"
-KC_ADMIN_PASS="${KC_ADMIN_PASS_OVERRIDE:-}"
-KC_PORT="${KC_PORT:-8080}"
-OWU_PORT="${OPENWEBUI_PORT:-3000}"
+# KC admin password: --kc-admin-pass= > KC_ADMIN_PASSWORD from config.env > deploy/keycloak/.env (later)
+KC_ADMIN_PASS="${KC_ADMIN_PASS_OVERRIDE:-${KC_ADMIN_PASSWORD:-}}"
 GW_PORT="${GATEWAY_PORT:-9000}"
 
 # ---------------------------------------------------------------------------
@@ -196,7 +225,8 @@ else
     echo -e "  ${YELLOW}Config${RESET}   : not found — set --config= or STROMA_INSTALL_DIR"
 fi
 echo -e "  ${CYAN}Head${RESET}     : ${HEAD:-${RED}(not set — use --head=)${RESET}}"
-echo -e "  ${CYAN}Keycloak${RESET} : ${KC:-${YELLOW}(defaulting to head)${RESET}}"
+echo -e "  ${CYAN}Keycloak${RESET} : ${KC}:${KC_PORT}"
+echo -e "  ${CYAN}OpenWebUI${RESET}: ${OWU_HOST}:${OWU_PORT}"
 [[ "${SKIP_AUTH}" -eq 1 ]] && \
     echo -e "  ${YELLOW}Auth tests${RESET}: skipped (--skip-auth)"
 echo
@@ -371,9 +401,9 @@ fi
 # ---------------------------------------------------------------------------
 # TEST 8 — OpenWebUI direct HTTP
 # ---------------------------------------------------------------------------
-hr; echo -e "  ${BOLD}TEST 8${RESET}  OpenWebUI direct HTTP (${KC}:${OWU_PORT})"
+hr; echo -e "  ${BOLD}TEST 8${RESET}  OpenWebUI direct HTTP (${OWU_HOST}:${OWU_PORT})"
 _http_code=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" \
-    "http://${KC}:${OWU_PORT}/" 2>/dev/null || echo "000")
+    "http://${OWU_HOST}:${OWU_PORT}/" 2>/dev/null || echo "000")
 if [[ "${_http_code}" == "200" ]]; then
     result PASS "OpenWebUI direct HTTP" "HTTP ${_http_code}"
 elif [[ "${_http_code}" == "000" ]]; then
