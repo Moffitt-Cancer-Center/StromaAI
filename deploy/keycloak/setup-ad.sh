@@ -168,8 +168,11 @@ _preload_ns_vars() {
     do
         local src_key="${_pair%%:*}" dst_var="${_pair##*:}"
         local val="${!src_key:-}"
-        [[ -n "${val}" ]] && declare -g "${dst_var}=${val}"
+        if [[ -n "${val}" ]]; then
+            declare -g "${dst_var}=${val}"
+        fi
     done
+    return 0
 }
 
 # ---------------------------------------------------------------------------
