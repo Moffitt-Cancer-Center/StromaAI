@@ -498,7 +498,27 @@ fi
 hr; echo -e "  ${BOLD}TEST 13${RESET} client.env readable by cluster users"
 _install_dir="${STROMA_INSTALL_DIR:-${CONFIG_FILE%/config.env}}"
 _client_env="${_install_dir}/client.env"
-if [[ ! -f "${_client_env}" ]]; then
+
+# Check every directory component of _install_dir is traversable by others.
+# A world-readable file is useless if any parent directory lacks execute (x)
+# for others — stat returns EACCES and the read never reaches the file.
+_dir_fail=""
+_check_dir=""
+IFS='/' read -ra _parts <<< "${_install_dir}"
+for _part in "${_parts[@]}"; do
+    [[ -z "${_part}" ]] && { _check_dir="/"; continue; }
+    _check_dir="${_check_dir%/}/${_part}"
+    _dperms=$(stat -c '%a' "${_check_dir}" 2>/dev/null || stat -f '%Lp' "${_check_dir}" 2>/dev/null || echo "000")
+    if (( (8#${_dperms} & 8#001) == 0 )); then
+        _dir_fail="${_check_dir} (mode ${_dperms} — missing execute bit for others; fix: chmod o+x ${_check_dir})"
+        break
+    fi
+done
+unset IFS
+
+if [[ -n "${_dir_fail}" ]]; then
+    result FAIL "client.env" "install dir not traversable: ${_dir_fail}"
+elif [[ ! -f "${_client_env}" ]]; then
     result FAIL "client.env" "not found at ${_client_env} — re-run install.sh to generate it"
 else
     # Check world-readable bit (others read = octal mode & 004)
@@ -548,6 +568,8 @@ fi
 # Summary
 # ---------------------------------------------------------------------------
 hr
+echo
+_total=$((PASS + FAIL + SKIP))
 echo -e "  ${GREEN}${PASS}${RESET} passed  ${RED}${FAIL}${RESET} failed  ${YELLOW}${SKIP}${RESET} skipped  (of ${_total} tests)"
 echo
 if [[ "${FAIL}" -gt 0 ]]; then
