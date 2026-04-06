@@ -73,11 +73,7 @@ set -euo pipefail
 : "${STROMA_HEAD_HOST:?ERROR: STROMA_HEAD_HOST must be set via --export}"
 : "${STROMA_RAY_PORT:=6380}"
 : "${STROMA_SHARED_ROOT:=/share}"
-
-# ---------------------------------------------------------------------------
-# Container configuration
-# ---------------------------------------------------------------------------
-STROMA_CONTAINER="${STROMA_CONTAINER:-/share/containers/stroma-ai-vllm.sif}"
+: "${STROMA_INSTALL_DIR:=/opt/stroma-ai}"
 
 # ---------------------------------------------------------------------------
 # Load environment modules if available (common in HPC environments)
@@ -93,39 +89,53 @@ if command -v module &>/dev/null; then
     done
 fi
 
-# Detect container runtime (apptainer preferred; fall back to singularity)
-if [[ -z "${CONTAINER_CMD:-}" ]]; then
-    if command -v apptainer &>/dev/null; then
-        CONTAINER_CMD="apptainer"
-    elif command -v singularity &>/dev/null; then
-        CONTAINER_CMD="singularity"
-    else
-        # Try loading a module — common on HPC systems
-        if command -v module &>/dev/null; then
-            module load apptainer 2>/dev/null || module load singularity 2>/dev/null || true
-        fi
+# ---------------------------------------------------------------------------
+# Worker mode: prefer the shared network venv (same Python as head node— no
+# version mismatch possible). Fall back to Apptainer container when the venv
+# isn't reachable (e.g. a worker without NFS access, or explicitly overridden
+# by setting STROMA_WORKER_MODE=container in config.env).
+# ---------------------------------------------------------------------------
+STROMA_VENV="${STROMA_INSTALL_DIR}/venv"
+
+if [[ "${STROMA_WORKER_MODE:-auto}" != "container" && -x "${STROMA_VENV}/bin/ray" ]]; then
+    WORKER_MODE=venv
+else
+    WORKER_MODE=container
+    # Container configuration
+    STROMA_CONTAINER="${STROMA_CONTAINER:-/share/containers/stroma-ai-vllm.sif}"
+
+    # Detect container runtime (apptainer preferred; fall back to singularity)
+    if [[ -z "${CONTAINER_CMD:-}" ]]; then
         if command -v apptainer &>/dev/null; then
             CONTAINER_CMD="apptainer"
         elif command -v singularity &>/dev/null; then
             CONTAINER_CMD="singularity"
         else
-            echo "ERROR: Neither apptainer nor singularity found in PATH" >&2
-            echo "ERROR: If using environment modules, ensure apptainer/singularity module is available" >&2
-            exit 1
+            # Try loading a module — common on HPC systems
+            if command -v module &>/dev/null; then
+                module load apptainer 2>/dev/null || module load singularity 2>/dev/null || true
+            fi
+            if command -v apptainer &>/dev/null; then
+                CONTAINER_CMD="apptainer"
+            elif command -v singularity &>/dev/null; then
+                CONTAINER_CMD="singularity"
+            else
+                echo "ERROR: Neither apptainer nor singularity found in PATH" >&2
+                echo "ERROR: If using environment modules, ensure apptainer/singularity module is available" >&2
+                exit 1
+            fi
         fi
     fi
-fi
 
-# GPU binding flag: use --nvccli for Apptainer 1.3+ with CDI, else --nv
-GPU_FLAG="${STROMA_CONTAINER_GPU_FLAG:---nv}"
+    # GPU binding flag: use --nvccli for Apptainer 1.3+ with CDI, else --nv
+    GPU_FLAG="${STROMA_CONTAINER_GPU_FLAG:---nv}"
 
-# ---------------------------------------------------------------------------
-# Verify container image exists
-# ---------------------------------------------------------------------------
-if [[ ! -f "${STROMA_CONTAINER}" ]]; then
-    echo "ERROR: Container image not found: ${STROMA_CONTAINER}" >&2
-    echo "Build it with: apptainer build ${STROMA_CONTAINER} deploy/containers/stroma-ai-vllm.def" >&2
-    exit 1
+    # Verify container image exists
+    if [[ ! -f "${STROMA_CONTAINER}" ]]; then
+        echo "ERROR: Container image not found: ${STROMA_CONTAINER}" >&2
+        echo "Build it with: apptainer build ${STROMA_CONTAINER} deploy/containers/stroma-ai-vllm.def" >&2
+        exit 1
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -136,8 +146,13 @@ echo "Node     : $(hostname -f)"
 echo "JobID    : ${SLURM_JOB_ID}"
 echo "GPUs     : ${SLURM_GPUS_ON_NODE:-1}"
 echo "Head     : ${STROMA_HEAD_HOST}:${STROMA_RAY_PORT}"
-echo "Container: ${STROMA_CONTAINER}"
-echo "Runtime  : ${CONTAINER_CMD}"
+echo "Mode     : ${WORKER_MODE}"
+if [[ "${WORKER_MODE}" == "venv" ]]; then
+    echo "Venv     : ${STROMA_VENV}"
+else
+    echo "Container: ${STROMA_CONTAINER}"
+    echo "Runtime  : ${CONTAINER_CMD}"
+fi
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null || true
 echo "============================"
 
@@ -170,13 +185,21 @@ if [[ -n "${STROMA_NUMA_BIND:-}" ]]; then
     fi
 fi
 
-exec ${NUMACTL_OPTS[@]:+"${NUMACTL_OPTS[@]}"} "${CONTAINER_CMD}" exec \
-    ${GPU_FLAG} \
-    --bind "${STROMA_SHARED_ROOT}:${STROMA_SHARED_ROOT}" \
-    "${STROMA_CONTAINER}" \
-    ray start \
-        --address="${STROMA_HEAD_HOST}:${STROMA_RAY_PORT}" \
-        --num-cpus="${SLURM_CPUS_PER_TASK:-64}" \
-        --num-gpus="${STROMA_GPUS_PER_NODE:-1}" \
-        --memory="${NODE_MEMORY_BYTES}" \
-        --block
+RAY_ARGS=(
+    start
+    --address="${STROMA_HEAD_HOST}:${STROMA_RAY_PORT}"
+    --num-cpus="${SLURM_CPUS_PER_TASK:-64}"
+    --num-gpus="${STROMA_GPUS_PER_NODE:-1}"
+    --memory="${NODE_MEMORY_BYTES}"
+    --block
+)
+
+if [[ "${WORKER_MODE}" == "venv" ]]; then
+    exec ${NUMACTL_OPTS[@]:+"${NUMACTL_OPTS[@]}"} "${STROMA_VENV}/bin/ray" "${RAY_ARGS[@]}"
+else
+    exec ${NUMACTL_OPTS[@]:+"${NUMACTL_OPTS[@]}"} "${CONTAINER_CMD}" exec \
+        ${GPU_FLAG} \
+        --bind "${STROMA_SHARED_ROOT}:${STROMA_SHARED_ROOT}" \
+        "${STROMA_CONTAINER}" \
+        ray "${RAY_ARGS[@]}"
+fi

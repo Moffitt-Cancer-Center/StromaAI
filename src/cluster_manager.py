@@ -237,9 +237,10 @@ class ClusterManager:
         """
         Submit a burst worker job to Slurm via sbatch.
 
-        The worker script is expected to:
-          1. Call ``apptainer exec --nv <sif> ray start --address=<head> --num-gpus=N --block``
-          2. Export STROMA_HEAD_HOST, STROMA_RAY_PORT, STROMA_SHARED_ROOT, and STROMA_GPUS_PER_NODE.
+        The worker script prefers the shared network venv for ``ray start``
+        (same Python version as the head node — no version mismatch possible).
+        It falls back to ``apptainer exec --nv <sif> ray start`` when the venv
+        is not reachable or ``STROMA_WORKER_MODE=container`` is set.
 
         Returns a SubmitResult. Does NOT raise on submission failure.
         """
@@ -260,6 +261,7 @@ class ClusterManager:
                 f"--export=ALL"
                 f",STROMA_HEAD_HOST={self.head_host}"
                 f",STROMA_RAY_PORT={self.ray_port}"
+                f",STROMA_INSTALL_DIR={install_dir}"
                 f",STROMA_SHARED_ROOT={self.shared_root}"
                 f",STROMA_CONTAINER={self.container_path}"
                 f",STROMA_CONTAINER_GPU_FLAG={self.gpu_flag}"
