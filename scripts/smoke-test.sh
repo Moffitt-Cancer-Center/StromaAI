@@ -12,7 +12,7 @@
 #   4.  Keycloak realm via nginx TLS proxy
 #   5.  Keycloak admin credentials
 #   6.  stroma-ai realm existence
-#   7.  OIDC clients registered (stroma-gateway, openwebui)
+#   7.  OIDC clients registered (stroma-gateway, openwebui, stroma-cli)
 #   8.  OpenWebUI direct HTTP (pod-head)
 #   9.  OpenWebUI via nginx TLS proxy
 #   10. Gateway health check (direct)
@@ -380,7 +380,7 @@ if [[ "${SKIP_AUTH}" -eq 1 || -z "${KC_ADMIN_TOKEN}" ]]; then
 else
     _clients_ok=1
     _client_details=""
-    for _client in stroma-gateway openwebui; do
+    for _client in stroma-gateway openwebui stroma-cli; do
         _cbody=$(http_get \
             "http://${KC}:${KC_PORT}/admin/realms/stroma-ai/clients?clientId=${_client}" \
             -H "Authorization: Bearer ${KC_ADMIN_TOKEN}")

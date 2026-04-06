@@ -265,10 +265,10 @@ fi
 hr; echo -e "  ${BOLD}TEST 2${RESET}  Password grant for '${TEST_USER}'"
 
 # Determine which OIDC client to use for the Resource Owner Password Credentials grant.
-# By default we use the 'openwebui' OIDC client (public client, no client_secret needed).
-# It must have the "Direct Access Grants" flow enabled in Keycloak.
-# Override with KC_AUTH_TEST_CLIENT if you need a different client.
-_CLIENT_ID="${KC_AUTH_TEST_CLIENT:-openwebui}"
+# stroma-cli is a public client with Direct Access Grants enabled — created by
+# setup-keycloak.sh specifically for CLI tools. No client_secret needed.
+# Override with KC_AUTH_TEST_CLIENT if your install uses a different client.
+_CLIENT_ID="${KC_AUTH_TEST_CLIENT:-stroma-cli}"
 
 _token_resp=$(curl -sk --max-time 15 \
     -X POST "${TOKEN_URL}" \

@@ -367,6 +367,33 @@ _http('POST', f'/admin/realms/{realm}/clients', {
     'webOrigins': ['+'],
     'attributes': {'pkce.code.challenge.method': 'S256'},
 }, token=token)
+# stroma-cli: public client with Direct Access Grants (ROPC) for CLI tools
+# and the test-auth.sh authentication test. Public clients don't need a
+# client_secret, so this is safe to expose to cluster users.
+_http('POST', f'/admin/realms/{realm}/clients', {
+    'clientId': 'stroma-cli', 'name': 'StromaAI CLI',
+    'description': 'Public ROPC client for CLI tools and auth testing.',
+    'enabled': True, 'protocol': 'openid-connect',
+    'publicClient': True,
+    'standardFlowEnabled': False,
+    'implicitFlowEnabled': False,
+    'directAccessGrantsEnabled': True,
+    'redirectUris': [],
+}, token=token)
+_, cli_clients = _http('GET',
+    f'/admin/realms/{realm}/clients?clientId=stroma-cli', token=token)
+cli_id = cli_clients[0]['id']
+_http('POST', f'/admin/realms/{realm}/clients/{cli_id}/protocol-mappers/models', {
+    'name': 'stroma-gateway-audience',
+    'protocol': 'openid-connect',
+    'protocolMapper': 'oidc-audience-mapper',
+    'config': {
+        'included.client.audience': 'stroma-gateway',
+        'id.token.claim': 'false',
+        'access.token.claim': 'true',
+    },
+}, token=token)
+print('[KC]  stroma-cli client created with audience mapper')
 print('[KC]  Clients created')
 
 _http('POST', f'/admin/realms/{realm}/users', {
@@ -385,6 +412,7 @@ _http('POST', f'/admin/realms/{realm}/users/{uid}/role-mappings/realm',
       [researcher_role], token=token)
 print('[KC]  Demo user created (temporary password set)')
 print('[KC]  Realm configuration complete')
+print(f'[KC]  DEMO_USER_PASSWORD={demo_pw}')
 PYEOF
 }
 # ---------------------------------------------------------------------------
@@ -605,6 +633,7 @@ EOF
     write_or_update_config "KC_OPENWEBUI_CLIENT_SECRET" "${OWU_CLIENT_SECRET}"
     write_or_update_config "KC_ADMIN_URL"               "${KC_ADMIN_URL}"
     write_or_update_config "OPENWEBUI_URL"              "${OPENWEBUI_URL}"
+    write_or_update_config "DEMO_USER_PASSWORD"         "${DEMO_USER_PASSWORD}"
 
     echo ""
     echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
