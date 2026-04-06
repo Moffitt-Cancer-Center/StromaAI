@@ -164,10 +164,15 @@ TLS_BASE="https://${HEAD}"
 
 TOKEN_URL="http://${KC_HOST}:${KC_PORT}/realms/${REALM}/protocol/openid-connect/token"
 
-# Use OIDC_ISSUER from config.env when available — Keycloak sets the issuer
-# to its configured frontend hostname, which may differ from the IP/host you
-# connect to for the token request.  Fall back to constructing from KC_HOST.
-EXPECTED_ISSUER="${OIDC_ISSUER:-http://${KC_HOST}:${KC_PORT}/realms/${REALM}}"
+# Discover the authoritative issuer from the OIDC discovery document.
+# KC emits tokens with the issuer it was configured with (KC_HOSTNAME /
+# frontendUrl), which may differ from the IP in KC_INTERNAL_URL.  Fetching
+# the discovery doc gives us the exact value the token will contain.
+# Falls back to OIDC_ISSUER from config.env, then to constructing from KC_HOST.
+_disc_url="${OIDC_DISCOVERY_URL:-http://${KC_HOST}:${KC_PORT}/realms/${REALM}/.well-known/openid-configuration}"
+_disc_issuer=$(curl -sk --max-time 10 "${_disc_url}" 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('issuer',''))" 2>/dev/null || true)
+EXPECTED_ISSUER="${_disc_issuer:-${OIDC_ISSUER:-http://${KC_HOST}:${KC_PORT}/realms/${REALM}}}"
 
 # Use OIDC_AUDIENCE from config.env — the installed value is 'stroma-gateway',
 # not 'stroma-ai-gateway'.  Fall back to the gateway-client ID.
@@ -433,7 +438,7 @@ else
     _g_code=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" \
         "${GATEWAY_BASE}/v1/models" \
         -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-        2>/dev/null || echo "000")
+        2>/dev/null || true)
     case "${_g_code}" in
         200) result PASS "Gateway auth" "${GATEWAY_BASE}/v1/models → HTTP ${_g_code}" ;;
         401) result FAIL "Gateway auth" "HTTP 401 — token rejected by gateway (issuer mismatch? OIDC_DISCOVERY_URL points to different KC?)" ;;
