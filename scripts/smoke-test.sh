@@ -41,7 +41,9 @@
 #   1  One or more tests failed
 # =============================================================================
 
-set -euo pipefail
+# -e is intentionally omitted — a smoke test must run all tests even when
+# individual curl/python calls return non-zero.
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -127,21 +129,34 @@ done
 # Test harness
 # ---------------------------------------------------------------------------
 PASS=0; FAIL=0; SKIP=0
-_results=()   # array of "PASS|FAIL|SKIP :: description :: detail"
+_results=()   # accumulated for summary line at the end
 
 result() {
+    # Print inline immediately so progress is visible even if the script exits early.
     local status="$1" desc="$2" detail="${3:-}"
     case "${status}" in
-        PASS) PASS=$((PASS+1)); _results+=("${GREEN}PASS${RESET} :: ${desc}${detail:+ — ${DIM}${detail}${RESET}}") ;;
-        FAIL) FAIL=$((FAIL+1)); _results+=("${RED}FAIL${RESET} :: ${desc}${detail:+ — ${RED}${detail}${RESET}}") ;;
-        SKIP) SKIP=$((SKIP+1)); _results+=("${YELLOW}SKIP${RESET} :: ${desc}${detail:+ — ${DIM}${detail}${RESET}}") ;;
+        PASS)
+            PASS=$((PASS+1))
+            echo -e "  ${GREEN}PASS${RESET}  ${desc}${detail:+  ${DIM}(${detail})${RESET}}"
+            _results+=("PASS")
+            ;;
+        FAIL)
+            FAIL=$((FAIL+1))
+            echo -e "  ${RED}FAIL${RESET}  ${desc}${detail:+  ${RED}${detail}${RESET}}"
+            _results+=("FAIL")
+            ;;
+        SKIP)
+            SKIP=$((SKIP+1))
+            echo -e "  ${YELLOW}SKIP${RESET}  ${desc}${detail:+  ${DIM}${detail}${RESET}}"
+            _results+=("SKIP")
+            ;;
     esac
 }
 
-# http_get URL [extra curl args...] → body; returns curl exit code
+# http_get URL [extra curl args...] → body (empty on error; never exits non-zero)
 http_get() {
     local url="$1"; shift
-    curl -sk --max-time 10 "$@" "${url}" 2>/dev/null
+    curl -sk --max-time 10 "$@" "${url}" 2>/dev/null || true
 }
 
 # json_field BODY FIELD → value (empty if not found / not JSON)
@@ -420,12 +435,6 @@ fi
 # Summary
 # ---------------------------------------------------------------------------
 hr
-echo
-echo -e "${BOLD}  Results${RESET}"
-hr
-for _r in "${_results[@]}"; do
-    echo -e "  ${_r}"
-done
 echo
 _total=$((PASS + FAIL + SKIP))
 printf "  %s passed  %s failed  %s skipped  (of %s tests)\n" \
