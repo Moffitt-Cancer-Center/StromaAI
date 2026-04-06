@@ -90,8 +90,13 @@ _CURL_FLAGS=(-s --max-time 20)
 
 _curl_get()    { curl "${_CURL_FLAGS[@]}" "$@" 2>/dev/null || true; }
 _curl_status() {
+    # Capture the http_code write-out separately from curl's exit code.
+    # Using || echo "000" would double-print "000" when curl exits non-zero
+    # but %{http_code} already emitted "000" (e.g. empty reply from server).
     local url="$1"; shift
-    curl "${_CURL_FLAGS[@]}" -o /dev/null -w "%{http_code}" "$@" "${url}" 2>/dev/null || echo "000"
+    local _code
+    _code=$(curl "${_CURL_FLAGS[@]}" -o /dev/null -w "%{http_code}" "$@" "${url}" 2>/dev/null) || true
+    printf '%s' "${_code:-000}"
 }
 
 _json() {
@@ -326,19 +331,20 @@ _section "4 / 4  Web Interface"
 _owui_body=$(_curl_get "https://${STROMA_HOST}/")
 _owui_code=$(_curl_status "https://${STROMA_HOST}/")
 
-_owui_ok=0
 if echo "${_owui_body}" | python3 -c \
-    "import sys; d=sys.stdin.read(); exit(0 if '<' in d else 1)" 2>/dev/null; then
-    _owui_ok=1
-elif [[ "${_owui_code}" =~ ^(200|301|302|303)$ ]]; then
-    _owui_ok=1
-fi
-
-if [[ "${_owui_ok}" -eq 1 ]]; then
+    "import sys; d=sys.stdin.read(); exit(0 if ('<html' in d.lower() or '<!doctype' in d.lower()) else 1)" 2>/dev/null; then
     _ok "Web chat interface is accessible"
+elif [[ "${_owui_code}" =~ ^(301|302|303)$ ]]; then
+    _ok "Web chat interface is accessible  (HTTP ${_owui_code} redirect)"
+elif [[ "${_owui_code}" == "401" || "${_owui_code}" == "403" ]]; then
+    # Gateway is intercepting / instead of OpenWebUI — nginx routing not yet updated
+    _fail "Web chat interface is not reachable (HTTP ${_owui_code})"
+    echo -e "     ${C_DIM}The server is responding but routing / to the API gateway instead of OpenWebUI.${C_RST}"
+    echo -e "     ${C_DIM}This is a server-side configuration issue — contact ${STROMA_CONTACT}.${C_RST}"
 elif [[ "${_owui_code}" == "000" ]]; then
     _fail "Web chat interface is not reachable"
-    echo -e "     ${C_DIM}Contact ${STROMA_CONTACT}.${C_RST}"
+    echo -e "     ${C_DIM}The server is up but sending no response for /.${C_RST}"
+    echo -e "     ${C_DIM}Contact ${STROMA_CONTACT} — this is a server-side issue.${C_RST}"
 else
     _warn "Web chat interface returned HTTP ${_owui_code}"
     echo -e "     ${C_DIM}Contact ${STROMA_CONTACT} if you cannot open it in your browser.${C_RST}"

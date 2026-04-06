@@ -24,6 +24,7 @@ config.env
 deploy/keycloak/.env
 deploy/keycloak/realm-import.json
 deploy/head/.env
+deploy/head/nginx.conf
 deploy/openwebui/.env
 
 # Backup files (contain secrets from original .env files)

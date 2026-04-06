@@ -598,7 +598,36 @@ if [[ "${BUILD_ONLY}" -eq 1 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6: Start the stack
+# Step 6: Generate nginx configuration from template
+# ---------------------------------------------------------------------------
+# nginx.conf is NOT committed — it is produced by envsubst from
+# nginx.conf.template so that Keycloak and OpenWebUI upstream addresses
+# (which are site-specific and live outside the Compose network) are baked
+# in at deploy time rather than stored in version control.
+# ---------------------------------------------------------------------------
+log_step "Generating nginx configuration"
+
+_nginx_tmpl="${SCRIPT_DIR}/nginx.conf.template"
+_nginx_out="${SCRIPT_DIR}/nginx.conf"
+
+[[ -f "${_nginx_tmpl}" ]] || die "nginx.conf.template not found: ${_nginx_tmpl}"
+
+if [[ -z "${KC_INTERNAL_URL:-}" ]]; then
+    die "KC_INTERNAL_URL is not set in ${CONFIG_FILE}.\n  Run deploy/keycloak/setup-keycloak.sh first, or set it manually."
+fi
+if [[ -z "${OPENWEBUI_INTERNAL_URL:-}" ]]; then
+    die "OPENWEBUI_INTERNAL_URL is not set in ${CONFIG_FILE}.\n  Run deploy/openwebui/setup-openwebui.sh first, or set it manually."
+fi
+
+run_cmd envsubst '${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+    < "${_nginx_tmpl}" > "${_nginx_out}"
+log_ok "nginx.conf generated"
+log_info "  Keycloak  → ${KC_INTERNAL_URL}"
+log_info "  OpenWebUI → ${OPENWEBUI_INTERNAL_URL}"
+unset _nginx_tmpl _nginx_out
+
+# ---------------------------------------------------------------------------
+# Step 7: Start the stack
 # ---------------------------------------------------------------------------
 log_step "Starting Head Node Stack"
 

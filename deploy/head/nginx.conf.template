@@ -1,0 +1,205 @@
+# =============================================================================
+# StromaAI — nginx Reverse Proxy (Container / Compose deployment) — TEMPLATE
+# =============================================================================
+#
+# *** DO NOT EDIT nginx.conf DIRECTLY ***
+# This template is the source of truth.  setup-head.sh processes it with
+# envsubst to produce nginx.conf (the file Docker Compose actually mounts).
+#
+# To regenerate nginx.conf after changing this file or a config variable:
+#
+#   cd deploy/head
+#   source .env
+#   envsubst '${KC_INTERNAL_URL} ${OPENWEBUI_INTERNAL_URL}' \
+#       < nginx.conf.template > nginx.conf
+#   podman compose restart nginx
+#
+# Or simply re-run setup-head.sh --start-only.
+#
+# Variables substituted at generation time:
+#   KC_INTERNAL_URL          Full URL of Keycloak (e.g. http://10.x.x.x:8080)
+#   OPENWEBUI_INTERNAL_URL   Full URL of OpenWebUI (e.g. http://10.x.x.x:3000)
+#
+# Upstream service names for in-stack services (gateway, vllm) are Compose
+# service names and are resolved via the internal stroma-head Docker network.
+# Do not change them without updating docker-compose.yml accordingly.
+#
+# TLS certificates are bind-mounted from the host at:
+#   /etc/ssl/stroma-ai/server.crt
+#   /etc/ssl/stroma-ai/server.key
+# Generate self-signed certs with setup-head.sh --gen-certs, or supply
+# your own CA-signed certificate pair.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Rate limiting — 30 req/min per IP with burst headroom for short bursts.
+# Tune the rate for your user count; increase for high-throughput sites.
+# ---------------------------------------------------------------------------
+limit_req_zone $binary_remote_addr zone=stroma_ai_api:10m rate=30r/m;
+
+# ---------------------------------------------------------------------------
+# Upstream: StromaAI OIDC Gateway (primary API path, auth-enforced)
+# Compose service name — resolved by Docker internal DNS.
+# ---------------------------------------------------------------------------
+upstream stroma_gateway {
+    server gateway:9000;
+    keepalive 32;
+}
+
+# ---------------------------------------------------------------------------
+# Upstream: vLLM direct (health + metrics only — bypasses OIDC)
+# Compose service name — resolved by Docker internal DNS.
+# ---------------------------------------------------------------------------
+upstream vllm_direct {
+    server vllm:8000;
+    keepalive 8;
+}
+
+# ---------------------------------------------------------------------------
+# HTTP → HTTPS redirect
+# ---------------------------------------------------------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;
+
+    return 301 https://$host$request_uri;
+}
+
+# ---------------------------------------------------------------------------
+# HTTPS — main endpoint
+# ---------------------------------------------------------------------------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name _;
+
+    # TLS configuration
+    ssl_certificate     /etc/ssl/stroma-ai/server.crt;
+    ssl_certificate_key /etc/ssl/stroma-ai/server.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # -------------------------------------------------------------------------
+    # Proxy defaults — generous timeouts for long-running LLM completions
+    # -------------------------------------------------------------------------
+    proxy_read_timeout    300s;
+    proxy_send_timeout    300s;
+    proxy_connect_timeout 10s;
+
+    # WebSocket + SSE / chunked streaming support
+    proxy_http_version    1.1;
+    proxy_set_header      Upgrade           $http_upgrade;
+    proxy_set_header      Connection        "upgrade";
+    proxy_set_header      Host              $host;
+    proxy_set_header      X-Real-IP         $remote_addr;
+    proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header      X-Forwarded-Proto $scheme;
+
+    # Disable response buffering so tokens stream to the client in real time
+    proxy_buffering       off;
+
+    # -------------------------------------------------------------------------
+    # Keycloak OIDC identity provider
+    # -------------------------------------------------------------------------
+    # /realms/ — token endpoint, OIDC discovery, user-info, login pages.
+    # External URL: https://<head>/realms/stroma-ai/.well-known/openid-configuration
+    # The X-Forwarded-* headers are required for Keycloak to generate correct
+    # redirect URIs and issue_at claims that reference the public hostname.
+    # -------------------------------------------------------------------------
+    location /realms/ {
+        proxy_pass ${KC_INTERNAL_URL};
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-Port  443;
+
+        proxy_read_timeout 300s;
+        proxy_buffering    off;
+    }
+
+    # /admin/ — Keycloak admin console and Admin REST API.
+    location /admin/ {
+        proxy_pass ${KC_INTERNAL_URL};
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-Port  443;
+
+        proxy_read_timeout 300s;
+        proxy_buffering    off;
+    }
+
+    # -------------------------------------------------------------------------
+    # /v1/* — OIDC-authenticated API (routed through gateway)
+    # The gateway validates the Bearer JWT, checks the stroma_researcher role,
+    # and substitutes the internal STROMA_API_KEY before forwarding to vLLM.
+    # -------------------------------------------------------------------------
+    location /v1/ {
+        limit_req zone=stroma_ai_api burst=20 nodelay;
+        proxy_pass http://stroma_gateway;
+    }
+
+    # -------------------------------------------------------------------------
+    # / (root) — OpenWebUI browser chat interface
+    # Served from the separate OpenWebUI container stack on pod-head.
+    # API clients always hit /v1/; KC uses /realms/ and /admin/.
+    # -------------------------------------------------------------------------
+    location / {
+        proxy_pass ${OPENWEBUI_INTERNAL_URL};
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket support for OpenWebUI real-time features
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade   $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+
+        proxy_buffering    off;
+        proxy_read_timeout 300s;
+    }
+
+    # -------------------------------------------------------------------------
+    # /health — unauthenticated; routed directly to vLLM for liveness probes
+    # -------------------------------------------------------------------------
+    location /health {
+        proxy_pass http://vllm_direct;
+        access_log off;
+    }
+
+    # -------------------------------------------------------------------------
+    # /metrics — Prometheus scrape endpoint; network-restricted
+    # Adjust allow/deny to match your Prometheus server's CIDR.
+    # -------------------------------------------------------------------------
+    location /metrics {
+        proxy_pass http://vllm_direct;
+
+        allow 10.0.0.0/8;
+        allow 172.16.0.0/12;
+        allow 192.168.0.0/16;
+        allow 127.0.0.1;
+        deny all;
+
+        proxy_cache off;
+    }
+
+    # -------------------------------------------------------------------------
+    # Security headers
+    # -------------------------------------------------------------------------
+    add_header Strict-Transport-Security "max-age=63072000" always;
+    add_header X-Content-Type-Options    nosniff;
+    add_header X-Frame-Options           SAMEORIGIN;
+}
