@@ -449,7 +449,7 @@ fi
 _ldap_payload=$(python3 -c "
 import json, sys
 payload = {
-    ${_ldap_id_field and '\"id\": \"' + '${_existing_id}' + '\",' or ''}
+    ${_ldap_id_field}
     'name': '${PROVIDER_NAME}',
     'providerId': 'ldap',
     'providerType': 'org.keycloak.storage.UserStorageProvider',
