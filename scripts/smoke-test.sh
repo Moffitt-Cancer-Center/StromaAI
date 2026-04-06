@@ -159,6 +159,12 @@ http_get() {
     curl -sk --max-time 10 "$@" "${url}" 2>/dev/null || true
 }
 
+# http_status URL [extra curl args...] → HTTP status code string ("000" = connection failed)
+http_status() {
+    local url="$1"; shift
+    curl -sk --max-time 10 -o /dev/null -w "%{http_code}" "$@" "${url}" 2>/dev/null || echo "000"
+}
+
 # json_field BODY FIELD → value (empty if not found / not JSON)
 json_field() {
     python3 -c "
@@ -205,11 +211,16 @@ fi
 # ---------------------------------------------------------------------------
 hr; echo -e "  ${BOLD}TEST 1${RESET}  nginx TLS health"
 body=$(http_get "https://${HEAD}/health")
+http_code=$(http_status "https://${HEAD}/health")
 status=$(json_field "${body}" "status")
 if [[ "${status}" == "ok" ]]; then
     result PASS "nginx TLS /health" "status=ok"
+elif [[ "${http_code}" == "000" ]]; then
+    result FAIL "nginx TLS /health" "connection failed — nginx down or port 443 blocked on ${HEAD}"
+elif [[ "${http_code}" == "502" || "${http_code}" == "503" ]]; then
+    result FAIL "nginx TLS /health" "HTTP ${http_code} — nginx up but vLLM backend not responding"
 else
-    result FAIL "nginx TLS /health" "got: ${body:0:120}"
+    result FAIL "nginx TLS /health" "HTTP ${http_code} — got: ${body:0:100}"
 fi
 
 # ---------------------------------------------------------------------------
