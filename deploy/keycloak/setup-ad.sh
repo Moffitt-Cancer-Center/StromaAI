@@ -156,6 +156,7 @@ _preload_ns_vars() {
         "${pfx}BIND_DN:AD_BIND_DN" \
         "${pfx}BIND_PASSWORD:AD_BIND_PASSWORD" \
         "${pfx}USER_DN:AD_USER_DN" \
+        "${pfx}CUSTOM_FILTER:AD_CUSTOM_FILTER" \
         "${pfx}RESEARCHER_GROUP:AD_RESEARCHER_GROUP" \
         "${pfx}USER_OBJECT_CLASS:AD_USER_OBJECT_CLASS" \
         "${pfx}UUID_ATTR:AD_UUID_ATTR" \
@@ -340,6 +341,7 @@ prompt_if_empty AD_SERVER_URL    "AD server URL (ldaps://ad.example.org or ldap:
 prompt_if_empty AD_BIND_DN       "Service account DN (cn=svc-stroma,ou=Service Accounts,dc=example,dc=org)"
 prompt_secret   AD_BIND_PASSWORD "Service account password"
 prompt_if_empty AD_USER_DN       "User search base DN (ou=Users,dc=example,dc=org)"
+prompt_if_empty AD_CUSTOM_FILTER "Custom LDAP filter — leave blank for none\n    (e.g. (|(memberOf=CN=HPC Users,ou=Groups,dc=example,dc=org)(memberOf=CN=Admins,...)))" ""
 prompt_if_empty AD_RESEARCHER_GROUP \
     "AD group DN for StromaAI researchers (CN=HPC-GPU-Users,ou=Groups,dc=example,dc=org)"
 
@@ -362,19 +364,20 @@ echo
 if [[ "${DRY_RUN}" -eq 0 && -n "${CONFIG_FILE}" ]]; then
     log_step "Persisting AD configuration to ${CONFIG_FILE}"
     # Write using namespaced keys so multiple providers don't overwrite each other.
-    # Values are double-quoted so AD_SERVER_URL (space-separated URLs),
-    # AD_USER_DN, and AD_RESEARCHER_GROUP (contain spaces, =, (, )) are
-    # preserved correctly when config.env is sourced.
-    for _bare in SERVER_URL BIND_DN USER_DN RESEARCHER_GROUP \
+    # printf '%q' produces shell-safe quoting for any value (handles spaces,
+    # parens, ?, |, = in LDAP DN/filter strings without triggering bash extglob).
+    for _bare in SERVER_URL BIND_DN USER_DN CUSTOM_FILTER RESEARCHER_GROUP \
                  USER_OBJECT_CLASS UUID_ATTR USERNAME_ATTR \
                  FIRSTNAME_ATTR LASTNAME_ATTR EMAIL_ATTR \
                  GROUP_OBJECT_CLASS SYNC_INTERVAL; do
         local_var="AD_${_bare}"
         conf_key="${_pfx}${_bare}"
-        write_env_var "${conf_key}" "\"${!local_var}\"" "${CONFIG_FILE}" 2>/dev/null || true
+        printf -v _qval '%q' "${!local_var:-}"
+        write_env_var "${conf_key}" "${_qval}" "${CONFIG_FILE}" 2>/dev/null || true
     done
     # Store bind password with namespaced key — config.env is already 640
-    write_env_var "${_pfx}BIND_PASSWORD" "\"${AD_BIND_PASSWORD}\"" "${CONFIG_FILE}" 2>/dev/null || true
+    printf -v _qval '%q' "${AD_BIND_PASSWORD}"
+    write_env_var "${_pfx}BIND_PASSWORD" "${_qval}" "${CONFIG_FILE}" 2>/dev/null || true
     log_ok "AD config saved (keys prefixed with '${_pfx}')"
 fi
 
@@ -471,6 +474,7 @@ payload = {
         'userObjectClasses':         ['${AD_USER_OBJECT_CLASS}'],
         'connectionUrl':             ['${AD_SERVER_URL}'],
         'usersDn':                   ['${AD_USER_DN}'],
+        'customUserSearchFilter':     ['${AD_CUSTOM_FILTER}'],
         'authType':                  ['simple'],
         'bindDn':                    ['${AD_BIND_DN}'],
         'bindCredential':            ['${AD_BIND_PASSWORD}'],
