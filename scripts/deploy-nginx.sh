@@ -314,6 +314,30 @@ deploy_host_mode() {
     
     log_ok "nginx config written to ${nginx_conf_path}"
     
+    # On RHEL/Rocky: ensure nginx can proxy to remote hosts.
+    # If any upstream is non-localhost, httpd_can_network_connect must be on.
+    # This is normally set by install.sh but may be missing if deploy-nginx.sh
+    # is run independently or if the install predates the remote upstream config.
+    if [[ "${os_family}" == "rhel" ]] && command -v setsebool &>/dev/null; then
+        local _has_remote=0
+        for _url in "${KC_INTERNAL_URL}" "${OPENWEBUI_INTERNAL_URL}" "${VLLM_INTERNAL_URL}" "${GATEWAY_INTERNAL_URL}"; do
+            if [[ "${_url}" != 127.0.0.1* && "${_url}" != localhost* ]]; then
+                _has_remote=1
+                break
+            fi
+        done
+        if [[ "${_has_remote}" -eq 1 ]]; then
+            log_info "Remote upstreams detected — verifying SELinux httpd_can_network_connect"
+            if setsebool -P httpd_can_network_connect 1 2>/dev/null && \
+               setsebool -P httpd_can_network_relay 1 2>/dev/null; then
+                log_ok "SELinux: httpd_can_network_connect and httpd_can_network_relay are on"
+            else
+                log_error "WARNING: Could not set SELinux booleans. nginx may time out proxying to remote upstreams."
+                log_error "Run manually: sudo setsebool -P httpd_can_network_connect 1 httpd_can_network_relay 1"
+            fi
+        fi
+    fi
+
     # On Ubuntu/Debian, ensure symlink exists
     if [[ "${os_family}" == "debian" ]]; then
         if [[ ! -L /etc/nginx/sites-enabled/stroma-ai ]]; then

@@ -208,14 +208,25 @@ _KC_DISCOVERY="${_KC_BASE}/.well-known/openid-configuration"
 _KC_TOKEN="${_KC_BASE}/protocol/openid-connect/token"
 
 _disc=$(_curl_get "${_KC_DISCOVERY}")
+_disc_code=$(_curl_status "${_KC_DISCOVERY}")
 _issuer=$(_json "${_disc}" "issuer")
 
 if [[ -n "${_issuer}" ]]; then
     _ok "Authentication service is reachable"
 else
-    _fail "Cannot reach the authentication service (Keycloak)"
-    echo -e "     ${C_DIM}The server is up but the login service isn't responding.${C_RST}"
-    echo -e "     ${C_DIM}This is a server-side issue — contact ${STROMA_CONTACT}.${C_RST}"
+    _fail "Cannot reach the authentication service (Keycloak)  (HTTP ${_disc_code})"
+    if [[ "${_disc_code}" == "000" ]]; then
+        echo -e "     ${C_DIM}Connection timed out — nginx is not forwarding /realms/ to Keycloak.${C_RST}"
+        echo -e "     ${C_DIM}Most likely cause on RHEL/Rocky: SELinux blocking nginx → Keycloak.${C_RST}"
+        echo -e "     ${C_DIM}Admin fix: sudo setsebool -P httpd_can_network_connect 1 httpd_can_network_relay 1${C_RST}"
+        echo -e "     ${C_DIM}Also check: Keycloak is running and nginx upstream URL is correct.${C_RST}"
+    elif [[ "${_disc_code}" == "502" || "${_disc_code}" == "503" ]]; then
+        echo -e "     ${C_DIM}nginx returned HTTP ${_disc_code} — it cannot reach the Keycloak upstream.${C_RST}"
+        echo -e "     ${C_DIM}Admin: verify Keycloak is running and KC_INTERNAL_URL in config.env is correct.${C_RST}"
+        echo -e "     ${C_DIM}Then re-run: sudo scripts/deploy-nginx.sh${C_RST}"
+    else
+        echo -e "     ${C_DIM}The login service returned an unexpected response — contact ${STROMA_CONTACT}.${C_RST}"
+    fi
 fi
 
 _ACCESS_TOKEN=""
@@ -342,9 +353,12 @@ elif [[ "${_owui_code}" == "401" || "${_owui_code}" == "403" ]]; then
     echo -e "     ${C_DIM}The server is responding but routing / to the API gateway instead of OpenWebUI.${C_RST}"
     echo -e "     ${C_DIM}This is a server-side configuration issue — contact ${STROMA_CONTACT}.${C_RST}"
 elif [[ "${_owui_code}" == "000" ]]; then
-    _fail "Web chat interface is not reachable"
-    echo -e "     ${C_DIM}The server is up but sending no response for /.${C_RST}"
-    echo -e "     ${C_DIM}Contact ${STROMA_CONTACT} — this is a server-side issue.${C_RST}"
+    _fail "Web chat interface is not reachable  (HTTP 000 — connection timed out)"
+    echo -e "     ${C_DIM}nginx is not forwarding / to OpenWebUI. Most likely causes:${C_RST}"
+    echo -e "     ${C_DIM}• SELinux blocking nginx → OpenWebUI (RHEL/Rocky head nodes)${C_RST}"
+    echo -e "     ${C_DIM}  Admin fix: sudo setsebool -P httpd_can_network_connect 1 httpd_can_network_relay 1${C_RST}"
+    echo -e "     ${C_DIM}• OpenWebUI container not running on the backend host${C_RST}"
+    echo -e "     ${C_DIM}Contact ${STROMA_CONTACT} for assistance.${C_RST}"
 else
     _warn "Web chat interface returned HTTP ${_owui_code}"
     echo -e "     ${C_DIM}Contact ${STROMA_CONTACT} if you cannot open it in your browser.${C_RST}"
