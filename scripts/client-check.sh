@@ -177,7 +177,7 @@ _INSECURE_CODE=$(curl -sk --max-time 20 -o /dev/null -w "%{http_code}" \
 _INSECURE_CODE="${_INSECURE_CODE:-000}"
 
 if [[ "${_INSECURE_CODE}" == "000" ]]; then
-    _fail "Cannot reach ${STROMA_HOST} on port 443"
+    _fail "Cannot reach https://${STROMA_HOST}/health"
     echo -e "     ${C_DIM}This usually means:${C_RST}"
     echo -e "     ${C_DIM}• You are not on the campus network or VPN${C_RST}"
     echo -e "     ${C_DIM}• A firewall is blocking outbound HTTPS${C_RST}"
