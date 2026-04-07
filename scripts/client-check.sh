@@ -166,16 +166,23 @@ echo -e "  ${C_DIM}$(date '+%A, %B %-d %Y  %H:%M %Z')${C_RST}"
 _section "1 / 4  Connectivity"
 
 # Try strict TLS first, then insecure, to distinguish cert vs network issues
+# Use || true (not || echo "000") to avoid double-printing "000" when curl
+# itself returns http_code=000 on network failure, which would yield "000000"
+# and cause the == "000" guard below to silently pass.
 _STRICT_CODE=$(curl -s --max-time 20 -o /dev/null -w "%{http_code}" \
-    "https://${STROMA_HOST}/health" 2>/dev/null || echo "000")
+    "https://${STROMA_HOST}/health" 2>/dev/null) || true
+_STRICT_CODE="${_STRICT_CODE:-000}"
 _INSECURE_CODE=$(curl -sk --max-time 20 -o /dev/null -w "%{http_code}" \
-    "https://${STROMA_HOST}/health" 2>/dev/null || echo "000")
+    "https://${STROMA_HOST}/health" 2>/dev/null) || true
+_INSECURE_CODE="${_INSECURE_CODE:-000}"
 
 if [[ "${_INSECURE_CODE}" == "000" ]]; then
     _fail "Cannot reach ${STROMA_HOST} on port 443"
     echo -e "     ${C_DIM}This usually means:${C_RST}"
     echo -e "     ${C_DIM}• You are not on the campus network or VPN${C_RST}"
     echo -e "     ${C_DIM}• A firewall is blocking outbound HTTPS${C_RST}"
+    echo -e "     ${C_DIM}• The hostname resolves to a different IP outside the campus network${C_RST}"
+    echo -e "     ${C_DIM}  (verify: dig +short ${STROMA_HOST} — should return a campus IP)${C_RST}"
     echo -e "     ${C_DIM}• The hostname may have changed — contact ${STROMA_CONTACT}${C_RST}"
     echo
     echo -e "  ${C_FAIL}Cannot continue — no network path to the server.${C_RST}"
