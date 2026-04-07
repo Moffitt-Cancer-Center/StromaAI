@@ -63,6 +63,13 @@ services:
       # reverse proxy (nginx/traefik) in front. Use start (not start-dev) for prod.
       # KC_PROXY_HEADERS=xforwarded tells Keycloak to trust X-Forwarded-* headers.
       KC_HOSTNAME: ${KC_HOSTNAME:-localhost}
+      # KC_HOSTNAME_URL forces a fixed canonical issuer URL in all tokens,
+      # regardless of whether KC is accessed directly (internal HTTP) or
+      # through a TLS-terminating reverse proxy.  This ensures tokens are
+      # valid no matter which path they were obtained through.
+      # Example: KC_HOSTNAME_URL=https://ood-red.moffitt.org:8443
+      KC_HOSTNAME_URL: ${KC_HOSTNAME_URL:-}
+      KC_HOSTNAME_ADMIN_URL: ${KC_HOSTNAME_ADMIN_URL:-}
       KC_HTTP_PORT: "8080"
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
