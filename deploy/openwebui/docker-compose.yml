@@ -70,11 +70,6 @@ services:
       DO_NOT_TRACK: "true"
       ANONYMIZED_TELEMETRY: "false"
 
-      # Optional path prefix when serving behind a reverse proxy sub-path.
-      # Set to "/chat" (no trailing slash) if proxied at https://host/chat/.
-      # Leave empty (default) when serving at the root path.
-      WEBUI_BASE_URL: "${WEBUI_BASE_URL:-}"
-
       # Secret key for session signing — MUST be set to a stable random value
       WEBUI_SECRET_KEY: "${WEBUI_SECRET_KEY:-}"
 

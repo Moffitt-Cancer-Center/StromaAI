@@ -222,9 +222,6 @@ if [[ "${MODE}" == "local" ]]; then
         GATEWAY_URL="${GATEWAY_URL:-http://${STROMA_HEAD_HOST:-localhost}:${GATEWAY_PORT:-9000}}"
         WEBUI_NAME="${WEBUI_NAME:-StromaAI Research Chat}"
         ENABLE_OAUTH_SIGNUP="true"
-        # Path prefix when serving behind a reverse proxy sub-path (e.g. /chat).
-        # Leave empty for root-path deployment.
-        WEBUI_BASE_URL="${WEBUI_BASE_URL:-}"
     else
         read -rp "OpenWebUI host port [default: 3000]: " _inp
         OWU_PORT="${_inp:-3000}"
@@ -241,10 +238,6 @@ if [[ "${MODE}" == "local" ]]; then
             n|no) ENABLE_OAUTH_SIGNUP="false" ;;
             *)    ENABLE_OAUTH_SIGNUP="true" ;;
         esac
-
-        # Path prefix when behind a reverse proxy (e.g. /chat for OOD injection).
-        read -rp "WebUI base URL path prefix [default: empty = serve at /]: " _inp
-        WEBUI_BASE_URL="${_inp:-}"
         unset _inp
     fi
 
@@ -268,7 +261,6 @@ KC_OPENWEBUI_CLIENT_SECRET=${KC_OPENWEBUI_CLIENT_SECRET}
 ENABLE_OAUTH_SIGNUP=${ENABLE_OAUTH_SIGNUP}
 WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
 OAUTH_PROVIDER_NAME=StromaAI Identity
-WEBUI_BASE_URL=${WEBUI_BASE_URL:-}
 EOF
         chmod 600 "${COMPOSE_ENV}"
     else
