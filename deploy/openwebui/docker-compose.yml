@@ -73,9 +73,20 @@ services:
       # Secret key for session signing — MUST be set to a stable random value
       WEBUI_SECRET_KEY: "${WEBUI_SECRET_KEY:-}"
 
+      # TLS trust — mount the host CA bundle so the container trusts internal
+      # PKI certificates (e.g., Keycloak behind an internal-CA nginx proxy).
+      # httpx and requests both honour these env vars.
+      SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt"
+      REQUESTS_CA_BUNDLE: "/etc/ssl/certs/ca-certificates.crt"
+
     volumes:
       # Persist user data, model configs, and chat history
       - openwebui_data:/app/backend/data
+      # Mount the host's full CA bundle (includes internal PKI trust anchors).
+      # On RHEL/Rocky: /etc/pki/tls/certs/ca-bundle.crt (after update-ca-trust)
+      # On Debian/Ubuntu: /etc/ssl/certs/ca-certificates.crt
+      # Override via STROMA_CA_BUNDLE in .env if your path differs.
+      - ${STROMA_CA_BUNDLE:-/etc/pki/tls/certs/ca-bundle.crt}:/etc/ssl/certs/ca-certificates.crt:ro
 
     extra_hosts:
       # Allows the container to reach services running on the Podman host
