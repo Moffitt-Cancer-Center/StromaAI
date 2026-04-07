@@ -71,7 +71,11 @@ services:
       KC_HOSTNAME_URL: ${KC_HOSTNAME_URL:-}
       KC_HOSTNAME_ADMIN_URL: ${KC_HOSTNAME_ADMIN_URL:-}
       KC_HTTP_PORT: "8080"
-      KC_HOSTNAME_STRICT: "false"
+      # When KC_HOSTNAME_URL is set, use strict mode so KC always uses that
+      # URL as the canonical issuer and ignores X-Forwarded-* headers for it.
+      # Defaults to "false" for dev convenience; set KC_HOSTNAME_STRICT=true
+      # in .env when KC_HOSTNAME_URL is configured.
+      KC_HOSTNAME_STRICT: "${KC_HOSTNAME_STRICT:-false}"
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: "xforwarded"
 
