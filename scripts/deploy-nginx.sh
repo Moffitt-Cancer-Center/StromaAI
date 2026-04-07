@@ -304,6 +304,8 @@ deploy_host_mode() {
         local backup="${nginx_conf_path}.backup.$(date +%Y%m%d-%H%M%S)"
         cp "${nginx_conf_path}" "${backup}"
         log_ok "Backed up existing config to ${backup}"
+        # Keep only the 3 most recent backups to avoid accumulation
+        ls -t "${nginx_conf_path}".backup.* 2>/dev/null | tail -n +4 | xargs -r rm -f --
     fi
     
     # Process template with envsubst
