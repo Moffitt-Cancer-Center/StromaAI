@@ -21,7 +21,7 @@
 # │  ADMIN — fill in these values before distributing this script           │
 # └─────────────────────────────────────────────────────────────────────────┘
 
-STROMA_HOST="ood-red.moffitt.org:8443"         # StromaAI access point (FQDN:port)
+STROMA_HOST="ood-red.moffitt.org"              # StromaAI access point (FQDN or FQDN:port)
 STROMA_REALM="stroma-ai"                       # Keycloak realm name
 STROMA_CLIENT="stroma-cli"                     # Public OIDC client (no secret)
 STROMA_CONTACT="stromaai-support@moffitt.org"  # Support email shown to users
