@@ -266,8 +266,12 @@ _t2_secret="${KC_GATEWAY_CLIENT_SECRET:-}"
 if [[ -z "${_t2_secret}" ]]; then
     result SKIP "vLLM /v1/models" "KC_GATEWAY_CLIENT_SECRET not in config.env — add it first"
 else
+    # Fetch via the TLS path (nginx → OOD → KC) so the token's "iss" claim
+    # matches the issuer the gateway loaded from OIDC_DISCOVERY_URL
+    # (https://<ood-host>/realms/stroma-ai).  Fetching directly from internal
+    # KC HTTP would produce an http://:8080 issuer that the gateway rejects.
     _t2_tbody=$(http_get \
-        "http://${KC}:${KC_PORT}/realms/stroma-ai/protocol/openid-connect/token" \
+        "https://${HEAD}/realms/stroma-ai/protocol/openid-connect/token" \
         -X POST \
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "grant_type=client_credentials&client_id=stroma-gateway&client_secret=${_t2_secret}")
@@ -450,12 +454,12 @@ if [[ "${SKIP_AUTH}" -eq 1 || -z "${KC_ADMIN_TOKEN}" ]]; then
 elif [[ -z "${GW_CLIENT_SECRET}" ]]; then
     result SKIP "OIDC user token" "KC_GATEWAY_CLIENT_SECRET not in config.env"
 else
-    # Fetch token directly from KC (not via nginx) so the issued token's
-    # "iss" claim matches the issuer the gateway cached from OIDC_DISCOVERY_URL
-    # (http://<host>:8080/...).  Going through nginx would produce an https://
-    # issuer that doesn't match, causing 401 on subsequent requests.
+    # Fetch via the TLS path (nginx → OOD → KC) so the token's "iss" claim
+    # matches the issuer the gateway loaded from OIDC_DISCOVERY_URL
+    # (https://<ood-host>/realms/stroma-ai).  Fetching directly from internal
+    # KC HTTP produces an http://:8080 issuer that the gateway rejects.
     _tbody=$(http_get \
-        "http://${KC}:${KC_PORT}/realms/stroma-ai/protocol/openid-connect/token" \
+        "https://${HEAD}/realms/stroma-ai/protocol/openid-connect/token" \
         -X POST \
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "grant_type=client_credentials&client_id=stroma-gateway&client_secret=${GW_CLIENT_SECRET}")
