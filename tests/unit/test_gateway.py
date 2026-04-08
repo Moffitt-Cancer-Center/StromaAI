@@ -9,9 +9,14 @@ end-to-end without a live Keycloak instance.
 from __future__ import annotations
 
 import json
+import sys
 import time
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+
+# Add src/ to path so we can import gateway without installing it
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import jwt
 import pytest
@@ -69,7 +74,7 @@ def _patch_oidc(monkeypatch):
     The cache's _issuer is set to the test issuer, and get_signing_key
     returns a PyJWK wrapping the test public key.
     """
-    from src import gateway
+    import gateway
 
     # Inject a known issuer into the module-level cache
     gateway._jwks_cache._issuer = "http://keycloak.test/realms/stroma-ai"
@@ -86,11 +91,37 @@ def _patch_oidc(monkeypatch):
     monkeypatch.setenv("VLLM_BACKEND_URL", "http://vllm-backend.test")
     monkeypatch.setenv("STROMA_API_KEY", "internal-test-key")
 
+    # Patch module-level constants that were resolved at import time
+    monkeypatch.setattr(gateway, "VLLM_BACKEND_URL", "http://vllm-backend.test")
+    monkeypatch.setattr(gateway, "STROMA_API_KEY", "internal-test-key")
+
+    # Seed the model registry so requests with {"model": "test"} resolve to
+    # the backend URL instead of returning 404.
+    from model_registry import ModelEntry, ModelStatus, ModelTier
+
+    test_entry = ModelEntry(
+        model_id="test",
+        path="/fake/test",
+        display_name="Test Model",
+        architecture="TestArch",
+        param_count=1_000_000,
+        dtype="fp16",
+        quantization="none",
+        vram_required_mb=1000,
+        gpu_count=1,
+        max_model_len=4096,
+        tier=ModelTier.PERSISTENT,
+        status=ModelStatus.SERVING,
+        vllm_port=8000,
+    )
+    with gateway._registry._lock:
+        gateway._registry._models["test"] = test_entry
+
 
 @pytest.fixture()
 def client():
     """Synchronous TestClient for non-streaming endpoint tests."""
-    from src.gateway import app
+    from gateway import app
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c
 
@@ -205,7 +236,7 @@ class TestAuthorizationRole:
         import httpx as _httpx
 
         with respx.mock:
-            respx.post("http://vllm-backend.test/chat/completions").mock(
+            respx.post("http://vllm-backend.test:8000/v1/chat/completions").mock(
                 return_value=_httpx.Response(200, json={"choices": []})
             )
             resp = client.post(
@@ -235,7 +266,7 @@ class TestProxy:
 
         token = _make_token()
         with respx.mock:
-            respx.post("http://vllm-backend.test/chat/completions").mock(
+            respx.post("http://vllm-backend.test:8000/v1/chat/completions").mock(
                 side_effect=_capture_request
             )
             client.post(
@@ -255,7 +286,7 @@ class TestProxy:
 
         token = _make_token()
         with respx.mock:
-            respx.post("http://vllm-backend.test/chat/completions").mock(
+            respx.post("http://vllm-backend.test:8000/v1/chat/completions").mock(
                 return_value=_httpx.Response(503, json={"error": "backend down"})
             )
             resp = client.post(
@@ -271,7 +302,7 @@ class TestProxy:
 
         token = _make_token()
         with respx.mock:
-            respx.post("http://vllm-backend.test/chat/completions").mock(
+            respx.post("http://vllm-backend.test:8000/v1/chat/completions").mock(
                 side_effect=_httpx.ConnectError("connection refused")
             )
             resp = client.post(

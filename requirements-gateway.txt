@@ -20,3 +20,9 @@ httpx>=0.27.0
 # JWT validation (RS256 / ES256) with JWKS key-set management
 PyJWT[crypto]>=2.9.0
 cryptography>=43.0.0
+
+# Model watcher HTTP API (lightweight async server for internal signalling)
+aiohttp>=3.9.0
+
+# YAML parser (optional — only for stroma.yaml model overrides)
+pyyaml>=6.0

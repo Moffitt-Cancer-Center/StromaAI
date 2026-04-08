@@ -1,0 +1,38 @@
+[Unit]
+Description=StromaAI — Model Watcher (Multi-Model Lifecycle Manager)
+Documentation=https://github.com/Moffitt-Cancer-Center/StromaAI
+After=network-online.target stroma-ai-vllm.service
+Wants=network-online.target
+Requires=stroma-ai-vllm.service
+
+[Service]
+Type=simple
+User=stromaai
+Group=stromaai
+WorkingDirectory=/opt/stroma-ai
+
+# Sources all STROMA_* environment variables.
+EnvironmentFile=/opt/stroma-ai/config.env
+
+ExecStart=/opt/stroma-ai/venv/bin/python3 /opt/stroma-ai/src/model_watcher.py
+
+Restart=always
+RestartSec=10s
+TimeoutStartSec=30s
+TimeoutStopSec=30s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=stroma-ai-model-watcher
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/stroma-ai /tmp
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

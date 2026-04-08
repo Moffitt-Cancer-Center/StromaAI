@@ -261,7 +261,7 @@ class ClusterManager:
                 f"--export=ALL"
                 f",STROMA_HEAD_HOST={self.head_host}"
                 f",STROMA_RAY_PORT={self.ray_port}"
-                f",STROMA_INSTALL_DIR={install_dir}"
+                f",STROMA_INSTALL_DIR={self.install_dir}"
                 f",STROMA_SHARED_ROOT={self.shared_root}"
                 f",STROMA_CONTAINER={self.container_path}"
                 f",STROMA_CONTAINER_GPU_FLAG={self.gpu_flag}"
@@ -297,6 +297,120 @@ class ClusterManager:
 
         job_id = match.group(1)
         log.info("Submitted burst worker job %s (partition=%s)", job_id, self.partition)
+        return SubmitResult(success=True, job_id=job_id)
+
+    def submit_model_worker(
+        self,
+        *,
+        model_id: str,
+        model_path: str,
+        vllm_port: int,
+        gpu_count: int = 1,
+        quantization: str = "",
+        max_model_len: int = 0,
+        slurm_script: Optional[str] = None,
+    ) -> SubmitResult:
+        """
+        Submit a Slurm job that starts a vLLM process for a specific model.
+
+        Unlike :meth:`submit_worker`, which launches a generic Ray worker,
+        this method passes model-specific parameters to a dedicated Slurm
+        script (``stroma_ai_model_worker.slurm``) so the worker can run
+        ``vllm serve`` with the correct paths, ports, and GPU count.
+
+        Parameters
+        ----------
+        model_id:
+            Identifier for the model (used in logging / state keys).
+        model_path:
+            Filesystem path to the model weights directory.
+        vllm_port:
+            Port on which vLLM should listen for this model.
+        gpu_count:
+            Number of GPUs to request (tensor-parallel degree).
+        quantization:
+            Quantization method name (e.g. ``awq``, ``gptq``), empty for none.
+        max_model_len:
+            Maximum context length override.  0 = vLLM auto-detects.
+        slurm_script:
+            Override for the Slurm script path; defaults to the model worker
+            script derived from the configured ``slurm_script`` directory.
+
+        Returns
+        -------
+        SubmitResult
+        """
+        if slurm_script is None:
+            from pathlib import Path as _P
+            slurm_script = str(
+                _P(self.slurm_script).parent / "stroma_ai_model_worker.slurm"
+            )
+
+        gres_arg = f"--gres={self.gres}" if self.gres else f"--gpus-per-node={gpu_count}"
+
+        # Build per-model export variables
+        export_vars = (
+            f"ALL"
+            f",STROMA_HEAD_HOST={self.head_host}"
+            f",STROMA_RAY_PORT={self.ray_port}"
+            f",STROMA_INSTALL_DIR={self.install_dir}"
+            f",STROMA_SHARED_ROOT={self.shared_root}"
+            f",STROMA_CONTAINER={self.container_path}"
+            f",STROMA_CONTAINER_GPU_FLAG={self.gpu_flag}"
+            f",MODEL_ID={model_id}"
+            f",MODEL_PATH={model_path}"
+            f",VLLM_PORT={vllm_port}"
+            f",TENSOR_PARALLEL_SIZE={gpu_count}"
+        )
+        if quantization:
+            export_vars += f",QUANTIZATION={quantization}"
+        if max_model_len > 0:
+            export_vars += f",MAX_MODEL_LEN={max_model_len}"
+
+        cmd = [
+            "sbatch",
+            f"--partition={self.partition}",
+            f"--account={self.account}",
+            f"--time={self.walltime}",
+            f"--cpus-per-task={self.cpus}",
+            f"--mem={self.mem}",
+            f"--output={self.log_dir}/slurm-model-{model_id}-%j.out",
+            f"--error={self.log_dir}/slurm-model-{model_id}-%j.err",
+            f"--job-name=stroma-{model_id}",
+            gres_arg,
+            f"--export={export_vars}",
+            slurm_script,
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except (subprocess.SubprocessError, FileNotFoundError) as exc:
+            msg = f"sbatch execution failed for model {model_id}: {exc}"
+            log.error("%s", msg)
+            return SubmitResult(success=False, error=msg)
+
+        if result.returncode != 0:
+            msg = f"sbatch rc={result.returncode} (model {model_id}): {result.stderr.strip()}"
+            log.error("%s", msg)
+            return SubmitResult(success=False, error=msg)
+
+        match = re.search(r"Submitted batch job (\d+)", result.stdout)
+        if not match:
+            msg = f"Unexpected sbatch output: {result.stdout.strip()!r}"
+            log.error("%s", msg)
+            return SubmitResult(success=False, error=msg)
+
+        job_id = match.group(1)
+        log.info(
+            "Submitted model worker: model=%s job=%s port=%d gpus=%d",
+            model_id, job_id, vllm_port, gpu_count,
+        )
         return SubmitResult(success=True, job_id=job_id)
 
     def get_worker_state(self, job_id: str) -> Optional[WorkerState]:

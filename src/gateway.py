@@ -66,6 +66,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from model_registry import ModelRegistry, ModelStatus, ModelTier
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -76,6 +78,8 @@ VLLM_BACKEND_URL   = os.environ.get("VLLM_BACKEND_URL", "http://localhost:8000")
 STROMA_API_KEY     = os.environ.get("STROMA_API_KEY", "")
 ALLOWED_ROLE       = os.environ.get("GATEWAY_ALLOWED_ROLE", "stroma_researcher")
 JWKS_REFRESH_SECS  = int(os.environ.get("JWKS_REFRESH_SECS", "3600"))
+# Model watcher HTTP API URL for requesting on-demand models.
+WATCHER_URL        = os.environ.get("STROMA_WATCHER_URL", "http://localhost:9100")
 # When set, this URI is used for JWKS instead of the one in the discovery doc.
 # Useful when nginx proxy uses a self-signed cert — point at KC's direct HTTP port.
 JWKS_OVERRIDE_URI  = os.environ.get("JWKS_OVERRIDE_URI", "")
@@ -139,7 +143,13 @@ class _JWKSCache:
 _jwks_cache = _JWKSCache()
 
 # ---------------------------------------------------------------------------
-# Lifespan — warm the JWKS cache before accepting requests
+# Model registry — shared catalog of all discovered models
+# ---------------------------------------------------------------------------
+
+_registry = ModelRegistry()
+
+# ---------------------------------------------------------------------------
+# Lifespan — warm the JWKS cache and scan models before accepting requests
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
@@ -161,6 +171,17 @@ async def lifespan(app: FastAPI):
         log.warning("STROMA_API_KEY is not set — backend requests will be unauthenticated")
     if not VLLM_BACKEND_URL:
         log.error("VLLM_BACKEND_URL is not set — proxy will fail on every request")
+
+    # Scan model catalog and mark persistent model as serving
+    count = _registry.scan()
+    log.info("Model registry: %d model(s) found", count)
+    persistent = _registry.get_persistent_model()
+    if persistent:
+        _registry.update_status(
+            persistent.model_id, ModelStatus.SERVING,
+            vllm_port=int(os.environ.get("STROMA_VLLM_PORT", "8000")),
+        )
+        log.info("Persistent model: %s (port %s)", persistent.model_id, persistent.vllm_port)
 
     yield  # Application runs here
 
@@ -282,32 +303,168 @@ async def health() -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
-# Proxy — forward all /v1/* requests to vLLM backend
+# Helper — resolve the backend base URL for a given model
 # ---------------------------------------------------------------------------
+
+def _backend_url_for_port(port: int) -> str:
+    """Build backend base URL from the vLLM port number.
+
+    Uses the host portion of ``VLLM_BACKEND_URL`` so operators only
+    configure the hostname once.
+    """
+    # VLLM_BACKEND_URL is e.g. "http://localhost:8000"
+    from urllib.parse import urlparse
+
+    parsed = urlparse(VLLM_BACKEND_URL)
+    return f"{parsed.scheme}://{parsed.hostname}:{port}"
+
+
+# ---------------------------------------------------------------------------
+# Helper — signal the model watcher to provision an on-demand model
+# ---------------------------------------------------------------------------
+
+async def _signal_watcher(model_id: str) -> bool:
+    """POST to the watcher's HTTP API requesting an on-demand model start.
+
+    Returns True if the watcher accepted the request, False on failure
+    (watcher down, etc.).  Failures are logged but never raised — the
+    gateway still returns 503 to the caller.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(f"{WATCHER_URL}/request-model/{model_id}")
+            if resp.status_code < 300:
+                log.info("Watcher accepted model request: %s", model_id)
+                return True
+            log.warning("Watcher rejected model request %s: %s", model_id, resp.status_code)
+    except httpx.RequestError as exc:
+        log.warning("Could not reach model watcher at %s: %s", WATCHER_URL, exc)
+    return False
+
+
+# ---------------------------------------------------------------------------
+# /v1/models — aggregated catalog from the registry (NOT proxied to vLLM)
+# ---------------------------------------------------------------------------
+# This route MUST be defined BEFORE the catch-all /v1/{path:path} so FastAPI
+# matches it first.
+
+@app.get("/v1/models")
+async def list_models(
+    _claims: Annotated[dict, Depends(validate_token)],
+) -> JSONResponse:
+    """Return the full model catalog in OpenAI-compatible format.
+
+    Every discovered model is listed regardless of whether it is currently
+    serving.  On-demand models that are not yet running include a
+    ``stroma_status`` field so clients can display a loading indicator.
+    """
+    return JSONResponse(_registry.openai_models_response())
+
+
+# ---------------------------------------------------------------------------
+# Proxy — forward /v1/* requests to the correct vLLM backend
+# ---------------------------------------------------------------------------
+
+# Paths that carry a ``model`` field in the JSON body.
+_MODEL_BODY_PATHS = {"chat/completions", "completions", "embeddings"}
 
 @app.api_route(
     "/v1/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    response_model=None,
 )
 async def proxy_to_vllm(
     path: str,
     request: Request,
     _claims: Annotated[dict, Depends(validate_token)],
-) -> StreamingResponse:
+) -> StreamingResponse | JSONResponse:
     """
-    Authenticated proxy. Substitutes the OIDC Bearer token with the internal
-    STROMA_API_KEY before forwarding to the vLLM backend.
+    Model-aware authenticated proxy.
 
-    A single streaming connection is opened to the backend. Status code and
-    content-type are read from the backend response headers before yielding
-    body chunks, so no double-request occurs.
+    For inference paths (chat/completions, completions, embeddings) the
+    ``model`` field is extracted from the JSON body and used to look up the
+    correct backend in the model registry:
+
+      * **SERVING** — proxy to the model's vLLM port
+      * **AVAILABLE / REQUESTED** — signal the watcher then return 503 with
+        ``Retry-After`` so the client knows to poll again
+      * **Unknown model** — 404
+
+    All other /v1/* paths (e.g. /v1/chat/tokenize) are forwarded to the
+    persistent model's backend unchanged.
     """
-    target_url = f"{VLLM_BACKEND_URL}/v1/{path}"
-    params     = dict(request.query_params)
-    body       = await request.body()
+    body   = await request.body()
+    params = dict(request.query_params)
 
-    # Build forwarded headers — drop the incoming Authorization and inject the
-    # internal API key. Pass all other safe headers through unchanged.
+    # --- Resolve the target backend URL based on model field -----------------
+    backend_base = VLLM_BACKEND_URL  # default: persistent model
+
+    if path in _MODEL_BODY_PATHS and body and request.method == "POST":
+        import json as _json
+
+        try:
+            payload = _json.loads(body)
+        except (ValueError, UnicodeDecodeError):
+            payload = {}
+
+        requested_model = payload.get("model")
+        if requested_model:
+            entry = _registry.get_model(requested_model)
+            if entry is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Model '{requested_model}' not found in catalog",
+                )
+
+            if entry.status == ModelStatus.SERVING and entry.vllm_port:
+                backend_base = _backend_url_for_port(entry.vllm_port)
+            elif entry.status in (ModelStatus.AVAILABLE, ModelStatus.REQUESTED):
+                # Trigger the watcher to start provisioning
+                if entry.status == ModelStatus.AVAILABLE:
+                    _registry.update_status(entry.model_id, ModelStatus.REQUESTED)
+                    await _signal_watcher(entry.model_id)
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={
+                        "error": {
+                            "message": (
+                                f"Model '{entry.display_name}' is starting up. "
+                                "Please retry in a few minutes."
+                            ),
+                            "type": "model_not_ready",
+                            "code": "model_starting",
+                            "model": entry.model_id,
+                            "stroma_status": entry.status.value,
+                        },
+                    },
+                    headers={"Retry-After": "180"},
+                )
+            elif entry.status == ModelStatus.PROVISIONING:
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={
+                        "error": {
+                            "message": (
+                                f"Model '{entry.display_name}' is loading "
+                                f"(GPU resources allocated). Please retry shortly."
+                            ),
+                            "type": "model_not_ready",
+                            "code": "model_provisioning",
+                            "model": entry.model_id,
+                            "stroma_status": entry.status.value,
+                        },
+                    },
+                    headers={"Retry-After": "60"},
+                )
+            elif entry.status == ModelStatus.ERROR:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Model '{entry.display_name}' failed to start: {entry.error_message}",
+                )
+
+    target_url = f"{backend_base}/v1/{path}"
+
+    # --- Forward headers -----------------------------------------------------
     forward_headers: dict[str, str] = {}
     _skip = {"host", "authorization", "content-length", "transfer-encoding"}
     for k, v in request.headers.items():
@@ -317,8 +474,7 @@ async def proxy_to_vllm(
     if STROMA_API_KEY:
         forward_headers["Authorization"] = f"Bearer {STROMA_API_KEY}"
 
-    # Use a shared client with no timeout on the read so streaming completions
-    # are not cut off mid-generation.
+    # --- Stream the response from the backend --------------------------------
     client = httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=None, write=30.0, pool=10.0))
 
     backend_req = client.build_request(
@@ -333,7 +489,7 @@ async def proxy_to_vllm(
         backend_resp = await client.send(backend_req, stream=True)
     except httpx.RequestError as exc:
         await client.aclose()
-        log.error("Backend request failed: %s", exc)
+        log.error("Backend request failed (%s): %s", target_url, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Upstream inference service unavailable",
