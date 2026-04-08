@@ -120,10 +120,10 @@ nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>
 echo "=============================="
 
 # ---------------------------------------------------------------------------
-# Build vLLM serve arguments
+# Build vLLM arguments
 # ---------------------------------------------------------------------------
 VLLM_ARGS=(
-    serve "${MODEL_PATH}"
+    --model "${MODEL_PATH}"
     --host 0.0.0.0
     --port "${VLLM_PORT}"
     --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}"
@@ -146,13 +146,13 @@ if [[ -n "${STROMA_API_KEY:-}" ]]; then
     VLLM_ARGS+=(--api-key "${STROMA_API_KEY}")
 fi
 
-# Use Ray for multi-GPU tensor parallelism
+# Use distributed executor for multi-GPU tensor parallelism
 if [[ "${TENSOR_PARALLEL_SIZE}" -gt 1 ]]; then
-    VLLM_ARGS+=(--worker-use-ray)
+    VLLM_ARGS+=(--distributed-executor-backend ray)
 fi
 
 # ---------------------------------------------------------------------------
-# Start vLLM serve
+# Start vLLM
 # ---------------------------------------------------------------------------
 echo "Starting vLLM: ${VLLM_ARGS[*]}"
 

@@ -346,7 +346,7 @@ class ClusterManager:
                 _P(self.slurm_script).parent / "stroma_ai_model_worker.slurm"
             )
 
-        gres_arg = f"--gres={self.gres}" if self.gres else f"--gpus-per-node={gpu_count}"
+        gres_arg = f"--gpus-per-node={gpu_count}"
 
         # Build per-model export variables
         export_vars = (
