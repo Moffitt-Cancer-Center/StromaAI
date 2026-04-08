@@ -145,9 +145,12 @@ fi
 echo
 echo "--- Restarting services ---"
 systemctl restart stroma-ai-vllm
-echo "  stroma-ai-vllm     restarted"
+echo "  stroma-ai-vllm           restarted"
 systemctl restart stroma-ai-watcher
-echo "  stroma-ai-watcher  restarted"
+echo "  stroma-ai-watcher        restarted"
+systemctl restart stroma-ai-model-watcher 2>/dev/null \
+    && echo "  stroma-ai-model-watcher  restarted" \
+    || echo "  stroma-ai-model-watcher  not installed (skipped)"
 
 # ---------------------------------------------------------------------------
 # Health check with new key (wait up to 120s for vLLM to come back)

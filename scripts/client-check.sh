@@ -326,7 +326,12 @@ else
     _model_id=$(_json "${_models_body}" "data.0.id")
 
     if [[ -n "${_model_id}" ]]; then
-        _ok "AI model is loaded and ready  (${_model_id})"
+        _num_models=$(echo "${_models_body}" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('data',[])))" 2>/dev/null || echo "1")
+        if [[ "${_num_models}" -gt 1 ]]; then
+            _ok "AI models loaded  (${_num_models} models available, primary: ${_model_id})"
+        else
+            _ok "AI model is loaded and ready  (${_model_id})"
+        fi
     elif [[ "${_models_code}" == "401" || "${_models_code}" == "403" ]]; then
         _fail "The server rejected your access token"
         echo -e "     ${C_DIM}Your login succeeded but the API gateway rejected the token.${C_RST}"

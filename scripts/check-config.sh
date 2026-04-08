@@ -117,7 +117,7 @@ fi
 # ---------------------------------------------------------------------------
 echo
 echo "--- Ports ---"
-for var in STROMA_VLLM_PORT STROMA_RAY_PORT STROMA_HTTPS_PORT STROMA_RAY_DASHBOARD_PORT; do
+for var in STROMA_VLLM_PORT STROMA_RAY_PORT STROMA_HTTPS_PORT STROMA_RAY_DASHBOARD_PORT STROMA_WATCHER_PORT STROMA_MODEL_PORT_RANGE_START STROMA_MODEL_PORT_RANGE_END; do
     val="${!var:-}"
     if [[ -z "$val" ]]; then
         _warn "${var} not set (optional)"
@@ -150,6 +150,58 @@ if [[ -f "${STROMA_SLURM_SCRIPT:-/nonexistent}" ]]; then
     _ok "Slurm script exists: ${STROMA_SLURM_SCRIPT}"
 else
     _warn "Slurm script not found: ${STROMA_SLURM_SCRIPT:-<unset>} (must be on shared storage)"
+fi
+
+# ---------------------------------------------------------------------------
+# Multi-model catalog paths
+# ---------------------------------------------------------------------------
+echo
+echo "--- Multi-Model Catalog ---"
+
+models_dir="${STROMA_MODELS_DIR:-}"
+if [[ -z "${models_dir}" ]]; then
+    _warn "STROMA_MODELS_DIR is not set (model discovery disabled)"
+elif [[ -d "${models_dir}" ]]; then
+    model_count=$(find "${models_dir}" -maxdepth 2 -name config.json 2>/dev/null | wc -l | tr -d ' ')
+    _ok "STROMA_MODELS_DIR=${models_dir} (${model_count} model(s) found)"
+else
+    _warn "STROMA_MODELS_DIR=${models_dir} does not exist (OK if running on a different host)"
+fi
+
+persistent="${STROMA_PERSISTENT_MODEL:-}"
+if [[ -z "${persistent}" ]]; then
+    _warn "STROMA_PERSISTENT_MODEL is not set (no always-on model)"
+elif [[ -n "${models_dir}" && -d "${models_dir}" ]]; then
+    if [[ -d "${models_dir}/${persistent}" ]]; then
+        _ok "STROMA_PERSISTENT_MODEL=${persistent} (found in models dir)"
+    else
+        _warn "STROMA_PERSISTENT_MODEL=${persistent} not found under ${models_dir}/ — check directory name"
+    fi
+else
+    _ok "STROMA_PERSISTENT_MODEL=${persistent}"
+fi
+
+gpu_vram="${STROMA_GPU_VRAM_MB:-0}"
+if [[ "${gpu_vram}" =~ ^[0-9]+$ ]] && (( gpu_vram > 0 )); then
+    _ok "STROMA_GPU_VRAM_MB=${gpu_vram}"
+else
+    _warn "STROMA_GPU_VRAM_MB not set or invalid (default: 24576 MB)"
+fi
+
+port_start="${STROMA_MODEL_PORT_RANGE_START:-0}"
+port_end="${STROMA_MODEL_PORT_RANGE_END:-0}"
+if [[ "${port_start}" =~ ^[0-9]+$ ]] && [[ "${port_end}" =~ ^[0-9]+$ ]] \
+    && (( port_start > 0 && port_end >= port_start )); then
+    _ok "Port range: ${port_start}–${port_end} ($((port_end - port_start + 1)) ports)"
+elif [[ "${port_start}" == "0" && "${port_end}" == "0" ]]; then
+    _warn "STROMA_MODEL_PORT_RANGE_START/END not set (on-demand models won't get ports)"
+else
+    _error "Invalid port range: ${port_start}–${port_end} (END must be >= START)"
+fi
+
+idle_timeout="${STROMA_MODEL_IDLE_TIMEOUT:-}"
+if [[ -n "${idle_timeout}" ]] && [[ "${idle_timeout}" =~ ^[0-9]+$ ]]; then
+    _ok "STROMA_MODEL_IDLE_TIMEOUT=${idle_timeout}s"
 fi
 
 # ---------------------------------------------------------------------------

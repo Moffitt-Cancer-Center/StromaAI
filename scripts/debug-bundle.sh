@@ -72,7 +72,7 @@ PORT="${STROMA_VLLM_PORT:-8000}"
 if [[ "${DRY_RUN}" == "true" ]]; then
     echo "=== DRY-RUN — would collect ==="
     echo "  System info, kernel, uptime, disk usage"
-    echo "  Systemd status for: ray-head, stroma-ai-vllm, stroma-ai-watcher"
+    echo "  Systemd status for: ray-head, stroma-ai-vllm, stroma-ai-watcher, stroma-ai-model-watcher"
     command -v journalctl &>/dev/null && echo "  Journal logs (last 500 lines per service)"
     [[ -f "${STATE_FILE}" ]] && echo "  Watcher state: ${STATE_FILE}"
     [[ -f "${CONFIG_FILE}" ]] && echo "  Config (API key redacted): ${CONFIG_FILE}"
@@ -106,7 +106,7 @@ mkdir -p "${BUNDLE_DIR}"
 # Systemd service status
 # ---------------------------------------------------------------------------
 {
-    for svc in ray-head stroma-ai-vllm stroma-ai-watcher; do
+    for svc in ray-head stroma-ai-vllm stroma-ai-watcher stroma-ai-model-watcher; do
         echo "=== ${svc} ==="
         systemctl status "${svc}" --no-pager 2>&1 || true
         echo
@@ -117,7 +117,7 @@ mkdir -p "${BUNDLE_DIR}"
 # Journal logs (last 500 lines per service)
 # ---------------------------------------------------------------------------
 if command -v journalctl &>/dev/null; then
-    for svc in ray-head stroma-ai-vllm stroma-ai-watcher; do
+    for svc in ray-head stroma-ai-vllm stroma-ai-watcher stroma-ai-model-watcher; do
         journalctl -u "${svc}" -n 500 --no-pager --output=short-iso \
             > "${BUNDLE_DIR}/journal-${svc}.txt" 2>&1 || true
     done
@@ -128,6 +128,14 @@ fi
 # ---------------------------------------------------------------------------
 if [[ -f "${STATE_FILE}" ]]; then
     cp "${STATE_FILE}" "${BUNDLE_DIR}/watcher_state.json"
+fi
+
+# ---------------------------------------------------------------------------
+# Model watcher state file
+# ---------------------------------------------------------------------------
+MODEL_STATE_FILE="${STROMA_MODEL_STATE_FILE:-$(dirname "${CONFIG_FILE:-/opt/stroma-ai/config.env}")/state/model_watcher_state.json}"
+if [[ -f "${MODEL_STATE_FILE}" ]]; then
+    cp "${MODEL_STATE_FILE}" "${BUNDLE_DIR}/model_watcher_state.json"
 fi
 
 # ---------------------------------------------------------------------------
@@ -149,6 +157,10 @@ if command -v squeue &>/dev/null; then
         echo
         echo "=== squeue — stroma-ai-burst job name ==="
         squeue --name=stroma-ai-burst \
+            -o "%.18i %.9P %.20j %.8u %.8T %.10M %.9l %.6D %R" 2>&1 || true
+        echo
+        echo "=== squeue — stroma-ai-model job name ==="
+        squeue --name=stroma-ai-model \
             -o "%.18i %.9P %.20j %.8u %.8T %.10M %.9l %.6D %R" 2>&1 || true
     } > "${BUNDLE_DIR}/slurm-jobs.txt"
 fi
@@ -174,12 +186,21 @@ fi
 # vLLM health and metrics
 # ---------------------------------------------------------------------------
 {
-    echo "=== GET /health ==="
+    echo "=== GET /health (persistent vLLM :${PORT}) ==="
     curl -s -m 5 "http://${HEAD}:${PORT}/health" 2>/dev/null || echo "(unreachable)"
     echo
-    echo "=== GET /metrics (first 150 lines) ==="
+    echo "=== GET /metrics (persistent vLLM, first 150 lines) ==="
     curl -s -m 5 "http://${HEAD}:${PORT}/metrics" 2>/dev/null | head -150 || echo "(unreachable)"
 } > "${BUNDLE_DIR}/vllm-endpoints.txt"
+
+# ---------------------------------------------------------------------------
+# Model watcher HTTP API
+# ---------------------------------------------------------------------------
+WATCHER_PORT="${STROMA_WATCHER_PORT:-9100}"
+{
+    echo "=== GET /status (model-watcher :${WATCHER_PORT}) ==="
+    curl -s -m 5 "http://localhost:${WATCHER_PORT}/status" 2>/dev/null || echo "(unreachable)"
+} > "${BUNDLE_DIR}/model-watcher-api.txt"
 
 # ---------------------------------------------------------------------------
 # Create tarball and clean up staging directory

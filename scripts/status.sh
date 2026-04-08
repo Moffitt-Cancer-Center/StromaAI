@@ -63,7 +63,7 @@ echo
 hr
 echo "  SERVICES"
 hr
-for svc in ray-head stroma-ai-vllm stroma-ai-watcher; do
+for svc in ray-head stroma-ai-vllm stroma-ai-watcher stroma-ai-model-watcher; do
     if systemctl list-unit-files "${svc}.service" &>/dev/null 2>&1; then
         active=$(systemctl is-active "${svc}" 2>/dev/null || echo "inactive")
         if [[ "${active}" == "active" ]]; then
@@ -170,6 +170,98 @@ echo "  RECENT WATCHER LOGS  (last ${LOG_LINES} lines)"
 hr
 if command -v journalctl &>/dev/null; then
     journalctl -u stroma-ai-watcher -n "${LOG_LINES}" --no-pager --output=short-iso \
+        2>/dev/null || echo "  (no journal output — service may not have started yet)"
+else
+    echo "  journalctl not available"
+fi
+echo
+
+# ---------------------------------------------------------------------------
+# Model watcher state (multi-model lifecycle)
+# ---------------------------------------------------------------------------
+MODEL_STATE_FILE="${STROMA_MODEL_STATE_FILE:-$(dirname "${CONFIG_FILE:-/opt/stroma-ai/config.env}")/state/model_watcher_state.json}"
+WATCHER_PORT="${STROMA_WATCHER_PORT:-9100}"
+
+hr
+echo "  MODEL WATCHER STATE"
+hr
+if [[ -f "${MODEL_STATE_FILE}" ]]; then
+    if command -v python3 &>/dev/null; then
+        python3 - "${MODEL_STATE_FILE}" <<'PYEOF'
+import json, sys, time
+from datetime import datetime, timezone
+
+def _age(ts):
+    if not ts:
+        return "—"
+    try:
+        if isinstance(ts, (int, float)):
+            s = int(time.time() - ts)
+        else:
+            d = datetime.fromisoformat(ts)
+            s = int((datetime.now(timezone.utc) - d).total_seconds())
+        if s < 0:    return "in future?"
+        if s < 60:   return f"{s}s ago"
+        if s < 3600: return f"{s//60}m ago"
+        return f"{s//3600}h {(s%3600)//60}m ago"
+    except Exception:
+        return str(ts)
+
+STATUS_COLORS = {
+    "serving":      "\033[32m",
+    "provisioning": "\033[33m",
+    "requested":    "\033[36m",
+    "draining":     "\033[33m",
+    "error":        "\033[31m",
+    "available":    "\033[2m",
+}
+RESET = "\033[0m"
+
+data = json.loads(open(sys.argv[1]).read())
+models = data.get("models", {})
+if not models:
+    print("  (no per-model state recorded)")
+else:
+    print(f"  {'MODEL':<40s}  {'STATUS':<14s}  {'PORT':<6s}  {'SLURM JOBS':<12s}  IDLE SINCE")
+    for mid, rec in sorted(models.items()):
+        status = rec.get("status", "?")
+        color = STATUS_COLORS.get(status, "")
+        port = str(rec.get("vllm_port", "—")) if rec.get("vllm_port") else "—"
+        jobs = ",".join(rec.get("slurm_job_ids", [])) or "—"
+        idle = _age(rec.get("idle_since"))
+        err = rec.get("error_message", "")
+        print(f"  {mid:<40s}  {color}{status:<14s}{RESET}  {port:<6s}  {jobs:<12s}  {idle}")
+        if err:
+            print(f"    \033[31m↳ error: {err}{RESET}")
+print(f"\n  Total provisioned : {data.get('total_provisioned', 0)}")
+print(f"  Total drained     : {data.get('total_drained', 0)}")
+PYEOF
+    else
+        cat "${MODEL_STATE_FILE}"
+    fi
+else
+    echo "  State file not found: ${MODEL_STATE_FILE}"
+fi
+
+# Model watcher HTTP API (if running)
+if curl -sf -m 2 "http://localhost:${WATCHER_PORT}/status" &>/dev/null; then
+    echo
+    echo "  Model watcher API (http://localhost:${WATCHER_PORT}/status):"
+    curl -sf -m 5 "http://localhost:${WATCHER_PORT}/status" 2>/dev/null \
+        | python3 -m json.tool 2>/dev/null \
+        | sed 's/^/  /' \
+        || echo "  (could not parse response)"
+fi
+echo
+
+# ---------------------------------------------------------------------------
+# Recent model watcher log lines
+# ---------------------------------------------------------------------------
+hr
+echo "  RECENT MODEL WATCHER LOGS  (last ${LOG_LINES} lines)"
+hr
+if command -v journalctl &>/dev/null; then
+    journalctl -u stroma-ai-model-watcher -n "${LOG_LINES}" --no-pager --output=short-iso \
         2>/dev/null || echo "  (no journal output — service may not have started yet)"
 else
     echo "  journalctl not available"

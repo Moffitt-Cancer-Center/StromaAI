@@ -283,7 +283,17 @@ else
         body=$(http_get "https://${HEAD}/v1/models" -H "Authorization: Bearer ${_t2_token}")
         model_id=$(json_field "${body}" "data.0.id")
         if [[ -n "${model_id}" ]]; then
-            result PASS "vLLM /v1/models" "model=${model_id}"
+            _num_models=$(echo "${body}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('data',[])))" 2>/dev/null || echo "?")
+            _model_ids=$(echo "${body}" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for m in d.get('data', []):
+    t = m.get('meta', {}).get('tier', '?')
+    s = m.get('meta', {}).get('status', '?')
+    print(f\"    {m['id']}  tier={t}  status={s}\")
+" 2>/dev/null || echo "    (could not parse)")
+            result PASS "vLLM /v1/models" "${_num_models} model(s) in catalog"
+            echo -e "${_model_ids}"
         else
             result FAIL "vLLM /v1/models" "got: ${body:0:120}"
         fi
@@ -479,7 +489,7 @@ hr; echo -e "  ${BOLD}TEST 12${RESET} Authenticated vLLM inference (E2E)"
 if [[ -z "${USER_TOKEN}" ]]; then
     result SKIP "E2E inference" "no user token (tests 5–11 must pass first)"
 else
-    _MODEL="${STROMA_MODEL_NAME:-stroma-ai-coder}"
+    _MODEL="${STROMA_PERSISTENT_MODEL:-${STROMA_MODEL_NAME:-stroma-ai-coder}}"
     _ibody=$(curl -sk --max-time 60 \
         "https://${HEAD}/v1/chat/completions" \
         -H "Authorization: Bearer ${USER_TOKEN}" \
@@ -565,6 +575,29 @@ else
     else
         _api_url=$(grep -m1 '^STROMA_API_URL=' "${_client_env}" | cut -d= -f2-)
         result PASS "client.env" "mode ${_perms}, readable, STROMA_API_URL=${_api_url}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# TEST 14 — Model watcher health (multi-model lifecycle)
+# ---------------------------------------------------------------------------
+hr; echo -e "  ${BOLD}TEST 14${RESET} Model watcher health"
+_watcher_port="${STROMA_WATCHER_PORT:-9100}"
+_wstatus=$(curl -sf --max-time 5 "http://localhost:${_watcher_port}/status" 2>/dev/null || echo "")
+if [[ -n "${_wstatus}" ]]; then
+    _wmodel_count=$(echo "${_wstatus}" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+models = d.get('models', {})
+serving = sum(1 for m in models.values() if m.get('status') == 'serving')
+print(f'{len(models)} total, {serving} serving')
+" 2>/dev/null || echo "?")
+    result PASS "Model watcher" "responding on :${_watcher_port} — ${_wmodel_count}"
+else
+    if systemctl is-active --quiet stroma-ai-model-watcher 2>/dev/null; then
+        result FAIL "Model watcher" "service active but /status unreachable on :${_watcher_port}"
+    else
+        result SKIP "Model watcher" "stroma-ai-model-watcher not running (multi-model not deployed)"
     fi
 fi
 

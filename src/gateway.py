@@ -53,6 +53,7 @@ Run
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -80,6 +81,8 @@ ALLOWED_ROLE       = os.environ.get("GATEWAY_ALLOWED_ROLE", "stroma_researcher")
 JWKS_REFRESH_SECS  = int(os.environ.get("JWKS_REFRESH_SECS", "3600"))
 # Model watcher HTTP API URL for requesting on-demand models.
 WATCHER_URL        = os.environ.get("STROMA_WATCHER_URL", "http://localhost:9100")
+# How often (seconds) the gateway polls the watcher for model status updates.
+WATCHER_SYNC_SECS  = int(os.environ.get("GATEWAY_WATCHER_SYNC_SECS", "10"))
 # When set, this URI is used for JWKS instead of the one in the discovery doc.
 # Useful when nginx proxy uses a self-signed cert — point at KC's direct HTTP port.
 JWKS_OVERRIDE_URI  = os.environ.get("JWKS_OVERRIDE_URI", "")
@@ -183,8 +186,12 @@ async def lifespan(app: FastAPI):
         )
         log.info("Persistent model: %s (port %s)", persistent.model_id, persistent.vllm_port)
 
+    # Start background sync with the model watcher
+    sync_task = asyncio.create_task(_sync_watcher_status())
+
     yield  # Application runs here
 
+    sync_task.cancel()
     log.info("Gateway shutting down")
 
 
@@ -343,6 +350,54 @@ async def _signal_watcher(model_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Background — sync model statuses from the watcher periodically
+# ---------------------------------------------------------------------------
+
+_STATUS_MAP = {v.value: v for v in ModelStatus}
+
+async def _sync_watcher_status() -> None:
+    """Poll the watcher's ``/status`` endpoint and update the gateway registry.
+
+    Runs forever as a background task.  On each cycle the watcher returns the
+    authoritative status, vllm_port, and slurm_job_ids for every model.  The
+    gateway applies those to its own in-memory registry so the proxy can route
+    requests to newly-serving models without a gateway restart.
+    """
+    while True:
+        await asyncio.sleep(WATCHER_SYNC_SECS)
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(f"{WATCHER_URL}/status")
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            for model_id, info in data.get("models", {}).items():
+                status_str = info.get("status", "")
+                new_status = _STATUS_MAP.get(status_str)
+                if new_status is None:
+                    continue
+                entry = _registry.get_model(model_id)
+                if entry is None:
+                    continue
+                # Only update if the status actually changed
+                if entry.status != new_status or entry.vllm_port != info.get("vllm_port"):
+                    kwargs: dict[str, object] = {}
+                    if info.get("vllm_port"):
+                        kwargs["vllm_port"] = info["vllm_port"]
+                    if info.get("error_message"):
+                        kwargs["error_message"] = info["error_message"]
+                    if entry.status != new_status:
+                        log.info(
+                            "Watcher sync: %s %s → %s",
+                            model_id, entry.status.value, new_status.value,
+                        )
+                    _registry.update_status(model_id, new_status, **kwargs)
+        except Exception:
+            # Watcher unavailable — not fatal, just skip this cycle
+            pass
+
+
+# ---------------------------------------------------------------------------
 # /v1/models — aggregated catalog from the registry (NOT proxied to vLLM)
 # ---------------------------------------------------------------------------
 # This route MUST be defined BEFORE the catch-all /v1/{path:path} so FastAPI
@@ -419,10 +474,12 @@ async def proxy_to_vllm(
             if entry.status == ModelStatus.SERVING and entry.vllm_port:
                 backend_base = _backend_url_for_port(entry.vllm_port)
             elif entry.status in (ModelStatus.AVAILABLE, ModelStatus.REQUESTED):
-                # Trigger the watcher to start provisioning
-                if entry.status == ModelStatus.AVAILABLE:
-                    _registry.update_status(entry.model_id, ModelStatus.REQUESTED)
-                    await _signal_watcher(entry.model_id)
+                # Signal the watcher every time — covers first request and
+                # retries where the previous signal was lost.  The watcher
+                # is idempotent; repeated POSTs for an already-requested
+                # model are harmless.
+                _registry.update_status(entry.model_id, ModelStatus.REQUESTED)
+                await _signal_watcher(entry.model_id)
                 return JSONResponse(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     content={

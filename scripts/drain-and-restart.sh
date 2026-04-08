@@ -8,12 +8,12 @@
 # a full service restart.
 #
 # Sequence:
-#   1. Stop the watcher (prevents new Slurm job submissions)
+#   1. Stop the model watcher and burst watcher (prevents new submissions)
 #   2. Poll vLLM /metrics until all requests drain (or timeout reached)
 #   3. Stop stroma-ai-vllm and ray-head
 #   4. Start ray-head; wait for it to become active
 #   5. Start stroma-ai-vllm; poll /health until 200 (or timeout)
-#   6. Start stroma-ai-watcher
+#   6. Start stroma-ai-watcher and stroma-ai-model-watcher
 #   7. Print final service status
 #
 # Usage:
@@ -95,7 +95,8 @@ echo
 # ---------------------------------------------------------------------------
 # Step 1: Stop watcher
 # ---------------------------------------------------------------------------
-echo "[1/7] Stopping stroma-ai-watcher ..."
+echo "[1/7] Stopping stroma-ai-model-watcher and stroma-ai-watcher ..."
+_svc stop stroma-ai-model-watcher 2>/dev/null || true
 _svc stop stroma-ai-watcher 2>/dev/null || true
 echo "      Done — no new Slurm submissions will be made."
 
@@ -170,7 +171,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 6: Start watcher
 # ---------------------------------------------------------------------------
-echo "[6/7] Starting stroma-ai-watcher ..."
+echo "[6/7] Starting stroma-ai-watcher and stroma-ai-model-watcher ..."
 _svc start stroma-ai-watcher
 sleep 3
 if systemctl is-active --quiet stroma-ai-watcher; then
@@ -180,12 +181,19 @@ else
     journalctl -u stroma-ai-watcher -n 20 --no-pager >&2
     exit 1
 fi
+_svc start stroma-ai-model-watcher 2>/dev/null || true
+sleep 2
+if systemctl is-active --quiet stroma-ai-model-watcher; then
+    echo "      stroma-ai-model-watcher is active."
+else
+    echo "WARNING: stroma-ai-model-watcher failed to start (multi-model may not be deployed)." >&2
+fi
 
 # ---------------------------------------------------------------------------
 # Step 7: Final verification
 # ---------------------------------------------------------------------------
 echo "[7/7] Final service status:"
-for svc in ray-head stroma-ai-vllm stroma-ai-watcher; do
+for svc in ray-head stroma-ai-vllm stroma-ai-watcher stroma-ai-model-watcher; do
     state=$(systemctl is-active "${svc}" 2>/dev/null || echo "inactive")
     printf "      %-24s %s\n" "${svc}" "${state}"
 done

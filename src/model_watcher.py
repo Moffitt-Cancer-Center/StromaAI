@@ -646,6 +646,7 @@ def create_http_app(watcher: ModelWatcher) -> web.Application:
                 "vllm_port": ms.vllm_port,
                 "slurm_jobs": ms.slurm_job_ids,
                 "idle_since": ms.idle_since,
+                "error_message": ms.error_message,
             }
         return web.json_response({
             "models": models_status,
