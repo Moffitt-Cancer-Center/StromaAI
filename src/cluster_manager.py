@@ -33,6 +33,7 @@ See config/config.example.env for the full reference.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 import shutil
@@ -346,7 +347,9 @@ class ClusterManager:
                 _P(self.slurm_script).parent / "stroma_ai_model_worker.slurm"
             )
 
-        gres_arg = f"--gpus-per-node={gpu_count}"
+        # Compute node count: with 1 GPU per node, multi-GPU models need
+        # multiple nodes.  gpus_per_node comes from STROMA_GPUS_PER_NODE.
+        num_nodes = max(1, math.ceil(gpu_count / self.gpus_per_node))
 
         # Build per-model export variables
         export_vars = (
@@ -361,6 +364,7 @@ class ClusterManager:
             f",MODEL_PATH={model_path}"
             f",VLLM_PORT={vllm_port}"
             f",TENSOR_PARALLEL_SIZE={gpu_count}"
+            f",NUM_NODES={num_nodes}"
         )
         if quantization:
             export_vars += f",QUANTIZATION={quantization}"
@@ -372,12 +376,14 @@ class ClusterManager:
             f"--partition={self.partition}",
             f"--account={self.account}",
             f"--time={self.walltime}",
+            f"--nodes={num_nodes}",
+            f"--ntasks-per-node=1",
+            f"--gpus-per-node={self.gpus_per_node}",
             f"--cpus-per-task={self.cpus}",
             f"--mem={self.mem}",
             f"--output={self.log_dir}/slurm-model-{model_id}-%j.out",
             f"--error={self.log_dir}/slurm-model-{model_id}-%j.err",
             f"--job-name=stroma-{model_id}",
-            gres_arg,
             f"--export={export_vars}",
             slurm_script,
         ]
@@ -408,8 +414,8 @@ class ClusterManager:
 
         job_id = match.group(1)
         log.info(
-            "Submitted model worker: model=%s job=%s port=%d gpus=%d",
-            model_id, job_id, vllm_port, gpu_count,
+            "Submitted model worker: model=%s job=%s port=%d gpus=%d nodes=%d",
+            model_id, job_id, vllm_port, gpu_count, num_nodes,
         )
         return SubmitResult(success=True, job_id=job_id)
 
