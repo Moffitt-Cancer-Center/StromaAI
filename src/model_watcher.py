@@ -298,6 +298,7 @@ def slurm_submit_model(
         model_path=entry.path,
         vllm_port=port,
         gpu_count=entry.gpu_count,
+        vram_required_mb=entry.vram_required_mb,
         quantization=entry.quantization if entry.quantization != "none" else "",
         max_model_len=entry.max_model_len,
     )

@@ -40,7 +40,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import ClassVar, Optional
 
 log = logging.getLogger("stroma-ai.cluster-manager")
 
@@ -300,6 +300,207 @@ class ClusterManager:
         log.info("Submitted burst worker job %s (partition=%s)", job_id, self.partition)
         return SubmitResult(success=True, job_id=job_id)
 
+    # ---------------------------------------------------------------------------
+    # GPU resource discovery — query Slurm for available GPU types and VRAM
+    # ---------------------------------------------------------------------------
+
+    # Well-known GPU VRAM in MB.  Used when the GRES name doesn't embed a
+    # memory hint (i.e. full GPUs, not MIG slices).
+    _GPU_VRAM_TABLE: ClassVar[dict[str, int]] = {
+        "a100":    81920,   # 80 GB
+        "a100_80": 81920,
+        "a100_40": 40960,
+        "a30":     24576,   # 24 GB
+        "a40":     49152,   # 48 GB
+        "a10":     24576,
+        "l40":     49152,
+        "l40s":    49152,
+        "l4":      24576,
+        "h100":    81920,
+        "h200":    143360,  # 141 GB
+        "v100":    16384,   # 16 GB
+        "v100s":   32768,   # 32 GB
+        "t4":      16384,
+        "rtx_4090": 24576,
+        "rtx_3090": 24576,
+        "rtx_a6000": 49152,
+    }
+
+    @staticmethod
+    def _parse_gres_vram_mb(gres_type: str) -> Optional[int]:
+        """Extract VRAM from a GRES type name.
+
+        Handles MIG profiles like ``a30-2g.12gb`` (returns 12288) and full
+        GPUs like ``a30`` (looked up in the table).  Returns None if the
+        GPU type is unrecognised.
+        """
+        gres_lower = gres_type.lower()
+
+        # MIG pattern: <gpu>-<compute>g.<mem>gb  e.g. a30-2g.12gb
+        m = re.search(r'(\d+)\s*gb$', gres_lower)
+        if m:
+            return int(m.group(1)) * 1024
+
+        # Full GPU — look up in table
+        # Strip common prefixes/suffixes: "nvidia_", "gpu_", etc.
+        clean = re.sub(r'^(nvidia[_-]?|gpu[_-]?)', '', gres_lower)
+        for known, vram in ClusterManager._GPU_VRAM_TABLE.items():
+            if known in clean or clean in known:
+                return vram
+
+        return None
+
+    def query_gpu_types(self) -> list[dict]:
+        """Query Slurm for GPU types available in the configured partition.
+
+        Returns a list of dicts::
+
+            [
+                {"gres_type": "a30", "vram_mb": 24576, "idle_nodes": 3, "total_nodes": 10},
+                {"gres_type": "a30-2g.12gb", "vram_mb": 12288, "idle_nodes": 2, "total_nodes": 4},
+            ]
+
+        Sorted by VRAM descending (biggest GPUs first).
+        """
+        try:
+            result = subprocess.run(
+                [
+                    "sinfo",
+                    f"--partition={self.partition}",
+                    "--noheader",
+                    "--Node",
+                    "--Format=nodehost,gres,stateshort",
+                ],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+        except (subprocess.SubprocessError, FileNotFoundError) as exc:
+            log.warning("sinfo query failed: %s", exc)
+            return []
+
+        if result.returncode != 0:
+            log.warning("sinfo rc=%d: %s", result.returncode, result.stderr.strip())
+            return []
+
+        # Parse sinfo output: each line is "nodename  gres  state"
+        # gres looks like "gpu:a30:1" or "gpu:a30-2g.12gb:2"
+        gpu_info: dict[str, dict] = {}  # gres_type → {vram_mb, idle, total}
+
+        for line in result.stdout.strip().splitlines():
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            _node, gres_str, state = parts[0], parts[1], parts[2]
+            is_idle = state.lower() in ("idle", "mix", "mixed")
+
+            # Parse GRES entries: "gpu:a30:1,gpu:a30-2g.12gb:2" or just "gpu:a30:1"
+            for gres_entry in gres_str.split(","):
+                gres_parts = gres_entry.split(":")
+                if len(gres_parts) < 2 or gres_parts[0] != "gpu":
+                    continue
+
+                gres_type = gres_parts[1]
+                vram = self._parse_gres_vram_mb(gres_type)
+                if vram is None:
+                    continue
+
+                if gres_type not in gpu_info:
+                    gpu_info[gres_type] = {
+                        "gres_type": gres_type,
+                        "vram_mb": vram,
+                        "idle_nodes": 0,
+                        "total_nodes": 0,
+                    }
+
+                gpu_info[gres_type]["total_nodes"] += 1
+                if is_idle:
+                    gpu_info[gres_type]["idle_nodes"] += 1
+
+        types = sorted(gpu_info.values(), key=lambda x: x["vram_mb"], reverse=True)
+        if types:
+            log.info(
+                "GPU types in partition %s: %s",
+                self.partition,
+                ", ".join(f"{t['gres_type']}({t['vram_mb']}MB, {t['idle_nodes']}/{t['total_nodes']} idle)" for t in types),
+            )
+        return types
+
+    def select_gpu_for_model(
+        self,
+        vram_required_mb: int,
+        gpu_count: int,
+    ) -> tuple[Optional[str], int]:
+        """Select the best GPU type and compute node count for a model.
+
+        Parameters
+        ----------
+        vram_required_mb:
+            Total VRAM the model needs (across all GPUs).
+        gpu_count:
+            Minimum number of GPUs required (tensor-parallel degree).
+
+        Returns
+        -------
+        (gres_type, num_nodes) or (None, gpu_count) if discovery fails.
+        ``gres_type`` is the Slurm GRES type string (e.g. "a30") to use
+        in ``--gres=gpu:TYPE:N``.  When discovery fails, falls back to
+        generic ``--gpus-per-node`` allocation.
+        """
+        types = self.query_gpu_types()
+        if not types:
+            log.warning("No GPU types discovered — falling back to generic allocation")
+            num_nodes = max(1, math.ceil(gpu_count / self.gpus_per_node))
+            return None, num_nodes
+
+        per_gpu_vram = vram_required_mb / gpu_count if gpu_count > 0 else vram_required_mb
+
+        # Filter to GPU types with enough VRAM per GPU
+        suitable = [t for t in types if t["vram_mb"] >= per_gpu_vram]
+        if not suitable:
+            # No single GPU type has enough VRAM — try the biggest available
+            # and increase GPU count to compensate
+            biggest = types[0]
+            adjusted_gpu_count = math.ceil(vram_required_mb / biggest["vram_mb"])
+            # TP must be power-of-two
+            tp = 1
+            while tp < adjusted_gpu_count:
+                tp *= 2
+            adjusted_gpu_count = tp
+
+            if biggest["idle_nodes"] >= adjusted_gpu_count:
+                log.info(
+                    "No GPU with %dMB VRAM; using %d× %s (%dMB each)",
+                    int(per_gpu_vram), adjusted_gpu_count,
+                    biggest["gres_type"], biggest["vram_mb"],
+                )
+                gpus_per_gres_node = int(biggest.get("total_nodes", 1) and 1)  # assume 1 per node
+                num_nodes = max(1, math.ceil(adjusted_gpu_count / self.gpus_per_node))
+                return biggest["gres_type"], num_nodes
+            log.warning("Insufficient GPU resources for %dMB VRAM model", vram_required_mb)
+            return None, max(1, math.ceil(gpu_count / self.gpus_per_node))
+
+        # Prefer the smallest suitable GPU type with enough idle nodes
+        # (don't waste big GPUs on models that fit smaller ones)
+        suitable.sort(key=lambda t: t["vram_mb"])
+
+        for candidate in suitable:
+            nodes_needed = max(1, math.ceil(gpu_count / self.gpus_per_node))
+            if candidate["idle_nodes"] >= nodes_needed:
+                log.info(
+                    "Selected GPU type %s (%dMB) for model needing %dMB/GPU, %d node(s)",
+                    candidate["gres_type"], candidate["vram_mb"],
+                    int(per_gpu_vram), nodes_needed,
+                )
+                return candidate["gres_type"], nodes_needed
+
+        # No type has enough idle nodes — use the biggest with most availability
+        best = max(suitable, key=lambda t: t["idle_nodes"])
+        nodes_needed = max(1, math.ceil(gpu_count / self.gpus_per_node))
+        log.warning(
+            "Not enough idle %s nodes (%d/%d needed) — submitting anyway (Slurm will queue)",
+            best["gres_type"], best["idle_nodes"], nodes_needed,
+        )
+        return best["gres_type"], nodes_needed
+
     def submit_model_worker(
         self,
         *,
@@ -307,6 +508,7 @@ class ClusterManager:
         model_path: str,
         vllm_port: int,
         gpu_count: int = 1,
+        vram_required_mb: int = 0,
         quantization: str = "",
         max_model_len: int = 0,
         slurm_script: Optional[str] = None,
@@ -329,6 +531,11 @@ class ClusterManager:
             Port on which vLLM should listen for this model.
         gpu_count:
             Number of GPUs to request (tensor-parallel degree).
+        vram_required_mb:
+            Estimated VRAM needed for the model.  When >0, GPU-aware
+            scheduling queries Slurm for available GPU types and targets
+            nodes with sufficient VRAM (avoids MIG slices when full GPUs
+            are needed).  0 = fall back to generic ``--gpus-per-node``.
         quantization:
             Quantization method name (e.g. ``awq``, ``gptq``), empty for none.
         max_model_len:
@@ -347,9 +554,28 @@ class ClusterManager:
                 _P(self.slurm_script).parent / "stroma_ai_model_worker.slurm"
             )
 
-        # Compute node count: with 1 GPU per node, multi-GPU models need
-        # multiple nodes.  gpus_per_node comes from STROMA_GPUS_PER_NODE.
+        # GPU-aware scheduling: query Slurm for available GPU types and
+        # pick nodes with sufficient VRAM.  Falls back to generic
+        # --gpus-per-node when discovery is unavailable.
+        gres_type = None
         num_nodes = max(1, math.ceil(gpu_count / self.gpus_per_node))
+        if vram_required_mb > 0:
+            try:
+                gres_type, num_nodes = self.select_gpu_for_model(
+                    vram_required_mb, gpu_count,
+                )
+            except Exception as exc:
+                log.warning(
+                    "GPU type discovery failed — falling back to generic allocation: %s",
+                    exc,
+                )
+
+        # Build GPU allocation args — specific type when available,
+        # generic count otherwise.
+        if gres_type:
+            gpu_args = [f"--gres=gpu:{gres_type}:{self.gpus_per_node}"]
+        else:
+            gpu_args = [f"--gpus-per-node={self.gpus_per_node}"]
 
         # Build per-model export variables
         export_vars = (
@@ -378,7 +604,7 @@ class ClusterManager:
             f"--time={self.walltime}",
             f"--nodes={num_nodes}",
             f"--ntasks-per-node=1",
-            f"--gpus-per-node={self.gpus_per_node}",
+            *gpu_args,
             f"--cpus-per-task={self.cpus}",
             f"--mem={self.mem}",
             f"--output={self.log_dir}/slurm-model-{model_id}-%j.out",
@@ -414,8 +640,9 @@ class ClusterManager:
 
         job_id = match.group(1)
         log.info(
-            "Submitted model worker: model=%s job=%s port=%d gpus=%d nodes=%d",
+            "Submitted model worker: model=%s job=%s port=%d gpus=%d nodes=%d gres=%s",
             model_id, job_id, vllm_port, gpu_count, num_nodes,
+            gres_type or "generic",
         )
         return SubmitResult(success=True, job_id=job_id)
 
