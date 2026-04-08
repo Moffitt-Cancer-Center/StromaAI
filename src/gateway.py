@@ -349,6 +349,26 @@ async def _signal_watcher(model_id: str) -> bool:
     return False
 
 
+async def _reset_watcher_model(model_id: str) -> bool:
+    """POST to the watcher's HTTP API to reset a model from error state.
+
+    Returns True if the watcher accepted the reset, False on failure.
+    Failures are logged but never raised.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(f"{WATCHER_URL}/reset-model/{model_id}")
+            if resp.status_code < 300:
+                log.info("Watcher reset model: %s", model_id)
+                _registry.update_status(model_id, ModelStatus.AVAILABLE,
+                                        error_message="")
+                return True
+            log.warning("Watcher rejected model reset %s: %s", model_id, resp.status_code)
+    except httpx.RequestError as exc:
+        log.warning("Could not reach model watcher for reset at %s: %s", WATCHER_URL, exc)
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Background — sync model statuses from the watcher periodically
 # ---------------------------------------------------------------------------
@@ -514,9 +534,25 @@ async def proxy_to_vllm(
                     headers={"Retry-After": "60"},
                 )
             elif entry.status == ModelStatus.ERROR:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Model '{entry.display_name}' failed to start: {entry.error_message}",
+                # Ask the watcher to reset the model so the next attempt
+                # can re-provision it automatically.
+                await _reset_watcher_model(entry.model_id)
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={
+                        "error": {
+                            "message": (
+                                f"Model '{entry.display_name}' failed to start "
+                                f"({entry.error_message}). "
+                                "It will be retried automatically — please try again shortly."
+                            ),
+                            "type": "model_error",
+                            "code": "model_failed",
+                            "model": entry.model_id,
+                            "stroma_status": entry.status.value,
+                        },
+                    },
+                    headers={"Retry-After": "30"},
                 )
 
     target_url = f"{backend_base}/v1/{path}"

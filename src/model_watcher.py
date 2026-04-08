@@ -36,7 +36,8 @@ Per-model state machine
                                             │          ↑
                                             └──────────┘  (idle timeout)
 
-  error: terminal state until operator resets or model rescanned
+  error: auto-recovers to available after ERROR_COOLDOWN (default 120s)
+        or via manual POST /reset-model/{model_id}
 
 Configuration
 -------------
@@ -84,6 +85,7 @@ VLLM_PORT     = int(os.environ.get("STROMA_VLLM_PORT", "8000"))
 API_KEY       = os.environ.get("STROMA_API_KEY", "")
 POLL_S        = int(os.environ.get("STROMA_WATCHER_POLL_INTERVAL", "30"))
 IDLE_TIMEOUT  = int(os.environ.get("STROMA_MODEL_IDLE_TIMEOUT", "300"))
+ERROR_COOLDOWN = int(os.environ.get("STROMA_MODEL_ERROR_COOLDOWN", "120"))
 HTTP_PORT     = int(os.environ.get("STROMA_WATCHER_PORT", "9100"))
 INSTALL_DIR   = os.environ.get("STROMA_INSTALL_DIR", "/opt/stroma-ai")
 STATE_FILE    = os.environ.get("STROMA_MODEL_STATE_FILE",
@@ -406,6 +408,8 @@ class ModelWatcher:
         State machine tick for an on-demand model::
 
             available → requested → provisioning → serving → draining → available
+                                                                ↑
+            error  ─── (auto-recovery after cooldown) ──────────┘
         """
         ms = self._get_model_state(entry)
         changed = False
@@ -421,6 +425,9 @@ class ModelWatcher:
 
         elif ms.status == "draining":
             changed = self._drain_model(entry, ms)
+
+        elif ms.status == "error":
+            changed = self._recover_error(entry, ms)
 
         if changed:
             self._save_model_state(ms)
@@ -544,6 +551,70 @@ class ModelWatcher:
         log.info("Model %s drained — returned to available", entry.model_id)
         return True
 
+    def _recover_error(self, entry: ModelEntry, ms: ModelState) -> bool:
+        """Auto-recover from error after a cooldown period.
+
+        Uses ``last_request_at`` as the error timestamp (set when the model
+        was originally requested).  After ``ERROR_COOLDOWN`` seconds the
+        model is reset to available so users can retry without operator
+        intervention.
+        """
+        if ms.last_request_at and _seconds_since(ms.last_request_at) < ERROR_COOLDOWN:
+            return False
+
+        # Clean up any leaked resources
+        for jid in ms.slurm_job_ids:
+            self.mgr.cancel_worker(jid)
+        ms.slurm_job_ids = []
+        self.registry.release_port(entry.model_id)
+
+        old_error = ms.error_message
+        ms.status = "available"
+        ms.vllm_port = None
+        ms.idle_since = None
+        ms.error_message = ""
+        self.registry.update_status(entry.model_id, ModelStatus.AVAILABLE)
+        log.info(
+            "Model %s auto-recovered from error (%s) after %ds cooldown",
+            entry.model_id, old_error, ERROR_COOLDOWN,
+        )
+        return True
+
+    def reset_model(self, model_id: str) -> tuple[bool, str]:
+        """Manually reset a model from error state back to available.
+
+        Called by the HTTP API ``/reset-model/{model_id}`` endpoint.
+        Returns (success, message).
+        """
+        entry = self.registry.get_model(model_id)
+        if entry is None:
+            return False, f"Unknown model: {model_id}"
+
+        ms = self._get_model_state(entry)
+
+        if ms.status == "available":
+            return True, "Model is already available"
+
+        if ms.status == "serving":
+            return False, "Model is currently serving — use drain instead"
+
+        # Cancel any Slurm jobs and release the port
+        for jid in ms.slurm_job_ids:
+            self.mgr.cancel_worker(jid)
+        ms.slurm_job_ids = []
+        self.registry.release_port(model_id)
+
+        old_status = ms.status
+        ms.status = "available"
+        ms.vllm_port = None
+        ms.idle_since = None
+        ms.error_message = ""
+        self._save_model_state(ms)
+        self.registry.update_status(model_id, ModelStatus.AVAILABLE)
+        persist(self.state)
+        log.info("Model %s manually reset from %s → available", model_id, old_status)
+        return True, f"Model reset from {old_status} to available"
+
     # ----- Persistent model burst scaling -----
     # (simplified version of vllm_watcher.py logic)
 
@@ -654,8 +725,16 @@ def create_http_app(watcher: ModelWatcher) -> web.Application:
             "total_drained": watcher.state.total_drained,
         })
 
+    async def handle_reset_model(request: web.Request) -> web.Response:
+        model_id = request.match_info["model_id"]
+        success, message = watcher.reset_model(model_id)
+        status_code = 200 if success else 404
+        return web.json_response({"success": success, "message": message},
+                                 status=status_code)
+
     app = web.Application()
     app.router.add_post("/request-model/{model_id}", handle_request_model)
+    app.router.add_post("/reset-model/{model_id}", handle_reset_model)
     app.router.add_get("/status", handle_status)
     return app
 
