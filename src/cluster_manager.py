@@ -399,6 +399,8 @@ class ClusterManager:
                     continue
 
                 gres_type = gres_parts[1]
+                # Extract per-node GPU count: "gpu:a30-2g.12gb:2" → 2
+                gpn = int(gres_parts[2]) if len(gres_parts) >= 3 else 1
                 vram = self._parse_gres_vram_mb(gres_type)
                 if vram is None:
                     continue
@@ -407,6 +409,7 @@ class ClusterManager:
                     gpu_info[gres_type] = {
                         "gres_type": gres_type,
                         "vram_mb": vram,
+                        "gpus_per_node": gpn,
                         "idle_nodes": 0,
                         "total_nodes": 0,
                     }
@@ -420,7 +423,11 @@ class ClusterManager:
             log.info(
                 "GPU types in partition %s: %s",
                 self.partition,
-                ", ".join(f"{t['gres_type']}({t['vram_mb']}MB, {t['idle_nodes']}/{t['total_nodes']} idle)" for t in types),
+                ", ".join(
+                    f"{t['gres_type']}({t['vram_mb']}MB, {t['gpus_per_node']}/node, "
+                    f"{t['idle_nodes']}/{t['total_nodes']} idle)"
+                    for t in types
+                ),
             )
         return types
 
@@ -428,7 +435,7 @@ class ClusterManager:
         self,
         vram_required_mb: int,
         gpu_count: int,
-    ) -> tuple[Optional[str], int]:
+    ) -> tuple[Optional[str], int, int, int]:
         """Select the best GPU type and compute node count for a model.
 
         Parameters
@@ -440,25 +447,30 @@ class ClusterManager:
 
         Returns
         -------
-        (gres_type, num_nodes) or (None, gpu_count) if discovery fails.
+        (gres_type, num_nodes, gpus_per_node, total_gpus)
+
         ``gres_type`` is the Slurm GRES type string (e.g. "a30") to use
-        in ``--gres=gpu:TYPE:N``.  When discovery fails, falls back to
-        generic ``--gpus-per-node`` allocation.
+        in ``--gres=gpu:TYPE:N``, or None if discovery fails.
+        ``gpus_per_node`` is the number of GPUs per node for the selected
+        type (e.g. 2 for MIG).  ``total_gpus`` is the actual
+        tensor-parallel size to use.
         """
+        fallback_nodes = max(1, math.ceil(gpu_count / self.gpus_per_node))
         types = self.query_gpu_types()
         if not types:
             log.warning("No GPU types discovered — falling back to generic allocation")
-            num_nodes = max(1, math.ceil(gpu_count / self.gpus_per_node))
-            return None, num_nodes
+            return None, fallback_nodes, self.gpus_per_node, gpu_count
 
         per_gpu_vram = vram_required_mb / gpu_count if gpu_count > 0 else vram_required_mb
 
-        # Filter to GPU types with enough VRAM per GPU
+        # Filter to GPU types where each GPU has enough VRAM for the
+        # model's per-shard requirement
         suitable = [t for t in types if t["vram_mb"] >= per_gpu_vram]
         if not suitable:
-            # No single GPU type has enough VRAM — try the biggest available
-            # and increase GPU count to compensate
+            # No single GPU type has enough VRAM per shard — use more of
+            # the biggest available GPU and increase TP to compensate.
             biggest = types[0]
+            gpn = biggest["gpus_per_node"]
             adjusted_gpu_count = math.ceil(vram_required_mb / biggest["vram_mb"])
             # TP must be power-of-two
             tp = 1
@@ -466,40 +478,46 @@ class ClusterManager:
                 tp *= 2
             adjusted_gpu_count = tp
 
-            if biggest["idle_nodes"] >= adjusted_gpu_count:
+            nodes_needed = max(1, math.ceil(adjusted_gpu_count / gpn))
+            total = nodes_needed * gpn
+            if biggest["idle_nodes"] >= nodes_needed:
                 log.info(
-                    "No GPU with %dMB VRAM; using %d× %s (%dMB each)",
-                    int(per_gpu_vram), adjusted_gpu_count,
+                    "No GPU with %dMB VRAM; using %d× %s (%dMB each, %d/node, %d nodes)",
+                    int(per_gpu_vram), total,
                     biggest["gres_type"], biggest["vram_mb"],
+                    gpn, nodes_needed,
                 )
-                gpus_per_gres_node = int(biggest.get("total_nodes", 1) and 1)  # assume 1 per node
-                num_nodes = max(1, math.ceil(adjusted_gpu_count / self.gpus_per_node))
-                return biggest["gres_type"], num_nodes
+                return biggest["gres_type"], nodes_needed, gpn, total
             log.warning("Insufficient GPU resources for %dMB VRAM model", vram_required_mb)
-            return None, max(1, math.ceil(gpu_count / self.gpus_per_node))
+            return None, fallback_nodes, self.gpus_per_node, gpu_count
 
         # Prefer the smallest suitable GPU type with enough idle nodes
         # (don't waste big GPUs on models that fit smaller ones)
         suitable.sort(key=lambda t: t["vram_mb"])
 
         for candidate in suitable:
-            nodes_needed = max(1, math.ceil(gpu_count / self.gpus_per_node))
+            gpn = candidate["gpus_per_node"]
+            nodes_needed = max(1, math.ceil(gpu_count / gpn))
+            total = nodes_needed * gpn
             if candidate["idle_nodes"] >= nodes_needed:
                 log.info(
-                    "Selected GPU type %s (%dMB) for model needing %dMB/GPU, %d node(s)",
-                    candidate["gres_type"], candidate["vram_mb"],
-                    int(per_gpu_vram), nodes_needed,
+                    "Selected GPU type %s (%dMB, %d/node) for model needing %dMB/GPU, "
+                    "%d node(s), TP=%d",
+                    candidate["gres_type"], candidate["vram_mb"], gpn,
+                    int(per_gpu_vram), nodes_needed, total,
                 )
-                return candidate["gres_type"], nodes_needed
+                return candidate["gres_type"], nodes_needed, gpn, total
 
         # No type has enough idle nodes — use the biggest with most availability
         best = max(suitable, key=lambda t: t["idle_nodes"])
-        nodes_needed = max(1, math.ceil(gpu_count / self.gpus_per_node))
+        gpn = best["gpus_per_node"]
+        nodes_needed = max(1, math.ceil(gpu_count / gpn))
+        total = nodes_needed * gpn
         log.warning(
             "Not enough idle %s nodes (%d/%d needed) — submitting anyway (Slurm will queue)",
             best["gres_type"], best["idle_nodes"], nodes_needed,
         )
-        return best["gres_type"], nodes_needed
+        return best["gres_type"], nodes_needed, gpn, total
 
     def submit_model_worker(
         self,
@@ -558,11 +576,13 @@ class ClusterManager:
         # pick nodes with sufficient VRAM.  Falls back to generic
         # --gpus-per-node when discovery is unavailable.
         gres_type = None
+        actual_gpus_per_node = self.gpus_per_node
+        total_gpus = gpu_count
         num_nodes = max(1, math.ceil(gpu_count / self.gpus_per_node))
         if vram_required_mb > 0:
             try:
-                gres_type, num_nodes = self.select_gpu_for_model(
-                    vram_required_mb, gpu_count,
+                gres_type, num_nodes, actual_gpus_per_node, total_gpus = (
+                    self.select_gpu_for_model(vram_required_mb, gpu_count)
                 )
             except Exception as exc:
                 log.warning(
@@ -573,9 +593,9 @@ class ClusterManager:
         # Build GPU allocation args — specific type when available,
         # generic count otherwise.
         if gres_type:
-            gpu_args = [f"--gres=gpu:{gres_type}:{self.gpus_per_node}"]
+            gpu_args = [f"--gres=gpu:{gres_type}:{actual_gpus_per_node}"]
         else:
-            gpu_args = [f"--gpus-per-node={self.gpus_per_node}"]
+            gpu_args = [f"--gpus-per-node={actual_gpus_per_node}"]
 
         # Build per-model export variables
         export_vars = (
@@ -589,7 +609,7 @@ class ClusterManager:
             f",MODEL_ID={model_id}"
             f",MODEL_PATH={model_path}"
             f",VLLM_PORT={vllm_port}"
-            f",TENSOR_PARALLEL_SIZE={gpu_count}"
+            f",TENSOR_PARALLEL_SIZE={total_gpus}"
             f",NUM_NODES={num_nodes}"
         )
         if quantization:
@@ -640,9 +660,10 @@ class ClusterManager:
 
         job_id = match.group(1)
         log.info(
-            "Submitted model worker: model=%s job=%s port=%d gpus=%d nodes=%d gres=%s",
-            model_id, job_id, vllm_port, gpu_count, num_nodes,
-            gres_type or "generic",
+            "Submitted model worker: model=%s job=%s port=%d gpus=%d "
+            "nodes=%d gpus_per_node=%d gres=%s",
+            model_id, job_id, vllm_port, total_gpus, num_nodes,
+            actual_gpus_per_node, gres_type or "generic",
         )
         return SubmitResult(success=True, job_id=job_id)
 
