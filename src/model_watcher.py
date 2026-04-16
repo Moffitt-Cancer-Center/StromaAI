@@ -94,6 +94,7 @@ STATE_FILE    = os.environ.get("STROMA_MODEL_STATE_FILE",
 # Persistent model burst-scaling (re-used from vllm_watcher)
 MAX_BURST     = int(os.environ.get("STROMA_MAX_BURST_WORKERS", "5"))
 UP_THRESHOLD  = int(os.environ.get("STROMA_SCALE_UP_THRESHOLD", "2"))
+RUN_THRESHOLD = int(os.environ.get("STROMA_SCALE_UP_RUNNING_THRESHOLD", "8"))
 DOWN_IDLE_S   = int(os.environ.get("STROMA_SCALE_DOWN_IDLE_SECONDS", "300"))
 UP_COOLDOWN   = int(os.environ.get("STROMA_SCALE_UP_COOLDOWN", "300"))
 SLURM_SCRIPT  = os.environ.get("STROMA_SLURM_SCRIPT",
@@ -643,9 +644,20 @@ class ModelWatcher:
 
         n_burst = len(burst)
 
-        # Scale-up: queue is deep
+        log.debug(
+            "Persistent tick: waiting=%d running=%d burst=%d/%d",
+            waiting, running, n_burst, MAX_BURST,
+        )
+
+        # Scale-up: queue is deep OR continuous batching is saturated.
+        # vLLM's continuous batching absorbs requests into "running" —
+        # "waiting" only grows once KV cache is full.  A high running
+        # count means each request is sharing GPU time and getting slow.
+        needs_scale = (
+            waiting >= UP_THRESHOLD or running >= RUN_THRESHOLD
+        )
         if (
-            waiting >= UP_THRESHOLD
+            needs_scale
             and n_burst < MAX_BURST
             and _seconds_since(ms.last_scale_up) >= UP_COOLDOWN
         ):
