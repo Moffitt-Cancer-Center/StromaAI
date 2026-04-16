@@ -123,6 +123,10 @@ class ClusterManager:
     # Number of logical GPUs advertised to Ray (must match GRES count above).
     gpus_per_node:  int = 1
 
+    # Slurm constraint (--constraint value) to target specific node features.
+    # E.g. "a30_full" to exclude MIG-partitioned nodes.
+    constraint:     str = field(default="")
+
     # Tuning
     vllm_kv_threads: int = 32
 
@@ -167,6 +171,7 @@ class ClusterManager:
             gpu_flag        = os.environ.get("STROMA_CONTAINER_GPU_FLAG", "--nv"),
             gres            = os.environ.get("STROMA_SLURM_GRES", ""),
             gpus_per_node   = int(os.environ.get("STROMA_GPUS_PER_NODE", "1")),
+            constraint      = os.environ.get("STROMA_SLURM_CONSTRAINT", ""),
             vllm_kv_threads = int(os.environ.get("STROMA_VLLM_CPU_KV_THREADS", "32")),
         )
         return instance
@@ -273,6 +278,8 @@ class ClusterManager:
             ),
             self.slurm_script,
         ]
+        if self.constraint:
+            cmd.insert(-1, f"--constraint={self.constraint}")
 
         try:
             result = subprocess.run(
@@ -481,15 +488,18 @@ class ClusterManager:
             adjusted_gpu_count = tp
 
             nodes_needed = max(1, math.ceil(adjusted_gpu_count / gpn))
-            total = nodes_needed * gpn
+            # Request only the GPUs we need, not all GPUs on the node.
+            # E.g. if MIG gives 3 slices/node but TP=2, request 2 not 3.
+            actual_gpn = min(gpn, adjusted_gpu_count) if nodes_needed == 1 else gpn
+            total = adjusted_gpu_count  # TP size, not nodes × gpn
             if biggest["idle_nodes"] >= nodes_needed:
                 log.info(
                     "No GPU with %dMB VRAM; using %d× %s (%dMB each, %d/node, %d nodes)",
                     int(per_gpu_vram), total,
                     biggest["gres_type"], biggest["vram_mb"],
-                    gpn, nodes_needed,
+                    actual_gpn, nodes_needed,
                 )
-                return biggest["gres_type"], nodes_needed, gpn, total
+                return biggest["gres_type"], nodes_needed, actual_gpn, total
             log.warning("Insufficient GPU resources for %dMB VRAM model", vram_required_mb)
             return None, fallback_nodes, self.gpus_per_node, gpu_count
 
@@ -500,26 +510,29 @@ class ClusterManager:
         for candidate in suitable:
             gpn = candidate["gpus_per_node"]
             nodes_needed = max(1, math.ceil(gpu_count / gpn))
-            total = nodes_needed * gpn
+            # Don't over-allocate: request only what the model needs.
+            actual_gpn = min(gpn, gpu_count) if nodes_needed == 1 else gpn
+            total = gpu_count
             if candidate["idle_nodes"] >= nodes_needed:
                 log.info(
                     "Selected GPU type %s (%dMB, %d/node) for model needing %dMB/GPU, "
                     "%d node(s), TP=%d",
-                    candidate["gres_type"], candidate["vram_mb"], gpn,
+                    candidate["gres_type"], candidate["vram_mb"], actual_gpn,
                     int(per_gpu_vram), nodes_needed, total,
                 )
-                return candidate["gres_type"], nodes_needed, gpn, total
+                return candidate["gres_type"], nodes_needed, actual_gpn, total
 
         # No type has enough idle nodes — use the biggest with most availability
         best = max(suitable, key=lambda t: t["idle_nodes"])
         gpn = best["gpus_per_node"]
         nodes_needed = max(1, math.ceil(gpu_count / gpn))
-        total = nodes_needed * gpn
+        actual_gpn = min(gpn, gpu_count) if nodes_needed == 1 else gpn
+        total = gpu_count
         log.warning(
             "Not enough idle %s nodes (%d/%d needed) — submitting anyway (Slurm will queue)",
             best["gres_type"], best["idle_nodes"], nodes_needed,
         )
-        return best["gres_type"], nodes_needed, gpn, total
+        return best["gres_type"], nodes_needed, actual_gpn, total
 
     def submit_model_worker(
         self,
@@ -635,6 +648,8 @@ class ClusterManager:
             f"--export={export_vars}",
             slurm_script,
         ]
+        if self.constraint:
+            cmd.insert(-1, f"--constraint={self.constraint}")
 
         try:
             result = subprocess.run(
