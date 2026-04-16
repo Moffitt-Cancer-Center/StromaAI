@@ -711,6 +711,17 @@ def create_http_app(watcher: ModelWatcher) -> web.Application:
     async def handle_status(request: web.Request) -> web.Response:
         models_status = {}
         for entry in watcher.registry.list_models():
+            if entry.tier == ModelTier.PERSISTENT:
+                # Persistent models are always serving on the main vLLM port
+                models_status[entry.model_id] = {
+                    "status": "serving",
+                    "tier": entry.tier.value,
+                    "vllm_port": VLLM_PORT,
+                    "slurm_jobs": [],
+                    "idle_since": None,
+                    "error_message": "",
+                }
+                continue
             ms = watcher._get_model_state(entry)
             models_status[entry.model_id] = {
                 "status": ms.status,

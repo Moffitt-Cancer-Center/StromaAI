@@ -399,6 +399,10 @@ async def _sync_watcher_status() -> None:
                 entry = _registry.get_model(model_id)
                 if entry is None:
                     continue
+                # Never override the persistent model — the gateway manages
+                # its status directly (always SERVING on the main vLLM port).
+                if entry.tier == ModelTier.PERSISTENT:
+                    continue
                 # Only update if the status actually changed
                 if entry.status != new_status or entry.vllm_port != info.get("vllm_port"):
                     kwargs: dict[str, object] = {}
