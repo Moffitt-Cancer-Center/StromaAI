@@ -151,6 +151,11 @@ _jwks_cache = _JWKSCache()
 
 _registry = ModelRegistry()
 
+# Burst-replica backend URLs for persistent model round-robin.
+# Updated by _sync_watcher_status(); read by the proxy.
+#   model_id → list of healthy backend base URLs (e.g. "http://host:port")
+_burst_backends: dict[str, list[str]] = {}
+
 # ---------------------------------------------------------------------------
 # Lifespan — warm the JWKS cache and scan models before accepting requests
 # ---------------------------------------------------------------------------
@@ -399,9 +404,22 @@ async def _sync_watcher_status() -> None:
                 entry = _registry.get_model(model_id)
                 if entry is None:
                     continue
-                # Never override the persistent model — the gateway manages
-                # its status directly (always SERVING on the main vLLM port).
+                # For persistent models, update burst-replica endpoints
+                # so the proxy can round-robin across head + replicas.
                 if entry.tier == ModelTier.PERSISTENT:
+                    replicas = info.get("burst_replicas", [])
+                    healthy_urls = []
+                    for r in replicas:
+                        if r.get("state") == "healthy" and r.get("host"):
+                            healthy_urls.append(
+                                f"http://{r['host']}:{r.get('port', 8000)}"
+                            )
+                    _burst_backends[model_id] = healthy_urls
+                    if healthy_urls:
+                        log.debug(
+                            "Watcher sync: %s has %d healthy burst replica(s)",
+                            model_id, len(healthy_urls),
+                        )
                     continue
                 # Only update if the status actually changed
                 if entry.status != new_status or entry.vllm_port != info.get("vllm_port"):
@@ -497,6 +515,17 @@ async def proxy_to_vllm(
 
             if entry.status == ModelStatus.SERVING and entry.vllm_port:
                 backend_base = _backend_url_for_port(entry.vllm_port)
+                # Round-robin across burst replicas for persistent models.
+                # The gateway distributes requests randomly across the head
+                # node's vLLM instance and any healthy burst replicas so
+                # load is shared instead of piling onto one GPU.
+                if entry.tier == ModelTier.PERSISTENT:
+                    replicas = _burst_backends.get(entry.model_id, [])
+                    if replicas:
+                        import random
+                        backend_base = random.choice(
+                            [backend_base] + replicas
+                        )
             elif entry.status in (ModelStatus.AVAILABLE, ModelStatus.REQUESTED):
                 # Signal the watcher every time — covers first request and
                 # retries where the previous signal was lost.  The watcher

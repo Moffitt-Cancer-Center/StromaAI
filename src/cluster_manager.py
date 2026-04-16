@@ -716,6 +716,29 @@ class ClusterManager:
 
         return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
+    def get_worker_node(self, job_id: str) -> Optional[str]:
+        """Return the hostname of the first node running a Slurm job.
+
+        Returns None if the job is not running or squeue fails.
+        """
+        try:
+            result = subprocess.run(
+                ["squeue", "-j", job_id, "-h", "-o", "%N"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+        except (subprocess.SubprocessError, FileNotFoundError):
+            return None
+
+        raw = result.stdout.strip()
+        if not raw:
+            return None
+        # squeue %N may return a nodelist like "node[01-02]"; take first token
+        # For single-node jobs it's just the hostname.
+        return raw.split(",")[0].split("[")[0] if raw else None
+
     def cancel_worker(self, job_id: str) -> bool:
         """
         Cancel a Slurm job via scancel.

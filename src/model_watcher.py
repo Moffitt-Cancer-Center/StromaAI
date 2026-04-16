@@ -619,10 +619,23 @@ class ModelWatcher:
         return True, f"Model reset from {old_status} to available"
 
     # ----- Persistent model burst scaling -----
-    # (simplified version of vllm_watcher.py logic)
+    # (data-parallel burst scaling — submits vLLM replicas, not raw Ray workers)
 
     def _tick_persistent(self, entry: ModelEntry) -> bool:
-        """Burst-scale the persistent model based on queue depth."""
+        """Burst-scale the persistent model with data-parallel vLLM replicas.
+
+        Instead of launching generic Ray workers (which sit idle when vLLM
+        uses TP=1), this submits full vLLM model-worker jobs via Slurm.
+        Each burst replica runs an independent vLLM instance on a separate
+        node.  The gateway round-robins requests across the head node's
+        instance and all healthy burst replicas.
+
+        Burst job states::
+
+            pending → running → healthy
+              │         │          │
+              └─────────┴──────────┴── (Slurm job ends) → removed
+        """
         ms = self._get_model_state(entry)
         changed = False
 
@@ -633,7 +646,7 @@ class ModelWatcher:
         waiting = int(metrics.get("vllm:num_requests_waiting", 0))
         running = int(metrics.get("vllm:num_requests_running", 0))
 
-        # Reconcile burst jobs against Slurm
+        # Reconcile burst jobs against Slurm and update host/health
         burst = ms.burst_jobs
         if burst:
             active = self.mgr.get_active_worker_ids(list(burst.keys()))
@@ -642,6 +655,44 @@ class ModelWatcher:
                 log.info("Persistent burst job %s gone — removing", jid)
                 del burst[jid]
                 changed = True
+
+            # Advance burst replica lifecycle: pending → running → healthy
+            for jid, info in burst.items():
+                state = info.get("state", "pending")
+
+                if state == "pending":
+                    # Discover the hostname once Slurm assigns a node
+                    host = self.mgr.get_worker_node(jid)
+                    if host:
+                        info["host"] = host
+                        info["state"] = "running"
+                        changed = True
+                        log.info(
+                            "Burst replica %s running on %s:%d",
+                            jid, host, info.get("port", VLLM_PORT),
+                        )
+
+                elif state == "running" and info.get("host"):
+                    # Check if vLLM is ready on the burst node
+                    port = info.get("port", VLLM_PORT)
+                    if vllm_healthy(port=port, host=info["host"]):
+                        info["state"] = "healthy"
+                        changed = True
+                        log.info(
+                            "Burst replica %s healthy at %s:%d",
+                            jid, info["host"], port,
+                        )
+
+                elif state == "healthy" and info.get("host"):
+                    # Periodic health check — demote if vLLM is down
+                    port = info.get("port", VLLM_PORT)
+                    if not vllm_healthy(port=port, host=info["host"]):
+                        info["state"] = "running"
+                        changed = True
+                        log.warning(
+                            "Burst replica %s at %s:%d lost health",
+                            jid, info["host"], port,
+                        )
 
         n_burst = len(burst)
 
@@ -663,9 +714,14 @@ class ModelWatcher:
             and _seconds_since(ms.last_scale_up) >= UP_COOLDOWN
         ):
             ms.burst_idle_since = None
-            jid = slurm_submit(self.mgr)
+            jid = slurm_submit_model(self.mgr, entry, VLLM_PORT)
             if jid:
-                burst[jid] = {"state": "pending", "submitted_at": _iso()}
+                burst[jid] = {
+                    "state": "pending",
+                    "submitted_at": _iso(),
+                    "port": VLLM_PORT,
+                    "host": None,
+                }
                 ms.last_scale_up = _iso()
                 changed = True
                 log.info("Persistent scale-up: job %s (%d/%d)", jid, n_burst + 1, MAX_BURST)
@@ -725,7 +781,18 @@ def create_http_app(watcher: ModelWatcher) -> web.Application:
         models_status = {}
         for entry in watcher.registry.list_models():
             if entry.tier == ModelTier.PERSISTENT:
-                # Persistent models are always serving on the main vLLM port
+                # Persistent models are always serving on the main vLLM port.
+                # Include burst replica endpoints so the gateway can
+                # round-robin across head + replicas.
+                ms = watcher._get_model_state(entry)
+                burst_replicas = []
+                for jid, info in ms.burst_jobs.items():
+                    burst_replicas.append({
+                        "job_id": jid,
+                        "host": info.get("host"),
+                        "port": info.get("port", VLLM_PORT),
+                        "state": info.get("state", "pending"),
+                    })
                 models_status[entry.model_id] = {
                     "status": "serving",
                     "tier": entry.tier.value,
@@ -733,6 +800,7 @@ def create_http_app(watcher: ModelWatcher) -> web.Application:
                     "slurm_jobs": [],
                     "idle_since": None,
                     "error_message": "",
+                    "burst_replicas": burst_replicas,
                 }
                 continue
             ms = watcher._get_model_state(entry)
