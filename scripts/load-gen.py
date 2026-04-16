@@ -21,26 +21,19 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import ssl
 import sys
 import time
 import threading
+import urllib.request
+import urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# ---------------------------------------------------------------------------
-# Allow running without any third-party packages (stdlib only)
-# ---------------------------------------------------------------------------
-try:
-    import requests
-except ImportError:
-    print("ERROR: 'requests' is required.  pip install requests", file=sys.stderr)
-    sys.exit(1)
 
 
 def _build_payload(model: str, max_tokens: int, think: bool) -> dict:
     """Build a chat-completion payload designed to generate many tokens."""
-    # The prompt asks for an exhaustive, verbose answer to maximize generation
-    # time and keep the GPU busy long enough for queued requests to pile up.
     prompt = (
         "Write an extremely detailed, step-by-step technical tutorial on "
         "building a distributed GPU inference platform for large language "
@@ -55,11 +48,18 @@ def _build_payload(model: str, max_tokens: int, think: bool) -> dict:
         "temperature": 0.7,
         "stream": False,
     }
-    # Disable thinking/reasoning to avoid the model spending tokens on
-    # chain-of-thought rather than generating output tokens.
     if not think:
         payload["chat_template_kwargs"] = {"enable_thinking": False}
     return payload
+
+
+def _make_ssl_ctx(verify: bool) -> ssl.SSLContext | None:
+    if verify:
+        return None  # use default
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 _lock = threading.Lock()
@@ -71,34 +71,31 @@ def _send_request(
     headers: dict,
     payload: dict,
     req_id: int,
-    verify_ssl: bool,
+    ssl_ctx: ssl.SSLContext | None,
 ) -> None:
     """Send a single blocking request and record stats."""
     with _lock:
         _stats["sent"] += 1
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     t0 = time.monotonic()
     try:
-        resp = requests.post(
-            url, json=payload, headers=headers,
-            timeout=600,  # 10 min — long generations
-            verify=verify_ssl,
-        )
-        elapsed = time.monotonic() - t0
-        if resp.status_code == 200:
-            data = resp.json()
-            usage = data.get("usage", {})
+        with urllib.request.urlopen(req, timeout=600, context=ssl_ctx) as resp:
+            body = json.loads(resp.read())
+            elapsed = time.monotonic() - t0
+            usage = body.get("usage", {})
             gen_tokens = usage.get("completion_tokens", 0)
             with _lock:
                 _stats["ok"] += 1
                 _stats["tokens"] += gen_tokens
             print(f"  [req {req_id:3d}] OK  {gen_tokens:5d} tokens  {elapsed:6.1f}s")
-        else:
-            with _lock:
-                _stats["err"] += 1
-            # Truncate error body for readability
-            body = resp.text[:200]
-            print(f"  [req {req_id:3d}] ERR {resp.status_code}  {elapsed:6.1f}s  {body}")
-    except requests.RequestException as exc:
+    except urllib.error.HTTPError as exc:
+        elapsed = time.monotonic() - t0
+        err_body = exc.read().decode(errors="replace")[:200]
+        with _lock:
+            _stats["err"] += 1
+        print(f"  [req {req_id:3d}] ERR {exc.code}  {elapsed:6.1f}s  {err_body}")
+    except (urllib.error.URLError, OSError) as exc:
         elapsed = time.monotonic() - t0
         with _lock:
             _stats["err"] += 1
@@ -152,7 +149,7 @@ def main() -> None:
         print("ERROR: --token or STROMA_TOKEN is required", file=sys.stderr)
         sys.exit(1)
 
-    verify_ssl = not args.no_verify
+    ssl_ctx = _make_ssl_ctx(not args.no_verify)
     headers = {
         "Authorization": f"Bearer {args.token}",
         "Content-Type": "application/json",
@@ -163,17 +160,15 @@ def main() -> None:
     if not model:
         base_url = args.url.rsplit("/v1/", 1)[0]
         try:
-            r = requests.get(
-                f"{base_url}/v1/models",
-                headers=headers,
-                timeout=10,
-                verify=verify_ssl,
+            req = urllib.request.Request(
+                f"{base_url}/v1/models", headers=headers,
             )
-            if r.status_code == 200:
-                models = r.json().get("data", [])
+            with urllib.request.urlopen(req, timeout=10, context=ssl_ctx) as resp:
+                data = json.loads(resp.read())
+                models = data.get("data", [])
                 if models:
                     model = models[0]["id"]
-        except requests.RequestException:
+        except (urllib.error.URLError, OSError):
             pass
         if not model:
             print("ERROR: Could not auto-detect model. Use --model.", file=sys.stderr)
@@ -201,7 +196,7 @@ def main() -> None:
                 futures.append(
                     pool.submit(
                         _send_request,
-                        args.url, headers, payload, req_counter, verify_ssl,
+                        args.url, headers, payload, req_counter, ssl_ctx,
                     )
                 )
             # Wait for all requests in this round
