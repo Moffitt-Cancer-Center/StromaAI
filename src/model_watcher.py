@@ -87,7 +87,8 @@ POLL_S        = int(os.environ.get("STROMA_WATCHER_POLL_INTERVAL", "30"))
 IDLE_TIMEOUT  = int(os.environ.get("STROMA_MODEL_IDLE_TIMEOUT", "300"))
 ERROR_COOLDOWN = int(os.environ.get("STROMA_MODEL_ERROR_COOLDOWN", "120"))
 HTTP_PORT     = int(os.environ.get("STROMA_WATCHER_PORT", "9100"))
-INSTALL_DIR   = os.environ.get("STROMA_INSTALL_DIR", "/opt/stroma-ai")
+_SCRIPT_ROOT  = str(Path(__file__).resolve().parent.parent)
+INSTALL_DIR   = os.environ.get("STROMA_INSTALL_DIR", _SCRIPT_ROOT)
 STATE_FILE    = os.environ.get("STROMA_MODEL_STATE_FILE",
                                f"{INSTALL_DIR}/state/model_watcher_state.json")
 

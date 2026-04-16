@@ -71,7 +71,7 @@ except ImportError:
 # Paths
 # ---------------------------------------------------------------------------
 REPO_ROOT   = Path(__file__).parent.parent.resolve()
-INSTALL_DIR = Path(os.environ.get("STROMA_INSTALL_DIR", "/opt/stroma-ai"))
+INSTALL_DIR = Path(os.environ.get("STROMA_INSTALL_DIR", str(REPO_ROOT)))
 # CONFIG_ENV resolves relative to INSTALL_DIR so a single STROMA_INSTALL_DIR
 # env var is enough to relocate the entire platform.
 CONFIG_ENV  = Path(os.environ.get("STROMA_CONFIG_ENV", str(INSTALL_DIR / "config.env")))

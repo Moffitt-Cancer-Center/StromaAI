@@ -40,6 +40,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import ClassVar, Optional
 
 log = logging.getLogger("stroma-ai.cluster-manager")
@@ -135,7 +136,8 @@ class ClusterManager:
         Create a ClusterManager from standard StromaAI environment variables.
         Raises RuntimeError if required variables are missing.
         """
-        install_dir = os.environ.get("STROMA_INSTALL_DIR", "/opt/stroma-ai")
+        _default_root = str(Path(__file__).resolve().parent.parent)
+        install_dir = os.environ.get("STROMA_INSTALL_DIR", _default_root)
 
         # HPC clusters often install Slurm under a non-standard prefix that
         # isn't on systemd's default PATH.  If STROMA_SLURM_BIN_DIR is set,
