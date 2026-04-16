@@ -159,6 +159,13 @@ if [[ "${TENSOR_PARALLEL_SIZE}" -gt 1 ]]; then
     VLLM_ARGS+=(--distributed-executor-backend ray)
 fi
 
+# Append operator-defined extra vLLM flags (e.g. --cpu-offload-gb 200).
+# Set STROMA_VLLM_EXTRA_ARGS in config.env to mirror the head node's flags.
+if [[ -n "${STROMA_VLLM_EXTRA_ARGS:-}" ]]; then
+    # shellcheck disable=SC2206
+    VLLM_ARGS+=(${STROMA_VLLM_EXTRA_ARGS})
+fi
+
 # ---------------------------------------------------------------------------
 # Multi-node: join allocated nodes to the existing Ray cluster
 # ---------------------------------------------------------------------------

@@ -129,6 +129,8 @@ class ClusterManager:
 
     # Tuning
     vllm_kv_threads: int = 32
+    # Extra vLLM CLI flags forwarded to burst model workers.
+    vllm_extra_args: str = field(default="")
 
     # ---------------------------------------------------------------------------
     # Factory
@@ -173,6 +175,7 @@ class ClusterManager:
             gpus_per_node   = int(os.environ.get("STROMA_GPUS_PER_NODE", "1")),
             constraint      = os.environ.get("STROMA_SLURM_CONSTRAINT", ""),
             vllm_kv_threads = int(os.environ.get("STROMA_VLLM_CPU_KV_THREADS", "32")),
+            vllm_extra_args = os.environ.get("STROMA_VLLM_EXTRA_ARGS", ""),
         )
         return instance
 
@@ -631,6 +634,8 @@ class ClusterManager:
             export_vars += f",QUANTIZATION={quantization}"
         if max_model_len > 0:
             export_vars += f",MAX_MODEL_LEN={max_model_len}"
+        if self.vllm_extra_args:
+            export_vars += f",STROMA_VLLM_EXTRA_ARGS={self.vllm_extra_args}"
 
         cmd = [
             "sbatch",
