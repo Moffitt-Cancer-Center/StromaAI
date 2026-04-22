@@ -1,0 +1,34 @@
+[Unit]
+Description=StromaAI — Monitor Agent (Infrastructure Metrics Collector)
+Documentation=https://github.com/Moffitt-Cancer-Center/StromaAI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stromaai
+Group=stromaai
+WorkingDirectory=/opt/stroma-ai
+
+# Sources all STROMA_* environment variables.
+EnvironmentFile=/opt/stroma-ai/config.env
+
+ExecStart=/opt/stroma-ai/venv/bin/python3 /opt/stroma-ai/src/monitor_agent.py
+
+Restart=always
+RestartSec=10s
+TimeoutStartSec=15s
+TimeoutStopSec=10s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=stroma-ai-monitor-agent
+
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target
